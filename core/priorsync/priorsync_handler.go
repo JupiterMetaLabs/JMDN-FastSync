@@ -8,6 +8,8 @@ import (
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/router"
 
+	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/pbstream"
+	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/priorsync"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
@@ -55,7 +57,7 @@ func (ps *PriorSync) HandlePriorSync(node host.Host) error {
 	ps.mu.Lock()
 
 	datarouter := router.NewDatarouter()
-	
+
 	// If called twice, stop the old one first
 	if ps.cancel != nil {
 		ps.cancel()
@@ -87,13 +89,13 @@ func (ps *PriorSync) HandlePriorSync(node host.Host) error {
 			return
 		}
 
-		// TODO: validate req (see step 2)
+		// Route to Datarouter for state-based processing
+		resp := datarouter.HandlePriorSync(req)
 
-		// Optional: send ack/response
+		// Send acknowledgment
 		_ = s.SetWriteDeadline(time.Now().Add(10 * time.Second))
 		defer s.SetWriteDeadline(time.Time{})
 
-		resp := &priorsyncpb.PriorSyncAck{Ok: true} // define this in proto
 		_ = pbstream.WriteDelimited(s, resp)
 	})
 

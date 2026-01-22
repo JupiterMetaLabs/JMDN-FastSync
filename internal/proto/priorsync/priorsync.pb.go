@@ -7,6 +7,7 @@
 package priorsync
 
 import (
+	ack "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/ack"
 	nodeinfo "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/nodeinfo"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
@@ -158,11 +159,63 @@ func (x *Metadata) GetNodeinfo() *nodeinfo.NodeInfo {
 	return nil
 }
 
+type PriorSyncMessage struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Priorsync     *PriorSync             `protobuf:"bytes,1,opt,name=priorsync,proto3" json:"priorsync,omitempty"`
+	Ack           *ack.PriorSyncAck      `protobuf:"bytes,2,opt,name=ack,proto3" json:"ack,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PriorSyncMessage) Reset() {
+	*x = PriorSyncMessage{}
+	mi := &file_priorsync_priorsync_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PriorSyncMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PriorSyncMessage) ProtoMessage() {}
+
+func (x *PriorSyncMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_priorsync_priorsync_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PriorSyncMessage.ProtoReflect.Descriptor instead.
+func (*PriorSyncMessage) Descriptor() ([]byte, []int) {
+	return file_priorsync_priorsync_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *PriorSyncMessage) GetPriorsync() *PriorSync {
+	if x != nil {
+		return x.Priorsync
+	}
+	return nil
+}
+
+func (x *PriorSyncMessage) GetAck() *ack.PriorSyncAck {
+	if x != nil {
+		return x.Ack
+	}
+	return nil
+}
+
 var File_priorsync_priorsync_proto protoreflect.FileDescriptor
 
 const file_priorsync_priorsync_proto_rawDesc = "" +
 	"\n" +
-	"\x19priorsync/priorsync.proto\x12\tpriorsync\x1a\x17nodeinfo/nodeinfo.proto\"\x9a\x01\n" +
+	"\x19priorsync/priorsync.proto\x12\tpriorsync\x1a\x17nodeinfo/nodeinfo.proto\x1a\rack/ack.proto\"\x9a\x01\n" +
 	"\tPriorSync\x12 \n" +
 	"\vblocknumber\x18\x01 \x01(\x04R\vblocknumber\x12\x1c\n" +
 	"\tstateroot\x18\x02 \x01(\fR\tstateroot\x12\x1c\n" +
@@ -172,7 +225,10 @@ const file_priorsync_priorsync_proto_rawDesc = "" +
 	"\bchecksum\x18\x01 \x01(\fR\bchecksum\x12\x14\n" +
 	"\x05state\x18\x02 \x01(\tR\x05state\x12\x18\n" +
 	"\aversion\x18\x03 \x01(\rR\aversion\x12.\n" +
-	"\bnodeinfo\x18\x04 \x01(\v2\x12.nodeinfo.NodeInfoR\bnodeinfoBCZAgithub.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/priorsyncb\x06proto3"
+	"\bnodeinfo\x18\x04 \x01(\v2\x12.nodeinfo.NodeInfoR\bnodeinfo\"k\n" +
+	"\x10PriorSyncMessage\x122\n" +
+	"\tpriorsync\x18\x01 \x01(\v2\x14.priorsync.PriorSyncR\tpriorsync\x12#\n" +
+	"\x03ack\x18\x02 \x01(\v2\x11.ack.PriorSyncAckR\x03ackBCZAgithub.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/priorsyncb\x06proto3"
 
 var (
 	file_priorsync_priorsync_proto_rawDescOnce sync.Once
@@ -186,20 +242,24 @@ func file_priorsync_priorsync_proto_rawDescGZIP() []byte {
 	return file_priorsync_priorsync_proto_rawDescData
 }
 
-var file_priorsync_priorsync_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_priorsync_priorsync_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
 var file_priorsync_priorsync_proto_goTypes = []any{
 	(*PriorSync)(nil),         // 0: priorsync.PriorSync
 	(*Metadata)(nil),          // 1: priorsync.Metadata
-	(*nodeinfo.NodeInfo)(nil), // 2: nodeinfo.NodeInfo
+	(*PriorSyncMessage)(nil),  // 2: priorsync.PriorSyncMessage
+	(*nodeinfo.NodeInfo)(nil), // 3: nodeinfo.NodeInfo
+	(*ack.PriorSyncAck)(nil),  // 4: ack.PriorSyncAck
 }
 var file_priorsync_priorsync_proto_depIdxs = []int32{
 	1, // 0: priorsync.PriorSync.metadata:type_name -> priorsync.Metadata
-	2, // 1: priorsync.Metadata.nodeinfo:type_name -> nodeinfo.NodeInfo
-	2, // [2:2] is the sub-list for method output_type
-	2, // [2:2] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	3, // 1: priorsync.Metadata.nodeinfo:type_name -> nodeinfo.NodeInfo
+	0, // 2: priorsync.PriorSyncMessage.priorsync:type_name -> priorsync.PriorSync
+	4, // 3: priorsync.PriorSyncMessage.ack:type_name -> ack.PriorSyncAck
+	4, // [4:4] is the sub-list for method output_type
+	4, // [4:4] is the sub-list for method input_type
+	4, // [4:4] is the sub-list for extension type_name
+	4, // [4:4] is the sub-list for extension extendee
+	0, // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_priorsync_priorsync_proto_init() }
@@ -213,7 +273,7 @@ func file_priorsync_priorsync_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_priorsync_priorsync_proto_rawDesc), len(file_priorsync_priorsync_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   2,
+			NumMessages:   3,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

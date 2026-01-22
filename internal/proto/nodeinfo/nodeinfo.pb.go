@@ -2,7 +2,7 @@
 // versions:
 // 	protoc-gen-go v1.36.9
 // 	protoc        v6.32.0
-// source: nodeinfo/nodeinfo.proto
+// source: internal/proto/nodeinfo/nodeinfo.proto
 
 package nodeinfo
 
@@ -35,7 +35,7 @@ type NodeInfo struct {
 
 func (x *NodeInfo) Reset() {
 	*x = NodeInfo{}
-	mi := &file_nodeinfo_nodeinfo_proto_msgTypes[0]
+	mi := &file_internal_proto_nodeinfo_nodeinfo_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -47,7 +47,7 @@ func (x *NodeInfo) String() string {
 func (*NodeInfo) ProtoMessage() {}
 
 func (x *NodeInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_nodeinfo_nodeinfo_proto_msgTypes[0]
+	mi := &file_internal_proto_nodeinfo_nodeinfo_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -60,7 +60,7 @@ func (x *NodeInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use NodeInfo.ProtoReflect.Descriptor instead.
 func (*NodeInfo) Descriptor() ([]byte, []int) {
-	return file_nodeinfo_nodeinfo_proto_rawDescGZIP(), []int{0}
+	return file_internal_proto_nodeinfo_nodeinfo_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *NodeInfo) GetPeerId() []byte {
@@ -105,11 +105,11 @@ func (x *NodeInfo) GetProtocol() string {
 	return ""
 }
 
-var File_nodeinfo_nodeinfo_proto protoreflect.FileDescriptor
+var File_internal_proto_nodeinfo_nodeinfo_proto protoreflect.FileDescriptor
 
-const file_nodeinfo_nodeinfo_proto_rawDesc = "" +
+const file_internal_proto_nodeinfo_nodeinfo_proto_rawDesc = "" +
 	"\n" +
-	"\x17nodeinfo/nodeinfo.proto\x12\bnodeinfo\"\xbc\x01\n" +
+	"&internal/proto/nodeinfo/nodeinfo.proto\x12\bnodeinfo\"\xbc\x01\n" +
 	"\bNodeInfo\x12\x17\n" +
 	"\apeer_id\x18\x01 \x01(\fR\x06peerId\x12\x1e\n" +
 	"\n" +
@@ -122,22 +122,22 @@ const file_nodeinfo_nodeinfo_proto_rawDesc = "" +
 	"\bprotocol\x18\x06 \x01(\tR\bprotocolBBZ@github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/nodeinfob\x06proto3"
 
 var (
-	file_nodeinfo_nodeinfo_proto_rawDescOnce sync.Once
-	file_nodeinfo_nodeinfo_proto_rawDescData []byte
+	file_internal_proto_nodeinfo_nodeinfo_proto_rawDescOnce sync.Once
+	file_internal_proto_nodeinfo_nodeinfo_proto_rawDescData []byte
 )
 
-func file_nodeinfo_nodeinfo_proto_rawDescGZIP() []byte {
-	file_nodeinfo_nodeinfo_proto_rawDescOnce.Do(func() {
-		file_nodeinfo_nodeinfo_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_nodeinfo_nodeinfo_proto_rawDesc), len(file_nodeinfo_nodeinfo_proto_rawDesc)))
+func file_internal_proto_nodeinfo_nodeinfo_proto_rawDescGZIP() []byte {
+	file_internal_proto_nodeinfo_nodeinfo_proto_rawDescOnce.Do(func() {
+		file_internal_proto_nodeinfo_nodeinfo_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_internal_proto_nodeinfo_nodeinfo_proto_rawDesc), len(file_internal_proto_nodeinfo_nodeinfo_proto_rawDesc)))
 	})
-	return file_nodeinfo_nodeinfo_proto_rawDescData
+	return file_internal_proto_nodeinfo_nodeinfo_proto_rawDescData
 }
 
-var file_nodeinfo_nodeinfo_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
-var file_nodeinfo_nodeinfo_proto_goTypes = []any{
+var file_internal_proto_nodeinfo_nodeinfo_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
+var file_internal_proto_nodeinfo_nodeinfo_proto_goTypes = []any{
 	(*NodeInfo)(nil), // 0: nodeinfo.NodeInfo
 }
-var file_nodeinfo_nodeinfo_proto_depIdxs = []int32{
+var file_internal_proto_nodeinfo_nodeinfo_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for method output_type
 	0, // [0:0] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name
@@ -145,26 +145,26 @@ var file_nodeinfo_nodeinfo_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for field type_name
 }
 
-func init() { file_nodeinfo_nodeinfo_proto_init() }
-func file_nodeinfo_nodeinfo_proto_init() {
-	if File_nodeinfo_nodeinfo_proto != nil {
+func init() { file_internal_proto_nodeinfo_nodeinfo_proto_init() }
+func file_internal_proto_nodeinfo_nodeinfo_proto_init() {
+	if File_internal_proto_nodeinfo_nodeinfo_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_nodeinfo_nodeinfo_proto_rawDesc), len(file_nodeinfo_nodeinfo_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_internal_proto_nodeinfo_nodeinfo_proto_rawDesc), len(file_internal_proto_nodeinfo_nodeinfo_proto_rawDesc)),
 			NumEnums:      0,
 			NumMessages:   1,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
-		GoTypes:           file_nodeinfo_nodeinfo_proto_goTypes,
-		DependencyIndexes: file_nodeinfo_nodeinfo_proto_depIdxs,
-		MessageInfos:      file_nodeinfo_nodeinfo_proto_msgTypes,
+		GoTypes:           file_internal_proto_nodeinfo_nodeinfo_proto_goTypes,
+		DependencyIndexes: file_internal_proto_nodeinfo_nodeinfo_proto_depIdxs,
+		MessageInfos:      file_internal_proto_nodeinfo_nodeinfo_proto_msgTypes,
 	}.Build()
-	File_nodeinfo_nodeinfo_proto = out.File
-	file_nodeinfo_nodeinfo_proto_goTypes = nil
-	file_nodeinfo_nodeinfo_proto_depIdxs = nil
+	File_internal_proto_nodeinfo_nodeinfo_proto = out.File
+	file_internal_proto_nodeinfo_nodeinfo_proto_goTypes = nil
+	file_internal_proto_nodeinfo_nodeinfo_proto_depIdxs = nil
 }

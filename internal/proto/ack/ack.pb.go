@@ -2,7 +2,7 @@
 // versions:
 // 	protoc-gen-go v1.36.9
 // 	protoc        v6.32.0
-// source: ack/ack.proto
+// source: internal/proto/ack/ack.proto
 
 package ack
 
@@ -32,7 +32,7 @@ type PriorSyncAck struct {
 
 func (x *PriorSyncAck) Reset() {
 	*x = PriorSyncAck{}
-	mi := &file_ack_ack_proto_msgTypes[0]
+	mi := &file_internal_proto_ack_ack_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -44,7 +44,7 @@ func (x *PriorSyncAck) String() string {
 func (*PriorSyncAck) ProtoMessage() {}
 
 func (x *PriorSyncAck) ProtoReflect() protoreflect.Message {
-	mi := &file_ack_ack_proto_msgTypes[0]
+	mi := &file_internal_proto_ack_ack_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -57,7 +57,7 @@ func (x *PriorSyncAck) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PriorSyncAck.ProtoReflect.Descriptor instead.
 func (*PriorSyncAck) Descriptor() ([]byte, []int) {
-	return file_ack_ack_proto_rawDescGZIP(), []int{0}
+	return file_internal_proto_ack_ack_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *PriorSyncAck) GetState() string {
@@ -81,33 +81,33 @@ func (x *PriorSyncAck) GetError() string {
 	return ""
 }
 
-var File_ack_ack_proto protoreflect.FileDescriptor
+var File_internal_proto_ack_ack_proto protoreflect.FileDescriptor
 
-const file_ack_ack_proto_rawDesc = "" +
+const file_internal_proto_ack_ack_proto_rawDesc = "" +
 	"\n" +
-	"\rack/ack.proto\x12\x03ack\"J\n" +
+	"\x1cinternal/proto/ack/ack.proto\x12\x03ack\"J\n" +
 	"\fPriorSyncAck\x12\x14\n" +
 	"\x05state\x18\x01 \x01(\tR\x05state\x12\x0e\n" +
 	"\x02ok\x18\x02 \x01(\bR\x02ok\x12\x14\n" +
 	"\x05error\x18\x03 \x01(\tR\x05errorB=Z;github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/ackb\x06proto3"
 
 var (
-	file_ack_ack_proto_rawDescOnce sync.Once
-	file_ack_ack_proto_rawDescData []byte
+	file_internal_proto_ack_ack_proto_rawDescOnce sync.Once
+	file_internal_proto_ack_ack_proto_rawDescData []byte
 )
 
-func file_ack_ack_proto_rawDescGZIP() []byte {
-	file_ack_ack_proto_rawDescOnce.Do(func() {
-		file_ack_ack_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_ack_ack_proto_rawDesc), len(file_ack_ack_proto_rawDesc)))
+func file_internal_proto_ack_ack_proto_rawDescGZIP() []byte {
+	file_internal_proto_ack_ack_proto_rawDescOnce.Do(func() {
+		file_internal_proto_ack_ack_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_internal_proto_ack_ack_proto_rawDesc), len(file_internal_proto_ack_ack_proto_rawDesc)))
 	})
-	return file_ack_ack_proto_rawDescData
+	return file_internal_proto_ack_ack_proto_rawDescData
 }
 
-var file_ack_ack_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
-var file_ack_ack_proto_goTypes = []any{
+var file_internal_proto_ack_ack_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
+var file_internal_proto_ack_ack_proto_goTypes = []any{
 	(*PriorSyncAck)(nil), // 0: ack.PriorSyncAck
 }
-var file_ack_ack_proto_depIdxs = []int32{
+var file_internal_proto_ack_ack_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for method output_type
 	0, // [0:0] is the sub-list for method input_type
 	0, // [0:0] is the sub-list for extension type_name
@@ -115,26 +115,26 @@ var file_ack_ack_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for field type_name
 }
 
-func init() { file_ack_ack_proto_init() }
-func file_ack_ack_proto_init() {
-	if File_ack_ack_proto != nil {
+func init() { file_internal_proto_ack_ack_proto_init() }
+func file_internal_proto_ack_ack_proto_init() {
+	if File_internal_proto_ack_ack_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_ack_ack_proto_rawDesc), len(file_ack_ack_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_internal_proto_ack_ack_proto_rawDesc), len(file_internal_proto_ack_ack_proto_rawDesc)),
 			NumEnums:      0,
 			NumMessages:   1,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
-		GoTypes:           file_ack_ack_proto_goTypes,
-		DependencyIndexes: file_ack_ack_proto_depIdxs,
-		MessageInfos:      file_ack_ack_proto_msgTypes,
+		GoTypes:           file_internal_proto_ack_ack_proto_goTypes,
+		DependencyIndexes: file_internal_proto_ack_ack_proto_depIdxs,
+		MessageInfos:      file_internal_proto_ack_ack_proto_msgTypes,
 	}.Build()
-	File_ack_ack_proto = out.File
-	file_ack_ack_proto_goTypes = nil
-	file_ack_ack_proto_depIdxs = nil
+	File_internal_proto_ack_ack_proto = out.File
+	file_internal_proto_ack_ack_proto_goTypes = nil
+	file_internal_proto_ack_ack_proto_depIdxs = nil
 }

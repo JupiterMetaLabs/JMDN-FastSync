@@ -1,11 +1,8 @@
 package router
 
 import (
-	"fmt"
-
-	"github.com/libp2p/go-libp2p/core/host"
-	"github.com/libp2p/go-libp2p/core/protocol"
-	"google.golang.org/protobuf/proto"
+	ackpb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/ack"
+	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/priorsync"
 )
 
 type Datarouter struct{}
@@ -14,7 +11,43 @@ func NewDatarouter() *Datarouter {
 	return &Datarouter{}
 }
 
-func (dr *Datarouter) HandleData(host host.Host, data proto.Message, protocol protocol.ID) error {
-	fmt.Println("Data received")
-	return nil
+func (router *Datarouter) HandlePriorSync(req *priorsyncpb.PriorSync) *priorsyncpb.PriorSyncMessage {
+	// Extract state from metadata
+	if req.Metadata == nil {
+		return &priorsyncpb.PriorSyncMessage{
+			Priorsync: req,
+			Ack: &ackpb.PriorSyncAck{
+				State: "UNKNOWN",
+				Ok:    false,
+				Error: "metadata is required",
+			},
+		}
+	}
+
+	state := req.Metadata.State
+
+	// Route based on state
+	switch state {
+	case "SYNC_REQUEST":
+		// TODO: Implement sync request logic
+		return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.PriorSyncAck{State: state, Ok: true, Error: ""}}
+
+	case "CHECKPOINT":
+		// TODO: Implement checkpoint logic
+		return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.PriorSyncAck{State: state, Ok: true, Error: ""}}
+
+	case "RECONCILE":
+		// TODO: Implement reconcile logic
+		return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.PriorSyncAck{State: state, Ok: true, Error: ""}}
+
+	default:
+		return &priorsyncpb.PriorSyncMessage{
+			Priorsync: req,
+			Ack: &ackpb.PriorSyncAck{
+				State: state,
+				Ok:    false,
+				Error: "unknown state: " + state,
+			},
+		}
+	}
 }
