@@ -3,6 +3,7 @@ syntax = "proto3";
 package priorsync;
 
 option go_package = "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/priorsync";
+import "nodeinfo/nodeinfo.proto";
 
 message PriorSync {
     uint64 blocknumber = 1;
@@ -14,5 +15,6 @@ message PriorSync {
 message Metadata {
     bytes checksum = 1;
     string state = 2;
-    uint16 version = 3;
+    uint32 version = 3;
+    nodeinfo.NodeInfo nodeinfo = 4;
 }

@@ -2,10 +2,11 @@ package protocol
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"sync"
 	"time"
+
+	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/router"
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types"
 	"github.com/libp2p/go-libp2p/core/host"
@@ -52,6 +53,9 @@ func (ps *PriorSync) HandlePriorSync(node host.Host) error {
 	ctx, cancel := context.WithCancel(ps.SyncVars.Ctx)
 
 	ps.mu.Lock()
+
+	datarouter := router.NewDatarouter()
+	
 	// If called twice, stop the old one first
 	if ps.cancel != nil {
 		ps.cancel()
@@ -68,23 +72,29 @@ func (ps *PriorSync) HandlePriorSync(node host.Host) error {
 	node.SetStreamHandler(protoID, func(s network.Stream) {
 		defer s.Close()
 
-		// If shutting down, refuse work quickly
+		// refuse work if shutting down
 		select {
 		case <-ctx.Done():
 			return
 		default:
 		}
 
-		// Prevent stuck reads
 		_ = s.SetReadDeadline(time.Now().Add(10 * time.Second))
 		defer s.SetReadDeadline(time.Time{})
 
-		var req types.PriorSync
-		if err := json.NewDecoder(s).Decode(&req); err != nil {
+		req := &priorsyncpb.PriorSync{}
+		if err := pbstream.ReadDelimited(s, req); err != nil {
 			return
 		}
 
-		// TODO: validate + respond
+		// TODO: validate req (see step 2)
+
+		// Optional: send ack/response
+		_ = s.SetWriteDeadline(time.Now().Add(10 * time.Second))
+		defer s.SetWriteDeadline(time.Time{})
+
+		resp := &priorsyncpb.PriorSyncAck{Ok: true} // define this in proto
+		_ = pbstream.WriteDelimited(s, resp)
 	})
 
 	// Block until parent or Close() cancels

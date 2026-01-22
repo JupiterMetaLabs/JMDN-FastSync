@@ -1,44 +1,68 @@
 package protocol
 
 import (
-  "context"
-  "encoding/json"
-  "time"
+	"context"
+	"fmt"
+	"time"
 
-  "github.com/libp2p/go-libp2p/core/host"
-  "github.com/libp2p/go-libp2p/core/peer"
-  "github.com/libp2p/go-libp2p/core/protocol"
+	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/core/protocol"
+	"google.golang.org/protobuf/proto"
+
+	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/pbstream"
 )
 
-func SendMsg(ctx context.Context, h host.Host, to peer.AddrInfo, pid protocol.ID, m Msg) error {
-  // Ensure we know how to reach the peer
-  h.Peerstore().AddAddrs(to.ID, to.Addrs, time.Minute)
+// SendProto sends a protobuf message over a libp2p stream.
+// If resp is non-nil, it will read a protobuf response into it.
+func SendProto(
+	ctx context.Context,
+	h host.Host,
+	to peer.AddrInfo,
+	pid protocol.ID,
+	req proto.Message,
+	resp proto.Message,
+) error {
+	if ctx == nil {
+		return fmt.Errorf("ctx is nil")
+	}
+	if h == nil {
+		return fmt.Errorf("host is nil")
+	}
+	if req == nil {
+		return fmt.Errorf("req is nil")
+	}
 
-  // Connect (optional if already connected, but safe)
-  if err := h.Connect(ctx, to); err != nil {
-    return err
-  }
+	// Ensure we know peer addresses
+	h.Peerstore().AddAddrs(to.ID, to.Addrs, time.Minute)
 
-  // Open stream for protocol
-  s, err := h.NewStream(ctx, to.ID, pid)
-  if err != nil {
-    return err
-  }
-  defer s.Close()
+	// Connect (safe even if already connected)
+	if err := h.Connect(ctx, to); err != nil {
+		return fmt.Errorf("connect: %w", err)
+	}
 
-  _ = s.SetWriteDeadline(time.Now().Add(10 * time.Second))
-  if err := json.NewEncoder(s).Encode(&m); err != nil {
-    return err
-  }
-  _ = s.SetWriteDeadline(time.Time{})
+	// Open stream
+	s, err := h.NewStream(ctx, to.ID, pid)
+	if err != nil {
+		return fmt.Errorf("new stream: %w", err)
+	}
+	defer s.Close()
 
-  // Optional: read reply
-  _ = s.SetReadDeadline(time.Now().Add(10 * time.Second))
-  var resp Msg
-  if err := json.NewDecoder(s).Decode(&resp); err == nil {
-    // use resp
-  }
-  _ = s.SetReadDeadline(time.Time{})
+	// Write request with deadline
+	_ = s.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	if err := pbstream.WriteDelimited(s, req); err != nil {
+		return err
+	}
+	_ = s.SetWriteDeadline(time.Time{})
 
-  return nil
+	// Optional read reply
+	if resp != nil {
+		_ = s.SetReadDeadline(time.Now().Add(10 * time.Second))
+		if err := pbstream.ReadDelimited(s, resp); err != nil {
+			return err
+		}
+		_ = s.SetReadDeadline(time.Time{})
+	}
+
+	return nil
 }
