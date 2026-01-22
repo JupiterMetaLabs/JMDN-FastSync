@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package priorsync;
+
+option go_package = "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/priorsync";
+
+message PriorSync {
+    uint64 blocknumber = 1;
+    bytes stateroot = 2;
+    bytes blockhash = 3;
+    Metadata metadata = 4;
+}
+
+message Metadata {
+    bytes checksum = 1;
+    string state = 2;
+    uint16 version = 3;
+}

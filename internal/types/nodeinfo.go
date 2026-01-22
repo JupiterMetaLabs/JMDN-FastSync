@@ -3,6 +3,7 @@ package types
 import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
+	"github.com/libp2p/go-libp2p/core/protocol"
 )
 
 type Nodeinfo struct {
@@ -10,5 +11,6 @@ type Nodeinfo struct {
 	Multiaddr    []multiaddr.Multiaddr
 	Capabilities []string
 	PublicKey    []byte
-	Version      uint64
+	Version      uint16
+	Protocol     protocol.ID
 }
