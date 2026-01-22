@@ -6,7 +6,9 @@ import (
 	"sync"
 	"time"
 
+	coreprotocol "github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/router"
+	libp2p_peer "github.com/libp2p/go-libp2p/core/peer"
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/pbstream"
 	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/priorsync"
@@ -123,18 +125,45 @@ func (ps *PriorSync) SendPriorSync(
 	if ps.node == nil {
 		return errors.New("host is nil")
 	}
+	if ps.SyncVars == nil || ps.SyncVars.Ctx == nil {
+		return errors.New("sync vars ctx not set")
+	}
 
-	// TODO: implement:
-	// - resolve peer.ID from peer Nodeinfo (whatever field holds libp2p peer.ID)
-	// - open stream: node.NewStream(ctx, peerID, ps.SyncVars.ProtocolID)
-	// - encode+write data
-	// - read response/ack (optional)
-	// - close stream
+	// Convert types.PriorSync to protobuf PriorSync
+	req := &priorsyncpb.PriorSync{
+		Blocknumber: data.Blocknumber,
+		Stateroot:   data.Stateroot,
+		Blockhash:   data.Blockhash,
+		Metadata: &priorsyncpb.Metadata{
+			Checksum: data.Metadata.Checksum,
+			State:    data.Metadata.State,
+			Version:  uint32(data.Metadata.Version),
+		},
+	}
 
-	_ = peer
-	_ = data
+	// Prepare peer.AddrInfo from types.Nodeinfo
+	peerInfo := libp2p_peer.AddrInfo{
+		ID:    peer.PeerID,
+		Addrs: peer.Multiaddr,
+	}
 
-	return errors.New("not implemented")
+	// Prepare response container
+	resp := &priorsyncpb.PriorSyncMessage{}
+
+	// Send using SendProto
+	if err := coreprotocol.SendProto(ps.SyncVars.Ctx, ps.node, peerInfo, ps.SyncVars.Protocol, req, resp); err != nil {
+		return errors.New("failed to send priorsync: " + err.Error())
+	}
+
+	// Check acknowledgment
+	if resp.Ack == nil {
+		return errors.New("no acknowledgment received")
+	}
+	if !resp.Ack.Ok {
+		return errors.New("sync failed: " + resp.Ack.Error)
+	}
+
+	return nil
 }
 
 func (ps *PriorSync) Close() {
