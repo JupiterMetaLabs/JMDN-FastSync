@@ -1,6 +1,8 @@
 package router
 
 import (
+	"fmt"
+
 	ackpb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/ack"
 	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/priorsync"
 )
@@ -29,14 +31,17 @@ func (router *Datarouter) HandlePriorSync(req *priorsyncpb.PriorSync) *priorsync
 	// Route based on state
 	switch state {
 	case "SYNC_REQUEST":
+		fmt.Println("Sync Request - LOG")
 		// TODO: Implement sync request logic
 		return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.PriorSyncAck{State: state, Ok: true, Error: ""}}
 
 	case "CHECKPOINT":
+		fmt.Println("Checkpoint - LOG")
 		// TODO: Implement checkpoint logic
 		return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.PriorSyncAck{State: state, Ok: true, Error: ""}}
 
 	case "RECONCILE":
+		fmt.Println("Reconcile - LOG")
 		// TODO: Implement reconcile logic
 		return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.PriorSyncAck{State: state, Ok: true, Error: ""}}
 

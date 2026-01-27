@@ -56,9 +56,9 @@ func (ps *PriorSync) HandlePriorSync(node host.Host) error {
 	// derive child from parent; child cannot outlive parent
 	ctx, cancel := context.WithCancel(ps.SyncVars.Ctx)
 
-	ps.mu.Lock()
-
 	datarouter := router.NewDatarouter()
+
+	ps.mu.Lock()
 
 	// If called twice, stop the old one first
 	if ps.cancel != nil {

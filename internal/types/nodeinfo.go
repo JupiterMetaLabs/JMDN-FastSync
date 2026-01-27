@@ -13,4 +13,10 @@ type Nodeinfo struct {
 	PublicKey    []byte
 	Version      uint16
 	Protocol     protocol.ID
+	BlockInfo    BlockInfo
+}
+
+type BlockInfo interface{
+	GetBlockNumber() uint64
+	GetBlockDetails() PriorSync
 }
