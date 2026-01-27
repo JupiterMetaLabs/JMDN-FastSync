@@ -6,6 +6,11 @@ import (
 	"github.com/libp2p/go-libp2p/core/protocol"
 )
 
+/*
+ - If version is not set, it will be default set to 1
+ V1: Supports only TCP connections.
+ V2: supports both TCP and QUIC connections. Prioritize QUIC connections, fallback to TCP if QUIC fails.
+*/
 type Nodeinfo struct {
 	PeerID       peer.ID
 	Multiaddr    []multiaddr.Multiaddr

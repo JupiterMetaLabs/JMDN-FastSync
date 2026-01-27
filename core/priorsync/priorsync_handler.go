@@ -6,10 +6,10 @@ import (
 	"sync"
 	"time"
 
-	coreprotocol "github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/router"
 	libp2p_peer "github.com/libp2p/go-libp2p/core/peer"
 
+	"github.com/JupiterMetaLabs/JMDN-FastSync/common/messaging"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/pbstream"
 	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/priorsync"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types"
@@ -31,6 +31,7 @@ func NewPriorSyncRouter() Priorsync_router {
 	return &PriorSync{
 		PriorSync: &types.PriorSync{},
 		SyncVars:  &types.Syncvars{},
+		mu:        sync.Mutex{},
 	}
 }
 
@@ -56,7 +57,7 @@ func (ps *PriorSync) HandlePriorSync(node host.Host) error {
 	// derive child from parent; child cannot outlive parent
 	ctx, cancel := context.WithCancel(ps.SyncVars.Ctx)
 
-	datarouter := router.NewDatarouter()
+	datarouter := router.NewDatarouter(&ps.SyncVars.NodeInfo)
 
 	ps.mu.Lock()
 
@@ -150,8 +151,16 @@ func (ps *PriorSync) SendPriorSync(
 	// Prepare response container
 	resp := &priorsyncpb.PriorSyncMessage{}
 
-	// Send using SendProto
-	if err := coreprotocol.SendProto(ps.SyncVars.Ctx, ps.node, peerInfo, ps.SyncVars.Protocol, req, resp); err != nil {
+	// Send using SendProtoDelimited with full peer info for transport selection
+	if err := messaging.SendProtoDelimited(
+		ps.SyncVars.Ctx,
+		ps.SyncVars.Version,
+		ps.node,
+		peerInfo, // Pass full AddrInfo for transport selection
+		ps.SyncVars.Protocol,
+		req,
+		resp,
+	); err != nil {
 		return nil, errors.New("failed to send priorsync: " + err.Error())
 	}
 

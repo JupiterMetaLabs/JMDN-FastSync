@@ -14,6 +14,9 @@ const (
 	VersionCRC32  uint16 = 1
 	VersionSHA256 uint16 = 2
 )
+func NewChecksum()(*Checksum){
+	return &Checksum{}
+}
 
 // Create returns the checksum bytes for the given version.
 // For CRC32 it returns 4 bytes (big-endian).

@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+
 	"github.com/JupiterMetaLabs/JMDN-FastSync/example"
 )
 
@@ -72,7 +73,7 @@ func main() {
 			}
 
 			var err error
-			node, err = example.StartListening(ctx, port)
+			node, err = example.StartListening(ctx, port, 2)
 			if err != nil {
 				fmt.Printf("Error starting listener: %v\n", err)
 				continue
