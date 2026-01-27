@@ -19,6 +19,17 @@ type Metadata struct {
 	Version  uint16
 }
 
+type PriorSyncAck struct {
+	State string
+	Ok    bool
+	Error string
+}
+
+type PriorSyncMessage struct {
+	Priorsync *PriorSync
+	Ack       *PriorSyncAck
+}
+
 type Syncvars struct {
 	Ctx      context.Context
 	Protocol protocol.ID

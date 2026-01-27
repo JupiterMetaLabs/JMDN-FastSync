@@ -6,8 +6,8 @@ import (
 
 	protocol "github.com/JupiterMetaLabs/JMDN-FastSync/core/priorsync"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types"
-		"github.com/libp2p/go-libp2p"	
-		"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p"
+	"github.com/libp2p/go-libp2p/core/host"
 	libp2pprotocol "github.com/libp2p/go-libp2p/core/protocol"
 )
 
@@ -22,8 +22,8 @@ type Node struct {
 
 // StartListening creates a new libp2p node and starts listening for PriorSync messages
 func StartListening(ctx context.Context, port string) (*Node, error) {
-	// Create libp2p host
-	listenAddr := fmt.Sprintf("/ip4/0.0.0.0/tcp/%s", port)
+	// Create libp2p host with QUIC transport
+	listenAddr := fmt.Sprintf("/ip4/0.0.0.0/udp/%s/quic-v1", port)
 	h, err := libp2p.New(
 		libp2p.ListenAddrStrings(listenAddr),
 	)

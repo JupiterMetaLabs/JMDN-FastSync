@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types/constants"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
 )
@@ -30,14 +31,14 @@ func SendMessage(ctx context.Context, node *Node, peerAddr string, state string)
 
 	fmt.Printf("Connected to peer: %s\n", peerInfo.ID)
 
-	// Create PriorSync data
+	// Create PriorSync data matching the structure in data_router.go
 	data := types.PriorSync{
-		Blocknumber: 12345,
+		Blocknumber: 100,
 		Stateroot:   []byte("example-state-root"),
 		Blockhash:   []byte("example-block-hash"),
 		Metadata: types.Metadata{
 			Checksum: []byte("example-checksum"),
-			State:    state,
+			State:    constants.SYNC_REQUEST,
 			Version:  1,
 		},
 	}
@@ -49,11 +50,30 @@ func SendMessage(ctx context.Context, node *Node, peerAddr string, state string)
 	}
 
 	// Send the message
-	fmt.Printf("Sending PriorSync message with state: %s\n", state)
-	if err := node.GetPriorSync().SendPriorSync(peerNodeInfo, data); err != nil {
+	fmt.Printf("Sending PriorSync message with state: %s\n", constants.SYNC_REQUEST)
+	resp, err := node.GetPriorSync().SendPriorSync(peerNodeInfo, data)
+	if err != nil {
 		return fmt.Errorf("failed to send priorsync: %w", err)
 	}
 
-	fmt.Println("✓ Message sent and acknowledged!")
+	// Display the response from the server
+	fmt.Println("\n✓ Message sent successfully!")
+	fmt.Println("=== Server Response ===")
+	if resp.Ack != nil {
+		fmt.Printf("ACK State: %s\n", resp.Ack.State)
+		fmt.Printf("ACK OK: %v\n", resp.Ack.Ok)
+		if resp.Ack.Error != "" {
+			fmt.Printf("ACK Error: %s\n", resp.Ack.Error)
+		}
+	}
+
+	if resp.Priorsync != nil {
+		fmt.Println("\n=== Response Data ===")
+		fmt.Printf("Block Number: %d\n", resp.Priorsync.Blocknumber)
+		fmt.Printf("State Root: %s\n", string(resp.Priorsync.Stateroot))
+		fmt.Printf("Block Hash: %s\n", string(resp.Priorsync.Blockhash))
+		fmt.Printf("Response State: %s\n", resp.Priorsync.Metadata.State)
+	}
+
 	return nil
 }

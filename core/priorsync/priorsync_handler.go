@@ -116,17 +116,17 @@ func (ps *PriorSync) HandlePriorSync(node host.Host) error {
 	return ctx.Err()
 }
 
-// SendPriorSync sends a PriorSync message to a peer.
-// Usually you’ll do node.NewStream(ctx, peerID, protoID) and write the payload.
+// SendPriorSync sends a PriorSync message to a peer and returns the response.
+// Usually you'll do node.NewStream(ctx, peerID, protoID) and write the payload.
 func (ps *PriorSync) SendPriorSync(
 	peer types.Nodeinfo,
 	data types.PriorSync,
-) error {
+) (*types.PriorSyncMessage, error) {
 	if ps.node == nil {
-		return errors.New("host is nil")
+		return nil, errors.New("host is nil")
 	}
 	if ps.SyncVars == nil || ps.SyncVars.Ctx == nil {
-		return errors.New("sync vars ctx not set")
+		return nil, errors.New("sync vars ctx not set")
 	}
 
 	// Convert types.PriorSync to protobuf PriorSync
@@ -152,18 +152,41 @@ func (ps *PriorSync) SendPriorSync(
 
 	// Send using SendProto
 	if err := coreprotocol.SendProto(ps.SyncVars.Ctx, ps.node, peerInfo, ps.SyncVars.Protocol, req, resp); err != nil {
-		return errors.New("failed to send priorsync: " + err.Error())
+		return nil, errors.New("failed to send priorsync: " + err.Error())
 	}
 
 	// Check acknowledgment
 	if resp.Ack == nil {
-		return errors.New("no acknowledgment received")
+		return nil, errors.New("no acknowledgment received")
 	}
 	if !resp.Ack.Ok {
-		return errors.New("sync failed: " + resp.Ack.Error)
+		return nil, errors.New("sync failed: " + resp.Ack.Error)
 	}
 
-	return nil
+	// Convert protobuf response to types.PriorSyncMessage
+	result := &types.PriorSyncMessage{
+		Ack: &types.PriorSyncAck{
+			State: resp.Ack.State,
+			Ok:    resp.Ack.Ok,
+			Error: resp.Ack.Error,
+		},
+	}
+
+	// Convert PriorSync if present
+	if resp.Priorsync != nil {
+		result.Priorsync = &types.PriorSync{
+			Blocknumber: resp.Priorsync.Blocknumber,
+			Stateroot:   resp.Priorsync.Stateroot,
+			Blockhash:   resp.Priorsync.Blockhash,
+			Metadata: types.Metadata{
+				Checksum: resp.Priorsync.Metadata.Checksum,
+				State:    resp.Priorsync.Metadata.State,
+				Version:  uint16(resp.Priorsync.Metadata.Version),
+			},
+		}
+	}
+
+	return result, nil
 }
 
 func (ps *PriorSync) Close() {

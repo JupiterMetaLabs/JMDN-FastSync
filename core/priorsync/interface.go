@@ -15,11 +15,9 @@ type Priorsync_router interface {
 	// HandlePriorSync processes an incoming PriorSync request from a peer
 	HandlePriorSync(node host.Host) error
 
-	// SendPriorSync sends a PriorSync request to a specific peer
-	SendPriorSync(peer types.Nodeinfo, data types.PriorSync) error
+	// SendPriorSync sends a PriorSync request to a specific peer and returns the response
+	SendPriorSync(peer types.Nodeinfo, data types.PriorSync) (*types.PriorSyncMessage, error)
 
 	// Close the connection
 	Close()
 }
-
-
