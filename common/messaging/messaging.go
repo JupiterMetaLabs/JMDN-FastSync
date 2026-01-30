@@ -196,18 +196,26 @@ func SendProtoDelimited(
 	}
 
 	// Attempt connection with primary transport
-	connectErr := host.Connect(ctx, targetPeer)
+	// Create a context with 15-second timeout for the connection attempt
+	// We do not retry here; if this fails, we return the error immediately with details.
+	connectCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	connectErr := host.Connect(connectCtx, targetPeer)
 
 	// V2: If primary (QUIC) failed and we have TCP fallback, try it
 	if connectErr != nil && version >= 2 && fallbackAddr != nil {
-		fmt.Printf("Primary transport failed, attempting TCP fallback...\n")
+		fmt.Printf("Primary transport failed (err=%v), attempting TCP fallback...\n", connectErr)
 		targetPeer.Addrs = []multiaddr.Multiaddr{fallbackAddr}
-		connectErr = host.Connect(ctx, targetPeer)
+		// Reset timeout for fallback attempt
+		fallbackCtx, fallbackCancel := context.WithTimeout(ctx, 15*time.Second)
+		defer fallbackCancel()
+		connectErr = host.Connect(fallbackCtx, targetPeer)
 		if connectErr != nil {
-			return fmt.Errorf("failed to connect (QUIC and TCP fallback): %w", connectErr)
+			return fmt.Errorf("failed to connect (QUIC and TCP fallback) to peer %s: %w", peerInfo.ID, connectErr)
 		}
 	} else if connectErr != nil {
-		return fmt.Errorf("failed to connect: %w", connectErr)
+		return fmt.Errorf("failed to connect to peer %s at %v: %w", peerInfo.ID, targetPeer.Addrs, connectErr)
 	}
 
 	// Create stream
