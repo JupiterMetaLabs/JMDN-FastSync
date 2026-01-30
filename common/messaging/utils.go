@@ -203,3 +203,16 @@ func SelectTransportAddrWithFallback(addrs []multiaddr.Multiaddr, version uint16
 
 	return nil, nil, fmt.Errorf("no suitable transport found (tried QUIC and TCP)")
 }
+
+// Convert string into multiaddress
+func StringToMultiaddr(addr []string) ([]multiaddr.Multiaddr, error) {
+	var addrs []multiaddr.Multiaddr
+	for _, a := range addr {
+		ma, err := multiaddr.NewMultiaddr(a)
+		if err != nil {
+			return nil, err
+		}
+		addrs = append(addrs, ma)
+	}
+	return addrs, nil
+}

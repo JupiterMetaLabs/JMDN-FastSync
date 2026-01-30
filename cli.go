@@ -94,9 +94,10 @@ func main() {
 				continue
 			}
 
-			state := parts[1]
+			sendAddrs := parts[1]
+			state := parts[2]
 
-			if err := example.SendMessage(ctx, node, state); err != nil {
+			if err := example.SendMessage(ctx, node, sendAddrs, state); err != nil {
 				fmt.Printf("Error sending message: %v\n", err)
 			} else {
 				fmt.Println("Message sent successfully!")

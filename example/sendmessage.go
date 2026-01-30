@@ -3,13 +3,13 @@ package example
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/messaging"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/checksum"
 	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/priorsync"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types"
 	"github.com/libp2p/go-libp2p/core/protocol"
-	"github.com/multiformats/go-multiaddr"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -30,7 +30,7 @@ const ProtocolID = "/priorsync/1.0.0"
 func SendPriorSyncMessage(
 	ctx context.Context,
 	node *Node,
-	peerAddrs []multiaddr.Multiaddr,
+	peerAddrs string,
 	data types.PriorSync,
 ) (*types.PriorSyncMessage, error) {
 	// Convert types.PriorSync to protobuf
@@ -45,8 +45,16 @@ func SendPriorSyncMessage(
 		},
 	}
 
+	// Split the string into multiple addresses
+	addrs := strings.Split(peerAddrs, ",")
+
+	maddrs, err := messaging.StringToMultiaddr(addrs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to convert string to multiaddr: %w", err)
+	}
+
 	// Parse peer address to get AddrInfo
-	peerInfo, err := messaging.ParseMultiaddrs(peerAddrs)
+	peerInfo, err := messaging.ParseMultiaddrs(maddrs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse peer address: %w", err)
 	}
@@ -122,7 +130,7 @@ func SendPriorSyncMessage(
 //
 // Returns:
 //   - Error if sending fails
-func SendMessage(ctx context.Context, node *Node, state string) error {
+func SendMessage(ctx context.Context, node *Node, peerAddrs string, state string) error {
 	// Prepare data for checksum calculation (protobuf format without metadata)
 	protoData := &priorsyncpb.PriorSync{
 		Blocknumber: 100,
@@ -156,7 +164,6 @@ func SendMessage(ctx context.Context, node *Node, state string) error {
 	}
 
 	fmt.Printf("Sending PriorSync message with state: %s\n", state)
-	peerAddrs := node.host.Addrs()
 	// Send the message
 	resp, err := SendPriorSyncMessage(ctx, node, peerAddrs, data)
 	if err != nil {
