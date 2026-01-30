@@ -9,6 +9,7 @@ import (
 	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/priorsync"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types"
 	"github.com/libp2p/go-libp2p/core/protocol"
+	"github.com/multiformats/go-multiaddr"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -29,7 +30,7 @@ const ProtocolID = "/priorsync/1.0.0"
 func SendPriorSyncMessage(
 	ctx context.Context,
 	node *Node,
-	peerAddr string,
+	peerAddrs []multiaddr.Multiaddr,
 	data types.PriorSync,
 ) (*types.PriorSyncMessage, error) {
 	// Convert types.PriorSync to protobuf
@@ -45,7 +46,7 @@ func SendPriorSyncMessage(
 	}
 
 	// Parse peer address to get AddrInfo
-	peerInfo, err := messaging.ParseMultiaddr(peerAddr)
+	peerInfo, err := messaging.ParseMultiaddrs(peerAddrs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse peer address: %w", err)
 	}
@@ -58,6 +59,10 @@ func SendPriorSyncMessage(
 	version := data.Metadata.Version
 	if version == 0 {
 		version = 1
+	}
+
+	if version > 2 || version < 1 {
+		return nil, fmt.Errorf("invalid version: %d", version)
 	}
 
 	if err := messaging.SendProtoDelimited(
@@ -112,12 +117,12 @@ func SendPriorSyncMessage(
 // Parameters:
 //   - ctx: Context for cancellation and timeout
 //   - node: The messaging node to send from
-//   - peerAddr: Multiaddr string of the peer
+//   - peerAddrs: List of Multiaddr strings of the peer
 //   - state: The state to send (e.g., constants.SYNC_REQUEST)
 //
 // Returns:
 //   - Error if sending fails
-func SendMessage(ctx context.Context, node *Node, peerAddr string, state string) error {
+func SendMessage(ctx context.Context, node *Node, state string) error {
 	// Prepare data for checksum calculation (protobuf format without metadata)
 	protoData := &priorsyncpb.PriorSync{
 		Blocknumber: 100,
@@ -151,9 +156,9 @@ func SendMessage(ctx context.Context, node *Node, peerAddr string, state string)
 	}
 
 	fmt.Printf("Sending PriorSync message with state: %s\n", state)
-
+	peerAddrs := node.host.Addrs()
 	// Send the message
-	resp, err := SendPriorSyncMessage(ctx, node, peerAddr, data)
+	resp, err := SendPriorSyncMessage(ctx, node, peerAddrs, data)
 	if err != nil {
 		return fmt.Errorf("failed to send priorsync: %w", err)
 	}
@@ -204,43 +209,5 @@ func SendRawBytes(
 		peerAddr,
 		protocol.ID(ProtocolID),
 		payload,
-	)
-}
-
-// SendCustomProto sends a custom protobuf message using the PriorSync protocol.
-// This demonstrates how to use the generic protobuf messaging for any proto.Message.
-//
-// Parameters:
-//   - ctx: Context for cancellation and timeout
-//   - node: The messaging node to send from
-//   - peerAddr: Multiaddr string of the peer
-//   - version: Protocol version (1 = TCP only, 2+ = QUIC with TCP fallback)
-//   - request: Protobuf message to send
-//   - response: Protobuf message to receive into
-//
-// Returns:
-//   - Error if sending fails
-func SendCustomProto(
-	ctx context.Context,
-	node *Node,
-	peerAddr string,
-	version uint16,
-	request proto.Message,
-	response proto.Message,
-) error {
-	// Parse peer address to get AddrInfo
-	peerInfo, err := messaging.ParseMultiaddr(peerAddr)
-	if err != nil {
-		return fmt.Errorf("failed to parse peer address: %w", err)
-	}
-
-	return messaging.SendProtoDelimited(
-		ctx,
-		version,
-		node.GetHost(),
-		peerInfo,
-		protocol.ID(ProtocolID),
-		request,
-		response,
 	)
 }

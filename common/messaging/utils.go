@@ -8,26 +8,50 @@ import (
 	"github.com/multiformats/go-multiaddr"
 )
 
-// ParseMultiaddr parses a multiaddr string and extracts peer information.
+// ParseMultiaddrs parses a list of multiaddr strings and extracts peer information.
 //
 // Parameters:
-//   - addr: Multiaddr string (e.g., "/ip4/127.0.0.1/udp/4001/quic-v1/p2p/QmPeerID")
+//   - addrs: List of Multiaddr strings (e.g., ["/ip4/127.0.0.1/udp/4001/quic-v1/p2p/QmPeerID", ...])
 //
 // Returns:
 //   - peer.AddrInfo containing peer ID and addresses
-//   - Error if parsing fails
-func ParseMultiaddr(addr string) (peer.AddrInfo, error) {
-	maddr, err := multiaddr.NewMultiaddr(addr)
-	if err != nil {
-		return peer.AddrInfo{}, fmt.Errorf("invalid multiaddr: %w", err)
+//   - Error if parsing fails or peer IDs mismatch
+func ParseMultiaddrs(addrs []multiaddr.Multiaddr) (peer.AddrInfo, error) {
+	if len(addrs) == 0 {
+		return peer.AddrInfo{}, fmt.Errorf("no addresses provided")
 	}
 
-	peerInfo, err := peer.AddrInfoFromP2pAddr(maddr)
-	if err != nil {
-		return peer.AddrInfo{}, fmt.Errorf("failed to extract peer info: %w", err)
+	var finalInfo peer.AddrInfo
+	first := true
+
+	for _, part := range addrs {
+		if part == nil {
+			continue
+		}
+
+		peerInfo, err := peer.AddrInfoFromP2pAddr(part)
+		if err != nil {
+			return peer.AddrInfo{}, fmt.Errorf("failed to extract peer info from '%s': %w", part, err)
+		}
+
+		if first {
+			finalInfo = *peerInfo
+			first = false
+		} else {
+			// Verify PeerID matches
+			if finalInfo.ID != peerInfo.ID {
+				return peer.AddrInfo{}, fmt.Errorf("peer ID mismatch: expected %s, got %s in address '%s'", finalInfo.ID, peerInfo.ID, part)
+			}
+			// Append addresses
+			finalInfo.Addrs = append(finalInfo.Addrs, peerInfo.Addrs...)
+		}
 	}
 
-	return *peerInfo, nil
+	if len(finalInfo.Addrs) == 0 {
+		return peer.AddrInfo{}, fmt.Errorf("no valid addresses found")
+	}
+
+	return finalInfo, nil
 }
 
 // FormatMultiaddr formats a peer ID and multiaddr into a full multiaddr string.

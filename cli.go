@@ -28,7 +28,7 @@ func main() {
 	fmt.Println("=== JMDN-FastSync Interactive CLI ===")
 	fmt.Println("Commands:")
 	fmt.Println("  listen <port>           - Start listening for PriorSync messages")
-	fmt.Println("  send <peer-addr> <msg>  - Send a PriorSync message to a peer")
+	fmt.Println("  send <msg>              - Send a PriorSync message to a peer")
 	fmt.Println("  status                  - Show current node status")
 	fmt.Println("  help                    - Show this help message")
 	fmt.Println("  quit                    - Exit the CLI")
@@ -94,10 +94,9 @@ func main() {
 				continue
 			}
 
-			peerAddr := parts[1]
-			state := parts[2]
+			state := parts[1]
 
-			if err := example.SendMessage(ctx, node, peerAddr, state); err != nil {
+			if err := example.SendMessage(ctx, node, state); err != nil {
 				fmt.Printf("Error sending message: %v\n", err)
 			} else {
 				fmt.Println("Message sent successfully!")

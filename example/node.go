@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/libp2p/go-libp2p"
@@ -40,10 +41,11 @@ func NewNode(ctx context.Context, port string) (*Node, error) {
 		return nil, errors.New("port is empty")
 	}
 
-	// Create libp2p host with QUIC transport
-	listenAddr := fmt.Sprintf("/ip4/0.0.0.0/udp/%s/quic-v1", port)
+	// Create libp2p host with QUIC transport AND TCP transport for fallback
+	listenAddrQUIC := fmt.Sprintf("/ip4/0.0.0.0/udp/%s/quic-v1", port)
+	listenAddrTCP := fmt.Sprintf("/ip4/0.0.0.0/tcp/%s", port)
 	h, err := libp2p.New(
-		libp2p.ListenAddrStrings(listenAddr),
+		libp2p.ListenAddrStrings(listenAddrQUIC, listenAddrTCP),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create libp2p host: %w", err)
@@ -62,9 +64,13 @@ func NewNode(ctx context.Context, port string) (*Node, error) {
 
 	fmt.Println("Example node started successfully!")
 	fmt.Printf("Listening on:\n")
+	var allAddrs []string
 	for _, addr := range h.Addrs() {
-		fmt.Printf("  %s/p2p/%s\n", addr, h.ID())
+		fullAddr := fmt.Sprintf("%s/p2p/%s", addr, h.ID())
+		fmt.Printf("  %s\n", fullAddr)
+		allAddrs = append(allAddrs, fullAddr)
 	}
+	fmt.Printf("\nFor CLI usage (copy this for multi-transport fallback):\n%s\n", strings.Join(allAddrs, ","))
 
 	return node, nil
 }
