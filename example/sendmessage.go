@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/messaging"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/checksum"
 	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/priorsync"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types"
 	"github.com/libp2p/go-libp2p/core/protocol"
@@ -117,15 +118,35 @@ func SendPriorSyncMessage(
 // Returns:
 //   - Error if sending fails
 func SendMessage(ctx context.Context, node *Node, peerAddr string, state string) error {
-	// Create example PriorSync data
-	data := types.PriorSync{
+	// Prepare data for checksum calculation (protobuf format without metadata)
+	protoData := &priorsyncpb.PriorSync{
 		Blocknumber: 100,
 		Stateroot:   []byte("example-state-root"),
 		Blockhash:   []byte("example-block-hash"),
+		Metadata:    nil, // Metadata is excluded from checksum
+	}
+
+	// Marshal to bytes
+	dataBytes, err := proto.Marshal(protoData)
+	if err != nil {
+		return fmt.Errorf("failed to marshal data for checksum: %w", err)
+	}
+
+	// Calculate checksum using SHA256 (Version 2)
+	cs, err := checksum.NewChecksum().Create(dataBytes, checksum.VersionSHA256)
+	if err != nil {
+		return fmt.Errorf("failed to calculate checksum: %w", err)
+	}
+
+	// Create example PriorSync data with valid checksum
+	data := types.PriorSync{
+		Blocknumber: protoData.Blocknumber,
+		Stateroot:   protoData.Stateroot,
+		Blockhash:   protoData.Blockhash,
 		Metadata: types.Metadata{
-			Checksum: []byte("example-checksum"),
+			Checksum: cs,
 			State:    state,
-			Version:  1,
+			Version:  2,
 		},
 	}
 
