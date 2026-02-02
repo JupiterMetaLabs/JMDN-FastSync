@@ -1,6 +1,7 @@
 package router
 
 import (
+	"bytes"
 	"fmt"
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/checksum/checksum_priorsync"
@@ -8,6 +9,7 @@ import (
 	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/priorsync"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types/constants"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types/errors"
 )
 
 type Datarouter struct {
@@ -26,7 +28,7 @@ func (router *Datarouter) HandlePriorSync(req *priorsyncpb.PriorSync) *priorsync
 			Ack: &ackpb.PriorSyncAck{
 				State: "UNKNOWN",
 				Ok:    false,
-				Error: "metadata is required",
+				Error: errors.MetadataRequired.Error(),
 			},
 		}
 	}
@@ -71,22 +73,30 @@ func (router *Datarouter) SYNC_REQUEST(req *priorsyncpb.PriorSync) *priorsyncpb.
 		return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.PriorSyncAck{State: constants.SYNC_REQUEST_RESPONSE, Ok: false, Error: err.Error()}}
 	}
 	if !verified {
-		return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.PriorSyncAck{State: constants.SYNC_REQUEST_RESPONSE, Ok: false, Error: "checksum mismatch"}}
+		return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.PriorSyncAck{State: constants.SYNC_REQUEST_RESPONSE, Ok: false, Error: errors.ChecksumMismatch.Error()}}
 	}
 
 	// 2. Load the latest block information from the node using the interface function.
 	blockInfo := router.Nodeinfo.BlockInfo
 	if blockInfo == nil {
-		return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.PriorSyncAck{State: constants.SYNC_REQUEST_RESPONSE, Ok: false, Error: "block info is nil"}}
+		return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.PriorSyncAck{State: constants.SYNC_REQUEST_RESPONSE, Ok: false, Error: errors.BlockInfoNil.Error()}}
 	}
-	_ = blockInfo.GetBlockNumber()  // TODO: Implement block comparison logic
-	_ = blockInfo.GetBlockDetails() // TODO: Implement block details processing
+	blockNumber := blockInfo.GetBlockNumber()   // TODO: Implement block comparison logic
+	blockDetails := blockInfo.GetBlockDetails() // TODO: Implement block details processing
+
+	fmt.Println("Block Details: ", blockDetails)
 
 	// 3. Check if the user block and your block are on the same level. if yes then return message already on same level.
 	// TODO: Implement block level comparison and sync logic
-	// if blockNumber == req.Blocknumber {
-	// 	return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.PriorSyncAck{State: constants.SYNC_REQUEST_RESPONSE, Ok: true, Error: "already on same level"}}
-	// }
+	if blockNumber == req.Blocknumber {
+		if !bytes.Equal(blockDetails.Stateroot, req.Stateroot) {
+			return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.PriorSyncAck{State: constants.SYNC_REQUEST_RESPONSE, Ok: false, Error: errors.SameBlockHeight_DifferentStateroot.Error()}}
+		} else if !bytes.Equal(blockDetails.Blockhash, req.Blockhash) {
+			return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.PriorSyncAck{State: constants.SYNC_REQUEST_RESPONSE, Ok: false, Error: errors.SameBlockHeight_DifferentBlockhash.Error()}}
+		} else {
+			return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.PriorSyncAck{State: constants.SYNC_REQUEST_RESPONSE, Ok: true, Error: errors.SameBlockHeight.Error()}}
+		}
+	}
 
 	// Temporary return - TODO: Implement full sync logic
 	return &priorsyncpb.PriorSyncMessage{

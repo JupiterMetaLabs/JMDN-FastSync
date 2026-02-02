@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	priorsync "github.com/JupiterMetaLabs/JMDN-FastSync/core/priorsync"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types"
 	"github.com/libp2p/go-libp2p/core/protocol"
 )
@@ -32,13 +33,22 @@ func StartListening(ctx context.Context, port string, version uint16) (*Node, er
 		Capabilities: []string{"priorsync"},
 		Version:      version,
 		Protocol:     protocol.ID(ProtocolID),
+		BlockInfo:    NewExampleBlockInfo(),
 	}
 
-	// Create PriorSync protocol handler
-	priorSyncHandler := NewPriorSyncHandler(&nodeInfo)
+	// Create PriorSync protocol handler from core
+	ps := priorsync.NewPriorSyncRouter()
+	ps.SetSyncVars(node.GetContext(), protocol.ID(ProtocolID), version, nodeInfo)
 
-	// Register PriorSync protocol
-	node.RegisterProtocol(protocol.ID(ProtocolID), priorSyncHandler)
+	// Start handling in background - core handler manages its own stream handler registration
+	go func() {
+		if err := ps.HandlePriorSync(node.GetHost()); err != nil {
+			// Context cancellation is normal during shutdown
+			if ctx.Err() == nil {
+				fmt.Printf("PriorSync handler error: %v\n", err)
+			}
+		}
+	}()
 
 	fmt.Printf("PriorSync protocol registered and listening on %s\n", ProtocolID)
 

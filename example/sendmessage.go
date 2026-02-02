@@ -132,15 +132,19 @@ func SendPriorSyncMessage(
 //   - Error if sending fails
 func SendMessage(ctx context.Context, node *Node, peerAddrs string, state string) error {
 	// Create example PriorSync data
-	data := types.PriorSync{
-		Blocknumber: 100,
-		Stateroot:   []byte("example-state-root"),
-		Blockhash:   []byte("example-block-hash"),
-		Metadata: types.Metadata{
-			State:   state,
-			Version: 2,
-		},
-	}
+	// data := types.PriorSync{
+	// 	Blocknumber: 100,
+	// 	Stateroot:   []byte("example-state-root"),
+	// 	Blockhash:   []byte("example-block-hash"),
+	// 	Metadata: types.Metadata{
+	// 		State:   state,
+	// 		Version: 2,
+	// 	},
+	// }
+
+	data := GetBlockDetailsDummy()
+	data.Metadata.State = state
+	data.Metadata.Version = 2
 
 	// Calculate checksum using PriorSyncChecksum
 	cs, err := checksum_priorsync.PriorSyncChecksum().Create(data, checksum.VersionSHA256)
