@@ -29,6 +29,7 @@ func (c *Checksum) Create(data types.PriorSync, version uint16) ([]byte, error) 
 		Blocknumber: data.Blocknumber,
 		Stateroot:   data.Stateroot,
 		Blockhash:   data.Blockhash,
+		Metadata:    &pb.Metadata{},
 	}
 	// No need to give the metadata for creating the checksum
 
@@ -47,10 +48,21 @@ func (c *Checksum) Verify(data types.PriorSync, version uint16, expected []byte)
 		Blocknumber: data.Blocknumber,
 		Stateroot:   data.Stateroot,
 		Blockhash:   data.Blockhash,
+		Metadata:    &pb.Metadata{},
 	}
 	dataBytes, err := proto.Marshal(pbData)
 	if err != nil {
 		return false, err
 	}
 	return checksum.NewChecksum().Verify(dataBytes, version, expected)
+}
+
+func (c *Checksum) VerifyfromPB(data *pb.PriorSync, version uint16, expected []byte) (bool, error) {
+	priorSyncData := types.PriorSync{
+		Blocknumber: data.Blocknumber,
+		Stateroot:   data.Stateroot,
+		Blockhash:   data.Blockhash,
+		Metadata:    types.Metadata{},
+	}
+	return c.Verify(priorSyncData, version, expected)
 }

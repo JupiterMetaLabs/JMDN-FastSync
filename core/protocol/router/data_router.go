@@ -3,12 +3,11 @@ package router
 import (
 	"fmt"
 
-	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/checksum"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/checksum/checksum_priorsync"
 	ackpb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/ack"
 	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/priorsync"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types/constants"
-	"google.golang.org/protobuf/proto"
 )
 
 type Datarouter struct {
@@ -67,24 +66,7 @@ func (router *Datarouter) SYNC_REQUEST(req *priorsyncpb.PriorSync) *priorsyncpb.
 		- Check if the user block and your block are on the same level. if yes then return message already on same level.
 		- If the s-blockheight < c-blockheight - proceed to phase 2 sync and state SYNC_DATA by returning SYNC_REQUEST_RESPONSE then client will proceed from its side.
 	*/
-
-	// make data from req by stripping the metadata from it
-	// Use the protobuf-generated type instead of custom types.PriorSync
-	data := &priorsyncpb.PriorSync{
-		Blocknumber: req.Blocknumber,
-		Blockhash:   req.Blockhash,
-		Stateroot:   req.Stateroot,
-		Metadata:    nil, // Explicitly exclude metadata for checksum verification
-	}
-
-	// convert struct to byte
-	databytes, err := proto.Marshal(data)
-	if err != nil {
-		return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.PriorSyncAck{State: constants.SYNC_REQUEST_RESPONSE, Ok: false, Error: err.Error()}}
-	}
-
-	// 1. Check if the checksum is valid or not
-	verified, err := checksum.NewChecksum().Verify(databytes, uint16(req.Metadata.Version), req.Metadata.Checksum)
+	verified, err := checksum_priorsync.PriorSyncChecksum().VerifyfromPB(req, uint16(req.Metadata.Version), req.Metadata.Checksum)
 	if err != nil {
 		return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.PriorSyncAck{State: constants.SYNC_REQUEST_RESPONSE, Ok: false, Error: err.Error()}}
 	}

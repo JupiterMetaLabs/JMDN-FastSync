@@ -7,10 +7,10 @@ import (
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/messaging"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/checksum"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/checksum/checksum_priorsync"
 	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/priorsync"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types"
 	"github.com/libp2p/go-libp2p/core/protocol"
-	"google.golang.org/protobuf/proto"
 )
 
 const ProtocolID = "/priorsync/1.0.0"
@@ -131,37 +131,23 @@ func SendPriorSyncMessage(
 // Returns:
 //   - Error if sending fails
 func SendMessage(ctx context.Context, node *Node, peerAddrs string, state string) error {
-	// Prepare data for checksum calculation (protobuf format without metadata)
-	protoData := &priorsyncpb.PriorSync{
+	// Create example PriorSync data
+	data := types.PriorSync{
 		Blocknumber: 100,
 		Stateroot:   []byte("example-state-root"),
 		Blockhash:   []byte("example-block-hash"),
-		Metadata:    nil, // Metadata is excluded from checksum
+		Metadata: types.Metadata{
+			State:   state,
+			Version: 2,
+		},
 	}
 
-	// Marshal to bytes
-	dataBytes, err := proto.Marshal(protoData)
-	if err != nil {
-		return fmt.Errorf("failed to marshal data for checksum: %w", err)
-	}
-
-	// Calculate checksum using SHA256 (Version 2)
-	cs, err := checksum.NewChecksum().Create(dataBytes, checksum.VersionSHA256)
+	// Calculate checksum using PriorSyncChecksum
+	cs, err := checksum_priorsync.PriorSyncChecksum().Create(data, checksum.VersionSHA256)
 	if err != nil {
 		return fmt.Errorf("failed to calculate checksum: %w", err)
 	}
-
-	// Create example PriorSync data with valid checksum
-	data := types.PriorSync{
-		Blocknumber: protoData.Blocknumber,
-		Stateroot:   protoData.Stateroot,
-		Blockhash:   protoData.Blockhash,
-		Metadata: types.Metadata{
-			Checksum: cs,
-			State:    state,
-			Version:  2,
-		},
-	}
+	data.Metadata.Checksum = cs
 
 	fmt.Printf("Sending PriorSync message with state: %s\n", state)
 	// Send the message
