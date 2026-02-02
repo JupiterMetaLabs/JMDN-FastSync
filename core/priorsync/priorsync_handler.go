@@ -93,7 +93,7 @@ func (ps *PriorSync) HandlePriorSync(node host.Host) error {
 		}
 
 		// Route to Datarouter for state-based processing
-		resp := datarouter.HandlePriorSync(req)
+		resp := datarouter.HandlePriorSync(ctx, req)
 
 		// Send acknowledgment
 		_ = s.SetWriteDeadline(time.Now().Add(10 * time.Second))

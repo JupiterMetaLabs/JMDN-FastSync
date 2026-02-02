@@ -9,6 +9,7 @@ package priorsync
 import (
 	ack "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/ack"
 	nodeinfo "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/nodeinfo"
+	phase "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/phase"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -163,6 +164,7 @@ type PriorSyncMessage struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Priorsync     *PriorSync             `protobuf:"bytes,1,opt,name=priorsync,proto3" json:"priorsync,omitempty"`
 	Ack           *ack.PriorSyncAck      `protobuf:"bytes,2,opt,name=ack,proto3" json:"ack,omitempty"`
+	Phase         *phase.Phase           `protobuf:"bytes,3,opt,name=phase,proto3" json:"phase,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -211,11 +213,18 @@ func (x *PriorSyncMessage) GetAck() *ack.PriorSyncAck {
 	return nil
 }
 
+func (x *PriorSyncMessage) GetPhase() *phase.Phase {
+	if x != nil {
+		return x.Phase
+	}
+	return nil
+}
+
 var File_priorsync_priorsync_proto protoreflect.FileDescriptor
 
 const file_priorsync_priorsync_proto_rawDesc = "" +
 	"\n" +
-	"\x19priorsync/priorsync.proto\x12\tpriorsync\x1a\x17nodeinfo/nodeinfo.proto\x1a\rack/ack.proto\"\x9a\x01\n" +
+	"\x19priorsync/priorsync.proto\x12\tpriorsync\x1a\x17nodeinfo/nodeinfo.proto\x1a\rack/ack.proto\x1a\x11phase/phase.proto\"\x9a\x01\n" +
 	"\tPriorSync\x12 \n" +
 	"\vblocknumber\x18\x01 \x01(\x04R\vblocknumber\x12\x1c\n" +
 	"\tstateroot\x18\x02 \x01(\fR\tstateroot\x12\x1c\n" +
@@ -225,10 +234,11 @@ const file_priorsync_priorsync_proto_rawDesc = "" +
 	"\bchecksum\x18\x01 \x01(\fR\bchecksum\x12\x14\n" +
 	"\x05state\x18\x02 \x01(\tR\x05state\x12\x18\n" +
 	"\aversion\x18\x03 \x01(\rR\aversion\x12.\n" +
-	"\bnodeinfo\x18\x04 \x01(\v2\x12.nodeinfo.NodeInfoR\bnodeinfo\"k\n" +
+	"\bnodeinfo\x18\x04 \x01(\v2\x12.nodeinfo.NodeInfoR\bnodeinfo\"\x8f\x01\n" +
 	"\x10PriorSyncMessage\x122\n" +
 	"\tpriorsync\x18\x01 \x01(\v2\x14.priorsync.PriorSyncR\tpriorsync\x12#\n" +
-	"\x03ack\x18\x02 \x01(\v2\x11.ack.PriorSyncAckR\x03ackBCZAgithub.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/priorsyncb\x06proto3"
+	"\x03ack\x18\x02 \x01(\v2\x11.ack.PriorSyncAckR\x03ack\x12\"\n" +
+	"\x05phase\x18\x03 \x01(\v2\f.phase.PhaseR\x05phaseBCZAgithub.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/priorsyncb\x06proto3"
 
 var (
 	file_priorsync_priorsync_proto_rawDescOnce sync.Once
@@ -249,17 +259,19 @@ var file_priorsync_priorsync_proto_goTypes = []any{
 	(*PriorSyncMessage)(nil),  // 2: priorsync.PriorSyncMessage
 	(*nodeinfo.NodeInfo)(nil), // 3: nodeinfo.NodeInfo
 	(*ack.PriorSyncAck)(nil),  // 4: ack.PriorSyncAck
+	(*phase.Phase)(nil),       // 5: phase.Phase
 }
 var file_priorsync_priorsync_proto_depIdxs = []int32{
 	1, // 0: priorsync.PriorSync.metadata:type_name -> priorsync.Metadata
 	3, // 1: priorsync.Metadata.nodeinfo:type_name -> nodeinfo.NodeInfo
 	0, // 2: priorsync.PriorSyncMessage.priorsync:type_name -> priorsync.PriorSync
 	4, // 3: priorsync.PriorSyncMessage.ack:type_name -> ack.PriorSyncAck
-	4, // [4:4] is the sub-list for method output_type
-	4, // [4:4] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	5, // 4: priorsync.PriorSyncMessage.phase:type_name -> phase.Phase
+	5, // [5:5] is the sub-list for method output_type
+	5, // [5:5] is the sub-list for method input_type
+	5, // [5:5] is the sub-list for extension type_name
+	5, // [5:5] is the sub-list for extension extendee
+	0, // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_priorsync_priorsync_proto_init() }

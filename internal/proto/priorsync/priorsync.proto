@@ -5,6 +5,7 @@ package priorsync;
 option go_package = "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/priorsync";
 import "nodeinfo/nodeinfo.proto";
 import "ack/ack.proto";
+import "phase/phase.proto";
 message PriorSync {
     uint64 blocknumber = 1;
     bytes stateroot = 2;
@@ -22,4 +23,5 @@ message Metadata {
 message PriorSyncMessage{
     PriorSync priorsync = 1;
     ack.PriorSyncAck ack = 2;
+    phase.Phase phase = 3;
 }
