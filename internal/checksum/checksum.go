@@ -2,8 +2,8 @@ package checksum
 
 import (
 	"crypto/sha256"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types/errors"
 	"encoding/binary"
-	"errors"
 	"hash/crc32"
 )
 
@@ -14,7 +14,13 @@ const (
 	VersionCRC32  uint16 = 1
 	VersionSHA256 uint16 = 2
 )
-func NewChecksum()(*Checksum){
+
+type checksumFunc interface {
+	Create(data []byte, version uint16) ([]byte, error)
+	Verify(data []byte, version uint16, expected []byte) (bool, error)
+}
+
+func NewChecksum() checksumFunc {
 	return &Checksum{}
 }
 
@@ -23,7 +29,7 @@ func NewChecksum()(*Checksum){
 // For SHA256 it returns 32 bytes.
 func (cs *Checksum) Create(data []byte, version uint16) ([]byte, error) {
 	if data == nil {
-		return nil, errors.New("data is nil")
+		return nil, errors.NilData
 	}
 
 	switch version {
@@ -38,7 +44,7 @@ func (cs *Checksum) Create(data []byte, version uint16) ([]byte, error) {
 		return sum[:], nil
 
 	default:
-		return nil, errors.New("unsupported checksum version")
+		return nil, errors.UnsupportedChecksumVersion
 	}
 }
 
