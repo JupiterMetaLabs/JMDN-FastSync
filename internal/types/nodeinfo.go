@@ -24,4 +24,5 @@ type Nodeinfo struct {
 type BlockInfo interface{
 	GetBlockNumber() uint64
 	GetBlockDetails() PriorSync
+	GetBlockRange(start uint64, end uint64, batchsize int) *[]ZKBlock
 }

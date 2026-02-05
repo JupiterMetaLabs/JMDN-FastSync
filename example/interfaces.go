@@ -16,6 +16,9 @@ func (e example_blockinfo) GetBlockDetails() types.PriorSync {
 	return GetBlockDetailsDummy()
 }
 
+func (e example_blockinfo) GetBlockRange(start uint64, end uint64, batchsize int) *[]types.ZKBlock {
+	return nil
+}
 
 func GetBlockDetailsDummy() types.PriorSync {
 	data := types.PriorSync{

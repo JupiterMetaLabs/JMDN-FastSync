@@ -3,6 +3,7 @@ package types
 import (
 	"context"
 
+	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types/merkle"
 	"github.com/libp2p/go-libp2p/core/protocol"
 )
 
@@ -10,6 +11,7 @@ type PriorSync struct {
 	Blocknumber uint64
 	Stateroot   []byte
 	Blockhash   []byte
+	MerkleTree  *merkle.MerkleTreeSnapshot
 	Metadata    Metadata
 }
 

@@ -32,7 +32,7 @@ func (router *Datarouter) HandlePriorSync(ctx context.Context, req *priorsyncpb.
 	if req.Metadata == nil {
 		return &priorsyncpb.PriorSyncMessage{
 			Priorsync: req,
-			Ack: &ackpb.PriorSyncAck{
+			Ack: &ackpb.Ack{
 				State: "UNKNOWN",
 				Ok:    false,
 				Error: errors.MetadataRequired.Error(),
@@ -56,14 +56,14 @@ func (router *Datarouter) HandlePriorSync(ctx context.Context, req *priorsyncpb.
 		ion.String("function", "HandlePriorSync"))
 		
 		// TODO: Implement checkpoint logic
-		return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.PriorSyncAck{State: state, Ok: true, Error: ""}}
+		return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.Ack{State: state, Ok: true, Error: ""}}
 
 	case "RECONCILE":
 		Log.Logger(namedlogger).Debug(ctx, "Reconcile - LOG",
 		ion.String("state", state),
 		ion.String("function", "HandlePriorSync"))
 		// TODO: Implement reconcile logic
-		return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.PriorSyncAck{State: state, Ok: true, Error: ""}}
+		return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.Ack{State: state, Ok: true, Error: ""}}
 
 	default:
 		Log.Logger(namedlogger).Debug(ctx, "Unknown State - LOG",
@@ -71,7 +71,7 @@ func (router *Datarouter) HandlePriorSync(ctx context.Context, req *priorsyncpb.
 		ion.String("function", "HandlePriorSync"))
 		return &priorsyncpb.PriorSyncMessage{
 			Priorsync: req,
-			Ack: &ackpb.PriorSyncAck{
+			Ack: &ackpb.Ack{
 				State: state,
 				Ok:    false,
 				Error: "unknown state: " + state,
@@ -92,14 +92,14 @@ func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.Pri
 		Log.Logger(namedlogger).Error(ctx, "Checksum Verification Failed - LOG",
 		err,
 		ion.String("function", "SYNC_REQUEST"))
-		return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.PriorSyncAck{State: constants.SYNC_REQUEST_RESPONSE, Ok: false, Error: err.Error()}}
+		return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.Ack{State: constants.SYNC_REQUEST_RESPONSE, Ok: false, Error: err.Error()}}
 	}
 
 	if !verified {
 		Log.Logger(namedlogger).Error(ctx, "Checksum Verification Failed - LOG",
 		errors.ChecksumMismatch,
 		ion.String("function", "SYNC_REQUEST"))
-		return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.PriorSyncAck{State: constants.SYNC_REQUEST_RESPONSE, Ok: false, Error: errors.ChecksumMismatch.Error()}}
+		return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.Ack{State: constants.SYNC_REQUEST_RESPONSE, Ok: false, Error: errors.ChecksumMismatch.Error()}}
 	}
 
 	// 2. Load the latest block information from the node using the interface function.
@@ -109,7 +109,7 @@ func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.Pri
 		errors.BlockInfoNil,
 		ion.String("function", "SYNC_REQUEST"))
 
-		return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.PriorSyncAck{State: constants.SYNC_REQUEST_RESPONSE, Ok: false, Error: errors.BlockInfoNil.Error()}}
+		return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.Ack{State: constants.SYNC_REQUEST_RESPONSE, Ok: false, Error: errors.BlockInfoNil.Error()}}
 	}
 	blockNumber := blockInfo.GetBlockNumber()
 	blockDetails := blockInfo.GetBlockDetails()
@@ -125,19 +125,19 @@ func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.Pri
 			errors.SameBlockHeight_DifferentStateroot,
 			ion.String("function", "SYNC_REQUEST"))
 
-			return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.PriorSyncAck{State: constants.SYNC_REQUEST_RESPONSE, Ok: false, Error: errors.SameBlockHeight_DifferentStateroot.Error()}}
+			return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.Ack{State: constants.SYNC_REQUEST_RESPONSE, Ok: false, Error: errors.SameBlockHeight_DifferentStateroot.Error()}}
 		} else if !bytes.Equal(blockDetails.Blockhash, req.Blockhash) {
 			Log.Logger(namedlogger).Error(ctx, "Blockhash Mismatch - LOG",
 			errors.SameBlockHeight_DifferentBlockhash,
 			ion.String("function", "SYNC_REQUEST"))
 
-			return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.PriorSyncAck{State: constants.SYNC_REQUEST_RESPONSE, Ok: false, Error: errors.SameBlockHeight_DifferentBlockhash.Error()}}
+			return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.Ack{State: constants.SYNC_REQUEST_RESPONSE, Ok: false, Error: errors.SameBlockHeight_DifferentBlockhash.Error()}}
 		} else {
 			Log.Logger(namedlogger).Warn(ctx, "Same Block Height - LOG",
 			ion.Err(errors.SameBlockHeight),
 			ion.String("function", "SYNC_REQUEST"))
 
-			return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.PriorSyncAck{State: constants.SYNC_REQUEST_RESPONSE, Ok: true, Error: errors.SameBlockHeight.Error()}}
+			return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.Ack{State: constants.SYNC_REQUEST_RESPONSE, Ok: true, Error: errors.SameBlockHeight.Error()}}
 		}
 	}else if blockNumber > req.Blocknumber {
 		// If the current node block height is higger than the node from which the request is coming, 
@@ -150,7 +150,7 @@ func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.Pri
 			ion.String("Provider Block Number", fmt.Sprintf("%d", req.Blocknumber)),
 			ion.String("function", "SYNC_REQUEST"))
 
-		return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.PriorSyncAck{State: constants.SYNC_REQUEST_RESPONSE, Ok: true, Error: errors.BlockHeightHigher.Error()}}
+		return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.Ack{State: constants.SYNC_REQUEST_RESPONSE, Ok: true, Error: errors.BlockHeightHigher.Error()}}
 	}
 
 	// If the current node block height is less than the provider node then we need to sync the blocks from the provider node.
@@ -169,14 +169,14 @@ func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.Pri
 	}
 	checksum, err := checksum_priorsync.PriorSyncChecksum().CreatefromPB(response, uint16(req.Metadata.Version))
 	if err != nil {
-		return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.PriorSyncAck{State: constants.SYNC_REQUEST_RESPONSE, Ok: false, Error: err.Error()}}
+		return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.Ack{State: constants.SYNC_REQUEST_RESPONSE, Ok: false, Error: err.Error()}}
 	}
 
 	response.Metadata.Checksum = checksum
 
 	return &priorsyncpb.PriorSyncMessage{
 		Priorsync: response,
-		Ack: &ackpb.PriorSyncAck{
+		Ack: &ackpb.Ack{
 			State: constants.SYNC_REQUEST_RESPONSE,
 			Ok:    true,
 			Error: "",

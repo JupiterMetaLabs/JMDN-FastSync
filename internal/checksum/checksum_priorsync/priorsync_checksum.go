@@ -2,6 +2,7 @@ package checksum_priorsync
 
 import (
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/checksum"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/merkle"
 	pb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/priorsync"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types/errors"
@@ -29,6 +30,7 @@ func (c *Checksum) Create(data types.PriorSync, version uint16) ([]byte, error) 
 		Blocknumber: data.Blocknumber,
 		Stateroot:   data.Stateroot,
 		Blockhash:   data.Blockhash,
+		Merklesnapshot: &merkle.MerkleSnapshot{},
 		Metadata:    &pb.Metadata{},
 	}
 	// No need to give the metadata for creating the checksum
@@ -48,6 +50,7 @@ func (c *Checksum) Verify(data types.PriorSync, version uint16, expected []byte)
 		Blocknumber: data.Blocknumber,
 		Stateroot:   data.Stateroot,
 		Blockhash:   data.Blockhash,
+		Merklesnapshot: &merkle.MerkleSnapshot{},
 		Metadata:    &pb.Metadata{},
 	}
 	dataBytes, err := proto.Marshal(pbData)
@@ -65,6 +68,7 @@ func (c *Checksum) CreatefromPB(data *pb.PriorSync, version uint16) ([]byte, err
 		Blocknumber: data.Blocknumber,
 		Stateroot:   data.Stateroot,
 		Blockhash:   data.Blockhash,
+		Merklesnapshot: &merkle.MerkleSnapshot{},
 		Metadata:    &pb.Metadata{},
 	}
 	// No need to give the metadata for creating the checksum
