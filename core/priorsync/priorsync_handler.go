@@ -14,10 +14,11 @@ import (
 	merklepb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/merkle"
 	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/priorsync"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types"
-	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types/merkle"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/helper/merkle"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/protocol"
+	"github.com/JupiterMetaLabs/JMDN_Merkletree/merkletree"
 )
 
 type PriorSync struct {
@@ -123,7 +124,7 @@ func (ps *PriorSync) HandlePriorSync(node host.Host) error {
 // Usually you'll do node.NewStream(ctx, peerID, protoID) and write the payload.
 func (ps *PriorSync) SendPriorSync(
 	// As per the observation, data is synced irregularly so we need to check the missing blocks too so merkle check
-	merkle_snapshot *merkle.MerkleTreeSnapshot,
+	merkle_snapshot *merkletree.MerkleTreeSnapshot,
 	// this peer is the one we are sending the prior sync to
 	peer types.Nodeinfo,
 	data types.PriorSync,

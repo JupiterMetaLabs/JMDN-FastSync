@@ -4,9 +4,9 @@ import (
 	"context"
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types"
-	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types/merkle"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/protocol"
+	"github.com/JupiterMetaLabs/JMDN_Merkletree/merkletree"
 )
 
 type Priorsync_router interface {
@@ -17,7 +17,7 @@ type Priorsync_router interface {
 	HandlePriorSync(node host.Host) error
 
 	// SendPriorSync sends a PriorSync request to a specific peer and returns the response
-	SendPriorSync(merkle *merkle.MerkleTreeSnapshot,peer types.Nodeinfo, data types.PriorSync) (*types.PriorSyncMessage, error)
+	SendPriorSync(merkle *merkletree.MerkleTreeSnapshot,peer types.Nodeinfo, data types.PriorSync) (*types.PriorSyncMessage, error)
 
 	// Close the connection
 	Close()

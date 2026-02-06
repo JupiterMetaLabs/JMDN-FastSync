@@ -262,4 +262,7 @@ func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.Pri
 
 	target_merkletree.Finalize()
 	local_merkletree.Finalize()
+
+
+	return nil
 }
