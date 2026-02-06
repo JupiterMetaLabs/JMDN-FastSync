@@ -7,5 +7,5 @@ func Logger(name string) *ion.Ion {
 	if err != nil {
 		return nil
 	}
-	return logger.GetNamedLogger()
+	return logger.NamedLogger
 }

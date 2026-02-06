@@ -11,8 +11,10 @@ import (
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/messaging"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/pbstream"
+	merklepb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/merkle"
 	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/priorsync"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types/merkle"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/protocol"
@@ -120,6 +122,9 @@ func (ps *PriorSync) HandlePriorSync(node host.Host) error {
 // SendPriorSync sends a PriorSync message to a peer and returns the response.
 // Usually you'll do node.NewStream(ctx, peerID, protoID) and write the payload.
 func (ps *PriorSync) SendPriorSync(
+	// As per the observation, data is synced irregularly so we need to check the missing blocks too so merkle check
+	merkle_snapshot *merkle.MerkleTreeSnapshot,
+	// this peer is the one we are sending the prior sync to
 	peer types.Nodeinfo,
 	data types.PriorSync,
 ) (*types.PriorSyncMessage, error) {
@@ -129,17 +134,27 @@ func (ps *PriorSync) SendPriorSync(
 	if ps.SyncVars == nil || ps.SyncVars.Ctx == nil {
 		return nil, errors.New("sync vars ctx not set")
 	}
+	if merkle_snapshot == nil {
+		return nil, errors.New("merkle is nil")
+	}
 
 	// Convert types.PriorSync to protobuf PriorSync
 	req := &priorsyncpb.PriorSync{
-		Blocknumber: data.Blocknumber,
-		Stateroot:   data.Stateroot,
-		Blockhash:   data.Blockhash,
+		Blocknumber:    data.Blocknumber,
+		Stateroot:      data.Stateroot,
+		Blockhash:      data.Blockhash,
+		Merklesnapshot: merkle.MerkleSnapshotToProto(merkle_snapshot),
 		Metadata: &priorsyncpb.Metadata{
 			Checksum: data.Metadata.Checksum,
 			State:    data.Metadata.State,
 			Version:  uint32(data.Metadata.Version),
 		},
+	}
+	if data.Range != nil {
+		req.Range = &merklepb.Range{
+			Start: data.Range.Start,
+			End:   data.Range.End,
+		}
 	}
 
 	// Prepare peer.AddrInfo from types.Nodeinfo
@@ -187,6 +202,10 @@ func (ps *PriorSync) SendPriorSync(
 			Blocknumber: resp.Priorsync.Blocknumber,
 			Stateroot:   resp.Priorsync.Stateroot,
 			Blockhash:   resp.Priorsync.Blockhash,
+			Range: &types.Range{
+				Start: resp.Priorsync.Range.Start,
+				End:   resp.Priorsync.Range.End,
+			},
 			Metadata: types.Metadata{
 				Checksum: resp.Priorsync.Metadata.Checksum,
 				State:    resp.Priorsync.Metadata.State,

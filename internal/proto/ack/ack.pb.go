@@ -21,7 +21,7 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-type PriorSyncAck struct {
+type Ack struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	State         string                 `protobuf:"bytes,1,opt,name=state,proto3" json:"state,omitempty"`
 	Ok            bool                   `protobuf:"varint,2,opt,name=ok,proto3" json:"ok,omitempty"`
@@ -30,20 +30,20 @@ type PriorSyncAck struct {
 	sizeCache     protoimpl.SizeCache
 }
 
-func (x *PriorSyncAck) Reset() {
-	*x = PriorSyncAck{}
+func (x *Ack) Reset() {
+	*x = Ack{}
 	mi := &file_ack_ack_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *PriorSyncAck) String() string {
+func (x *Ack) String() string {
 	return protoimpl.X.MessageStringOf(x)
 }
 
-func (*PriorSyncAck) ProtoMessage() {}
+func (*Ack) ProtoMessage() {}
 
-func (x *PriorSyncAck) ProtoReflect() protoreflect.Message {
+func (x *Ack) ProtoReflect() protoreflect.Message {
 	mi := &file_ack_ack_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
@@ -55,26 +55,26 @@ func (x *PriorSyncAck) ProtoReflect() protoreflect.Message {
 	return mi.MessageOf(x)
 }
 
-// Deprecated: Use PriorSyncAck.ProtoReflect.Descriptor instead.
-func (*PriorSyncAck) Descriptor() ([]byte, []int) {
+// Deprecated: Use Ack.ProtoReflect.Descriptor instead.
+func (*Ack) Descriptor() ([]byte, []int) {
 	return file_ack_ack_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *PriorSyncAck) GetState() string {
+func (x *Ack) GetState() string {
 	if x != nil {
 		return x.State
 	}
 	return ""
 }
 
-func (x *PriorSyncAck) GetOk() bool {
+func (x *Ack) GetOk() bool {
 	if x != nil {
 		return x.Ok
 	}
 	return false
 }
 
-func (x *PriorSyncAck) GetError() string {
+func (x *Ack) GetError() string {
 	if x != nil {
 		return x.Error
 	}
@@ -85,8 +85,8 @@ var File_ack_ack_proto protoreflect.FileDescriptor
 
 const file_ack_ack_proto_rawDesc = "" +
 	"\n" +
-	"\rack/ack.proto\x12\x03ack\"J\n" +
-	"\fPriorSyncAck\x12\x14\n" +
+	"\rack/ack.proto\x12\x03ack\"A\n" +
+	"\x03Ack\x12\x14\n" +
 	"\x05state\x18\x01 \x01(\tR\x05state\x12\x0e\n" +
 	"\x02ok\x18\x02 \x01(\bR\x02ok\x12\x14\n" +
 	"\x05error\x18\x03 \x01(\tR\x05errorB=Z;github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/ackb\x06proto3"
@@ -105,7 +105,7 @@ func file_ack_ack_proto_rawDescGZIP() []byte {
 
 var file_ack_ack_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
 var file_ack_ack_proto_goTypes = []any{
-	(*PriorSyncAck)(nil), // 0: ack.PriorSyncAck
+	(*Ack)(nil), // 0: ack.Ack
 }
 var file_ack_ack_proto_depIdxs = []int32{
 	0, // [0:0] is the sub-list for method output_type

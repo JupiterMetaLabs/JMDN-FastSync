@@ -4,7 +4,7 @@ package ack;
 
 option go_package = "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/ack";
 
-message PriorSyncAck {
+message Ack {
   string state = 1;
   bool ok = 2;
   string error = 3;

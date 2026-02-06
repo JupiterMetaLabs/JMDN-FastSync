@@ -3,7 +3,7 @@ package WAL
 import (
 	"log"
 
-	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types/WAL"
 )
 
 // Write Ahead Log: this helps us to log the transactions before appending to the db so that if the node crashed we have the checkpoint to match.
@@ -11,20 +11,20 @@ import (
 // By doing this we can have the checkpoint of the block headers and we can replay the transactions from the log file to the db on the node restart if the node crashed.
 
 type BlockHeaderWAL struct{
-	WAL types.WAL
+	WAL WAL.WAL
 }
 
 func NewBlockHeaderWAL(dir string, batchSize int) *BlockHeaderWAL {
 	if dir == "" {
 		log.Println("No directory provided, using default directory")
-		dir = types.DefaultDir
+		dir = WAL.DefaultDir
 	}
 	if batchSize == 0 {
 		log.Println("No batch size provided, using default batch size")
-		batchSize = types.DefaultBatchSize
+		batchSize = WAL.DefaultBatchSize
 	}
 	return &BlockHeaderWAL{
-		WAL: types.WAL{
+		WAL: WAL.WAL{
 			Dir:       dir ,
 			BatchSize: batchSize,
 		},

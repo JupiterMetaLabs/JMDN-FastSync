@@ -6,6 +6,26 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 )
 
+// ZKBlock represents a block processed by the ZKVM with proof
+type Header struct {
+	// ZK-Stark proof data
+	ProofHash  string   `json:"proof_hash"`
+	Status     string   `json:"status"`
+	TxnsRoot   string   `json:"txnsroot"`
+
+	// Block data
+	Timestamp    int64           `json:"timestamp"`
+	ExtraData    string          `json:"extradata"`
+	StateRoot    common.Hash     `json:"stateroot"`
+	CoinbaseAddr *common.Address `json:"coinbaseaddr"`
+	ZKVMAddr     *common.Address `json:"zkvmaddr"`
+	PrevHash     common.Hash     `json:"prevhash"`
+	BlockHash    common.Hash     `json:"blockhash"`
+	GasLimit     uint64          `json:"gaslimit"`
+	GasUsed      uint64          `json:"gasused"`
+	BlockNumber  uint64          `json:"blocknumber"`
+}
+
 // ZKBlockTransaction represents a single transaction in a ZK block
 type Transaction struct {
 	Hash      common.Hash     `json:"hash"`               // 0x-prefixed 32-byte

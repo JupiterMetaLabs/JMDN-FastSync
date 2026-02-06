@@ -1,0 +1,60 @@
+syntax = "proto3";
+
+package merkle;
+
+option go_package = "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/merkle";
+import "ack/ack.proto";
+
+message MerkleSnapshot {
+    int32 version = 1;
+    SnapshotConfig config = 2;
+
+    // State fields
+    uint64 total_blocks = 3;
+    uint64 expected_next_height = 4;
+    bool enforce_heights = 5;
+
+    // Partial Chunk Buffer
+    // InChunkElems contains the hashes of elements in the current partial chunk.
+    repeated bytes in_chunk_elems = 6;
+    uint64 in_chunk_start = 7;
+
+    // Outer Accumulator Peaks
+    repeated SnapshotNode peaks = 8;
+}
+
+message SnapshotConfig {
+    int32 block_merge = 1;
+    uint64 expected_total = 2;
+}
+
+message SnapshotNode {
+    SnapshotNode left = 1;
+    SnapshotNode right = 2;
+    bytes root = 3;
+    uint64 start = 4;
+    uint32 count = 5;
+    bytes data = 6;
+    bool has_data = 7;
+}
+
+message MerkleRequest{
+    uint64 start = 1;
+    uint64 end = 2;
+    SnapshotConfig config = 3; 
+}
+
+message MerkleMessage{
+    MerkleSnapshot snapshot = 1;
+    ack.Ack ack = 2;
+}
+
+message MerkleRequestMessage{
+    MerkleRequest request = 1;
+    ack.Ack ack = 2;
+}
+
+message range{
+    uint64 start = 1;
+    uint64 end = 2;
+}
