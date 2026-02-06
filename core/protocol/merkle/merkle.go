@@ -19,16 +19,17 @@ type MerkleProof struct {
 }
 
 type MerkleProofInterface interface {
-	GenerateMerkleTree(logger_ctx context.Context, startBlock, endBlock int64) (*merkletree.MerkleTreeSnapshot, error)
-	GenerateMerkleTreeWithConfig(logger_ctx context.Context, startBlock, endBlock int64, config *merkletree.SnapshotConfig) (*merkletree.MerkleTreeSnapshot, error)
+	GenerateMerkleTree(logger_ctx context.Context, startBlock, endBlock int64) (*merkletree.Builder, error)
+	GenerateMerkleTreeWithConfig(logger_ctx context.Context, startBlock, endBlock int64, config *merkletree.SnapshotConfig) (*merkletree.Builder, error)
 	ReconstructTree(logger_ctx context.Context, snap *merkletree.MerkleTreeSnapshot) (*merkletree.Builder, error)
+	ToSnapshot(logger_ctx context.Context, builder *merkletree.Builder) (*merkletree.MerkleTreeSnapshot, error)
 }
 
 func NewMerkleProof() MerkleProofInterface {
 	return &MerkleProof{}
 }
 
-func (m *MerkleProof) GenerateMerkleTree(logger_ctx context.Context, startBlock, endBlock int64) (*merkletree.MerkleTreeSnapshot, error) {
+func (m *MerkleProof) GenerateMerkleTree(logger_ctx context.Context, startBlock, endBlock int64) (*merkletree.Builder, error) {
 
 	if endBlock == -1 {
 		// If the endBlock is -1, then we need to get the latest block number from the db.
@@ -155,13 +156,10 @@ func (m *MerkleProof) GenerateMerkleTree(logger_ctx context.Context, startBlock,
 
 	Builder.Visualize()
 
-	// Use the library's ToSnapshot method
-	snapshot := Builder.ToSnapshot()
-
-	return snapshot, nil
+	return Builder, nil
 }
 
-func (m *MerkleProof) GenerateMerkleTreeWithConfig(logger_ctx context.Context, startBlock, endBlock int64, config *merkletree.SnapshotConfig) (*merkletree.MerkleTreeSnapshot, error) {
+func (m *MerkleProof) GenerateMerkleTreeWithConfig(logger_ctx context.Context, startBlock, endBlock int64, config *merkletree.SnapshotConfig) (*merkletree.Builder, error) {
 
 	if endBlock == -1 {
 		// If the endBlock is -1, then we need to get the latest block number from the db.
@@ -288,10 +286,7 @@ func (m *MerkleProof) GenerateMerkleTreeWithConfig(logger_ctx context.Context, s
 
 	Builder.Visualize()
 
-	// Use the library's ToSnapshot method
-	snapshot := Builder.ToSnapshot()
-
-	return snapshot, nil
+	return Builder, nil
 }
 
 // ReconstructTree restores a Merkle Builder from a MerkleTreeSnapshot.
@@ -310,4 +305,12 @@ func (m *MerkleProof) ReconstructTree(logger_ctx context.Context, snap *merkletr
 	)
 
 	return builder, nil
+}
+
+
+func (m *MerkleProof) ToSnapshot(logger_ctx context.Context, builder *merkletree.Builder) (*merkletree.MerkleTreeSnapshot, error) {
+	// Use the library's ToSnapshot method
+	snapshot := builder.ToSnapshot()
+
+	return snapshot, nil
 }
