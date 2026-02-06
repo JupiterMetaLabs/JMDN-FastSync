@@ -5,6 +5,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/merkle"
+	merkle_types 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types/merkle"
 	Log "github.com/JupiterMetaLabs/JMDN-FastSync/logging"
 	"github.com/JupiterMetaLabs/ion"
 
@@ -80,7 +82,7 @@ func (router *Datarouter) HandlePriorSync(ctx context.Context, req *priorsyncpb.
 	}
 }
 
-func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.PriorSync) *priorsyncpb.PriorSyncMessage {
+func (router *Datarouter) SYNC_REQUEST_V2(ctx context.Context, req *priorsyncpb.PriorSync) *priorsyncpb.PriorSyncMessage {
 	/*
 		- Check the checksum to make sure there is no data loss and message sent and received are same.
 		- Load the latest block information from the node using the interface function.
@@ -182,4 +184,71 @@ func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.Pri
 			Error: "",
 		},
 	}
+}
+
+func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.PriorSync) *priorsyncpb.PriorSyncMessage {
+
+	/*
+		- Check the checksum to make sure there is no data loss and message sent and received are same.
+		- Load the latest block information from the node using the interface function.
+		- Generate the merkle tree of the target machine by reconstrucitng the req.merklesnapshot using the merkle.ReconstructTree function.
+		- Generate the merkle tree by calling the merkle.GenerateMerkleTree function (using the config of the target machine to have same tree structure) for the local node
+		- Bisect the merkle tree to find the to be synched block range. 
+		- In bisection you would get the range of blocks which are invalid, call the server node to send that particular blocks as the merkletree snapshot.
+		- Continue the bisection and tag the to be synched blocks. in that short range. 
+		- give the block numbers to the PHASE 2. to get synched. 
+		- Continue this tagging process for all batches in the leaf nodes one by one. so you have to sync leaf nodes from left side. 
+								 [root]
+								/      \
+							[root]    [root]
+							/    \      /    \
+						[root] [root] [root] [root]
+						/ \    / \    / \    / \ 
+					   L   L  L   L  L   L  L   L
+					   [0 to 200] [201 to 400] [401 to 600] [601 to 800] - Blockmerge is 200 so each L have hash of 200 blocks.
+	*/
+
+	verified, err := checksum_priorsync.PriorSyncChecksum().VerifyfromPB(req, uint16(req.Metadata.Version), req.Metadata.Checksum)
+	if err != nil {
+		Log.Logger(namedlogger).Error(ctx, "Checksum Verification Failed - LOG",
+		err,
+		ion.String("function", "SYNC_REQUEST"))
+		return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.Ack{State: constants.SYNC_REQUEST_RESPONSE, Ok: false, Error: err.Error()}}
+	}
+
+	if !verified {
+		Log.Logger(namedlogger).Error(ctx, "Checksum Verification Failed - LOG",
+		errors.ChecksumMismatch,
+		ion.String("function", "SYNC_REQUEST"))
+		return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.Ack{State: constants.SYNC_REQUEST_RESPONSE, Ok: false, Error: errors.ChecksumMismatch.Error()}}
+	}
+
+	// 2. Load the latest block information from the node using the interface function.
+	blockInfo := router.Nodeinfo.BlockInfo
+	if blockInfo == nil {
+		Log.Logger(namedlogger).Error(ctx, "BlockInfo is nil - LOG",
+		errors.BlockInfoNil,
+		ion.String("function", "SYNC_REQUEST"))
+
+		return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.Ack{State: constants.SYNC_REQUEST_RESPONSE, Ok: false, Error: errors.BlockInfoNil.Error()}}
+	}
+	blockNumber := blockInfo.GetBlockNumber()
+	blockDetails := blockInfo.GetBlockDetails()
+
+	msg := fmt.Sprintf("Block Details: %+v (StateRoot: %s, BlockHash: %s)", blockDetails, string(blockDetails.Stateroot), string(blockDetails.Blockhash))
+		Log.Logger(namedlogger).Debug(ctx, msg,
+		ion.String("function", "SYNC_REQUEST"))
+
+	// Reconstruct the merkle tree of the target machine.
+	merkle_obj := merkle.NewMerkleProof()
+	target_snap := merkle_types.ProtoToMerkleSnapshot(req.Merklesnapshot)
+	target_merkletree, err := merkle_obj.ReconstructTree(ctx, target_snap)
+	if err != nil {
+		Log.Logger(namedlogger).Error(ctx, "Merkle Tree Reconstruction Failed - LOG",
+		err,
+		ion.String("function", "SYNC_REQUEST"))
+		return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.Ack{State: constants.SYNC_REQUEST_RESPONSE, Ok: false, Error: err.Error()}}
+	}
+
+	
 }

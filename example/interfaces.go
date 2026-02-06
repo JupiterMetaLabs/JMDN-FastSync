@@ -16,9 +16,21 @@ func (e example_blockinfo) GetBlockDetails() types.PriorSync {
 	return GetBlockDetailsDummy()
 }
 
-func (e example_blockinfo) GetBlockRange(start uint64, end uint64, batchsize int) *[]types.ZKBlock {
-	return nil
+func (e example_blockinfo) NewBlockIterator(start, end uint64, batchsize int) types.BlockIterator {
+	return &example_iterator{}
 }
+
+type example_iterator struct{}
+
+func (i *example_iterator) Next() ([]*types.ZKBlock, error) {
+	return nil, nil
+}
+
+func (i *example_iterator) Prev() ([]*types.ZKBlock, error) {
+	return nil, nil
+}
+
+func (i *example_iterator) Close() {}
 
 func GetBlockDetailsDummy() types.PriorSync {
 	data := types.PriorSync{
@@ -26,9 +38,9 @@ func GetBlockDetailsDummy() types.PriorSync {
 		Stateroot:   []byte("example-stateroot"),
 		Blockhash:   []byte("example-blockhash"),
 		Metadata: types.Metadata{
-			State:    "example-state",
-			Version:  1,
+			State:   "example-state",
+			Version: 1,
 		},
 	}
-	return data	
+	return data
 }

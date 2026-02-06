@@ -125,6 +125,7 @@ require (
 )
 
 require (
+	github.com/JupiterMetaLabs/JMDN_Merkletree v0.0.0-20260205071446-8f82a580b49a
 	github.com/JupiterMetaLabs/goroutine-orchestrator v0.1.5
 	github.com/JupiterMetaLabs/ion v0.3.3
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0 // indirect

@@ -5,7 +5,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
-
 	"google.golang.org/protobuf/proto"
 )
 

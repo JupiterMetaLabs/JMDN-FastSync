@@ -50,3 +50,49 @@ func snapshotNodeToProto(n *SnapshotNode) *pbmerkle.SnapshotNode {
 		HasData: n.HasData,
 	}
 }
+
+func ProtoToMerkleSnapshot(m *pbmerkle.MerkleSnapshot) *MerkleTreeSnapshot {
+	if m == nil {
+		return nil
+	}
+
+	return &MerkleTreeSnapshot{
+		Version: int(m.Version),
+		Config: SnapshotConfig{
+			BlockMerge:    int(m.Config.BlockMerge),
+			ExpectedTotal: m.Config.ExpectedTotal,
+		},
+		TotalBlocks:        m.TotalBlocks,
+		ExpectedNextHeight: m.ExpectedNextHeight,
+		EnforceHeights:     m.EnforceHeights,
+		InChunkElems:       m.InChunkElems,
+		InChunkStart:       m.InChunkStart,
+		Peaks:              protoToSnapshotNodes(m.Peaks),
+	}
+}
+
+func protoToSnapshotNodes(nodes []*pbmerkle.SnapshotNode) []*SnapshotNode {
+	if nodes == nil {
+		return nil
+	}
+	res := make([]*SnapshotNode, len(nodes))
+	for i, n := range nodes {
+		res[i] = protoToSnapshotNode(n)
+	}
+	return res
+}
+
+func protoToSnapshotNode(n *pbmerkle.SnapshotNode) *SnapshotNode {
+	if n == nil {
+		return nil
+	}
+	return &SnapshotNode{
+		Left:    protoToSnapshotNode(n.Left),
+		Right:   protoToSnapshotNode(n.Right),
+		Root:    n.Root,
+		Start:   n.Start,
+		Count:   n.Count,
+		Data:    n.Data,
+		HasData: n.HasData,
+	}
+}

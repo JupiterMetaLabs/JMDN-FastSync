@@ -2,14 +2,14 @@ package types
 
 import (
 	"github.com/libp2p/go-libp2p/core/peer"
-	"github.com/multiformats/go-multiaddr"
 	"github.com/libp2p/go-libp2p/core/protocol"
+	"github.com/multiformats/go-multiaddr"
 )
 
 /*
- - If version is not set, it will be default set to 1
- V1: Supports only TCP connections.
- V2: supports both TCP and QUIC connections. Prioritize QUIC connections, fallback to TCP if QUIC fails.
+- If version is not set, it will be default set to 1
+V1: Supports only TCP connections.
+V2: supports both TCP and QUIC connections. Prioritize QUIC connections, fallback to TCP if QUIC fails.
 */
 type Nodeinfo struct {
 	PeerID       peer.ID
@@ -21,8 +21,14 @@ type Nodeinfo struct {
 	BlockInfo    BlockInfo
 }
 
-type BlockInfo interface{
+type BlockInfo interface {
 	GetBlockNumber() uint64
 	GetBlockDetails() PriorSync
-	GetBlockRange(start uint64, end uint64, batchsize int) *[]ZKBlock
+	NewBlockIterator(start, end uint64, batchsize int) BlockIterator
+}
+
+type BlockIterator interface {
+	Next() ([]*ZKBlock, error)
+	Prev() ([]*ZKBlock, error)
+	Close()
 }
