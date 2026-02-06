@@ -11,6 +11,7 @@ import (
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/messaging"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/pbstream"
+	merklepb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/merkle"
 	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/priorsync"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types/merkle"
@@ -149,6 +150,12 @@ func (ps *PriorSync) SendPriorSync(
 			Version:  uint32(data.Metadata.Version),
 		},
 	}
+	if data.Range != nil {
+		req.Range = &merklepb.Range{
+			Start: data.Range.Start,
+			End:   data.Range.End,
+		}
+	}
 
 	// Prepare peer.AddrInfo from types.Nodeinfo
 	peerInfo := libp2p_peer.AddrInfo{
@@ -195,6 +202,10 @@ func (ps *PriorSync) SendPriorSync(
 			Blocknumber: resp.Priorsync.Blocknumber,
 			Stateroot:   resp.Priorsync.Stateroot,
 			Blockhash:   resp.Priorsync.Blockhash,
+			Range: &types.Range{
+				Start: resp.Priorsync.Range.Start,
+				End:   resp.Priorsync.Range.End,
+			},
 			Metadata: types.Metadata{
 				Checksum: resp.Priorsync.Metadata.Checksum,
 				State:    resp.Priorsync.Metadata.State,

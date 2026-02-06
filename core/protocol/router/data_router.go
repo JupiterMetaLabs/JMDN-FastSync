@@ -251,6 +251,13 @@ func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.Pri
 		return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.Ack{State: constants.SYNC_REQUEST_RESPONSE, Ok: false, Error: err.Error()}}
 	}
 
-	
+	// create the local merkle tree with the same config as the target machine.
+	local_merkletree, err := merkle_obj.GenerateMerkleTreeWithConfig(ctx, blockNumber, -1, &target_snap.Config)
+	if err != nil {
+		Log.Logger(namedlogger).Error(ctx, "Merkle Tree Generation Failed - LOG",
+		err,
+		ion.String("function", "SYNC_REQUEST"))
+		return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.Ack{State: constants.SYNC_REQUEST_RESPONSE, Ok: false, Error: err.Error()}}
+	}
 
 }

@@ -54,3 +54,7 @@ message MerkleRequestMessage{
     ack.Ack ack = 2;
 }
 
+message range{
+    uint64 start = 1;
+    uint64 end = 2;
+}

@@ -27,11 +27,17 @@ func (c *Checksum) Create(data types.PriorSync, version uint16) ([]byte, error) 
 		return nil, errors.UnsupportedChecksumVersion
 	}
 	pbData := &pb.PriorSync{
-		Blocknumber: data.Blocknumber,
-		Stateroot:   data.Stateroot,
-		Blockhash:   data.Blockhash,
+		Blocknumber:    data.Blocknumber,
+		Stateroot:      data.Stateroot,
+		Blockhash:      data.Blockhash,
 		Merklesnapshot: &merkle.MerkleSnapshot{},
-		Metadata:    &pb.Metadata{},
+		Metadata:       &pb.Metadata{},
+	}
+	if data.Range != nil {
+		pbData.Range = &merkle.Range{
+			Start: data.Range.Start,
+			End:   data.Range.End,
+		}
 	}
 	// No need to give the metadata for creating the checksum
 
@@ -47,11 +53,17 @@ func (c *Checksum) Verify(data types.PriorSync, version uint16, expected []byte)
 		return false, errors.UnsupportedChecksumVersion
 	}
 	pbData := &pb.PriorSync{
-		Blocknumber: data.Blocknumber,
-		Stateroot:   data.Stateroot,
-		Blockhash:   data.Blockhash,
+		Blocknumber:    data.Blocknumber,
+		Stateroot:      data.Stateroot,
+		Blockhash:      data.Blockhash,
 		Merklesnapshot: &merkle.MerkleSnapshot{},
-		Metadata:    &pb.Metadata{},
+		Metadata:       &pb.Metadata{},
+	}
+	if data.Range != nil {
+		pbData.Range = &merkle.Range{
+			Start: data.Range.Start,
+			End:   data.Range.End,
+		}
 	}
 	dataBytes, err := proto.Marshal(pbData)
 	if err != nil {
@@ -65,11 +77,17 @@ func (c *Checksum) CreatefromPB(data *pb.PriorSync, version uint16) ([]byte, err
 		return nil, errors.UnsupportedChecksumVersion
 	}
 	pbData := &pb.PriorSync{
-		Blocknumber: data.Blocknumber,
-		Stateroot:   data.Stateroot,
-		Blockhash:   data.Blockhash,
+		Blocknumber:    data.Blocknumber,
+		Stateroot:      data.Stateroot,
+		Blockhash:      data.Blockhash,
 		Merklesnapshot: &merkle.MerkleSnapshot{},
-		Metadata:    &pb.Metadata{},
+		Metadata:       &pb.Metadata{},
+	}
+	if data.Range != nil {
+		pbData.Range = &merkle.Range{
+			Start: data.Range.Start,
+			End:   data.Range.End,
+		}
 	}
 	// No need to give the metadata for creating the checksum
 
@@ -86,6 +104,12 @@ func (c *Checksum) VerifyfromPB(data *pb.PriorSync, version uint16, expected []b
 		Stateroot:   data.Stateroot,
 		Blockhash:   data.Blockhash,
 		Metadata:    types.Metadata{},
+	}
+	if data.Range != nil {
+		priorSyncData.Range = &types.Range{
+			Start: data.Range.Start,
+			End:   data.Range.End,
+		}
 	}
 	return c.Verify(priorSyncData, version, expected)
 }

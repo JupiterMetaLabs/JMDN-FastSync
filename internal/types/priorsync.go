@@ -7,11 +7,17 @@ import (
 	"github.com/libp2p/go-libp2p/core/protocol"
 )
 
+type Range struct{
+	Start uint64
+	End uint64
+}
+
 type PriorSync struct {
 	Blocknumber uint64
 	Stateroot   []byte
 	Blockhash   []byte
 	MerkleTree  *merkletree.MerkleTreeSnapshot
+	Range 		*Range
 	Metadata    Metadata
 }
 
