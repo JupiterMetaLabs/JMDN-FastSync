@@ -434,6 +434,58 @@ func (x *MerkleRequestMessage) GetAck() *ack.Ack {
 	return nil
 }
 
+type Range struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Start         uint64                 `protobuf:"varint,1,opt,name=start,proto3" json:"start,omitempty"`
+	End           uint64                 `protobuf:"varint,2,opt,name=end,proto3" json:"end,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Range) Reset() {
+	*x = Range{}
+	mi := &file_merkle_merkle_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Range) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Range) ProtoMessage() {}
+
+func (x *Range) ProtoReflect() protoreflect.Message {
+	mi := &file_merkle_merkle_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Range.ProtoReflect.Descriptor instead.
+func (*Range) Descriptor() ([]byte, []int) {
+	return file_merkle_merkle_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *Range) GetStart() uint64 {
+	if x != nil {
+		return x.Start
+	}
+	return 0
+}
+
+func (x *Range) GetEnd() uint64 {
+	if x != nil {
+		return x.End
+	}
+	return 0
+}
+
 var File_merkle_merkle_proto protoreflect.FileDescriptor
 
 const file_merkle_merkle_proto_rawDesc = "" +
@@ -469,7 +521,10 @@ const file_merkle_merkle_proto_rawDesc = "" +
 	"\x03ack\x18\x02 \x01(\v2\b.ack.AckR\x03ack\"c\n" +
 	"\x14MerkleRequestMessage\x12/\n" +
 	"\arequest\x18\x01 \x01(\v2\x15.merkle.MerkleRequestR\arequest\x12\x1a\n" +
-	"\x03ack\x18\x02 \x01(\v2\b.ack.AckR\x03ackB@Z>github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/merkleb\x06proto3"
+	"\x03ack\x18\x02 \x01(\v2\b.ack.AckR\x03ack\"/\n" +
+	"\x05range\x12\x14\n" +
+	"\x05start\x18\x01 \x01(\x04R\x05start\x12\x10\n" +
+	"\x03end\x18\x02 \x01(\x04R\x03endB@Z>github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/merkleb\x06proto3"
 
 var (
 	file_merkle_merkle_proto_rawDescOnce sync.Once
@@ -483,7 +538,7 @@ func file_merkle_merkle_proto_rawDescGZIP() []byte {
 	return file_merkle_merkle_proto_rawDescData
 }
 
-var file_merkle_merkle_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_merkle_merkle_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
 var file_merkle_merkle_proto_goTypes = []any{
 	(*MerkleSnapshot)(nil),       // 0: merkle.MerkleSnapshot
 	(*SnapshotConfig)(nil),       // 1: merkle.SnapshotConfig
@@ -491,7 +546,8 @@ var file_merkle_merkle_proto_goTypes = []any{
 	(*MerkleRequest)(nil),        // 3: merkle.MerkleRequest
 	(*MerkleMessage)(nil),        // 4: merkle.MerkleMessage
 	(*MerkleRequestMessage)(nil), // 5: merkle.MerkleRequestMessage
-	(*ack.Ack)(nil),              // 6: ack.Ack
+	(*Range)(nil),                // 6: merkle.range
+	(*ack.Ack)(nil),              // 7: ack.Ack
 }
 var file_merkle_merkle_proto_depIdxs = []int32{
 	1, // 0: merkle.MerkleSnapshot.config:type_name -> merkle.SnapshotConfig
@@ -500,9 +556,9 @@ var file_merkle_merkle_proto_depIdxs = []int32{
 	2, // 3: merkle.SnapshotNode.right:type_name -> merkle.SnapshotNode
 	1, // 4: merkle.MerkleRequest.config:type_name -> merkle.SnapshotConfig
 	0, // 5: merkle.MerkleMessage.snapshot:type_name -> merkle.MerkleSnapshot
-	6, // 6: merkle.MerkleMessage.ack:type_name -> ack.Ack
+	7, // 6: merkle.MerkleMessage.ack:type_name -> ack.Ack
 	3, // 7: merkle.MerkleRequestMessage.request:type_name -> merkle.MerkleRequest
-	6, // 8: merkle.MerkleRequestMessage.ack:type_name -> ack.Ack
+	7, // 8: merkle.MerkleRequestMessage.ack:type_name -> ack.Ack
 	9, // [9:9] is the sub-list for method output_type
 	9, // [9:9] is the sub-list for method input_type
 	9, // [9:9] is the sub-list for extension type_name
@@ -521,7 +577,7 @@ func file_merkle_merkle_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_merkle_merkle_proto_rawDesc), len(file_merkle_merkle_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   6,
+			NumMessages:   7,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
