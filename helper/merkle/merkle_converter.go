@@ -2,10 +2,11 @@ package merkle
 
 import (
 	pbmerkle "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/merkle"
+	"github.com/JupiterMetaLabs/JMDN_Merkletree/merkletree"
 )
 
 // MerkleSnapshotToProto converts a domain MerkleTreeSnapshot to its Protobuf representation.
-func MerkleSnapshotToProto(m *MerkleTreeSnapshot) *pbmerkle.MerkleSnapshot {
+func MerkleSnapshotToProto(m *merkletree.MerkleTreeSnapshot) *pbmerkle.MerkleSnapshot {
 	if m == nil {
 		return nil
 	}
@@ -25,7 +26,7 @@ func MerkleSnapshotToProto(m *MerkleTreeSnapshot) *pbmerkle.MerkleSnapshot {
 	}
 }
 
-func snapshotNodesToProto(nodes []*SnapshotNode) []*pbmerkle.SnapshotNode {
+func snapshotNodesToProto(nodes []*merkletree.SnapshotNode) []*pbmerkle.SnapshotNode {
 	if nodes == nil {
 		return nil
 	}
@@ -36,7 +37,7 @@ func snapshotNodesToProto(nodes []*SnapshotNode) []*pbmerkle.SnapshotNode {
 	return res
 }
 
-func snapshotNodeToProto(n *SnapshotNode) *pbmerkle.SnapshotNode {
+func snapshotNodeToProto(n *merkletree.SnapshotNode) *pbmerkle.SnapshotNode {
 	if n == nil {
 		return nil
 	}
@@ -51,14 +52,14 @@ func snapshotNodeToProto(n *SnapshotNode) *pbmerkle.SnapshotNode {
 	}
 }
 
-func ProtoToMerkleSnapshot(m *pbmerkle.MerkleSnapshot) *MerkleTreeSnapshot {
+func ProtoToMerkleSnapshot(m *pbmerkle.MerkleSnapshot) *merkletree.MerkleTreeSnapshot {
 	if m == nil {
 		return nil
 	}
 
-	return &MerkleTreeSnapshot{
+	return &merkletree.MerkleTreeSnapshot{
 		Version: int(m.Version),
-		Config: SnapshotConfig{
+		Config: merkletree.SnapshotConfig{
 			BlockMerge:    int(m.Config.BlockMerge),
 			ExpectedTotal: m.Config.ExpectedTotal,
 		},
@@ -71,22 +72,22 @@ func ProtoToMerkleSnapshot(m *pbmerkle.MerkleSnapshot) *MerkleTreeSnapshot {
 	}
 }
 
-func protoToSnapshotNodes(nodes []*pbmerkle.SnapshotNode) []*SnapshotNode {
+func protoToSnapshotNodes(nodes []*pbmerkle.SnapshotNode) []*merkletree.SnapshotNode {
 	if nodes == nil {
 		return nil
 	}
-	res := make([]*SnapshotNode, len(nodes))
+	res := make([]*merkletree.SnapshotNode, len(nodes))
 	for i, n := range nodes {
 		res[i] = protoToSnapshotNode(n)
 	}
 	return res
 }
 
-func protoToSnapshotNode(n *pbmerkle.SnapshotNode) *SnapshotNode {
+func protoToSnapshotNode(n *pbmerkle.SnapshotNode) *merkletree.SnapshotNode {
 	if n == nil {
 		return nil
 	}
-	return &SnapshotNode{
+	return &merkletree.SnapshotNode{
 		Left:    protoToSnapshotNode(n.Left),
 		Right:   protoToSnapshotNode(n.Right),
 		Root:    n.Root,

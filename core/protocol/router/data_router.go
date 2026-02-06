@@ -6,7 +6,7 @@ import (
 	"fmt"
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/merkle"
-	merkle_types 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types/merkle"
+	merkle_types 	"github.com/JupiterMetaLabs/JMDN-FastSync/helper/merkle"
 	Log "github.com/JupiterMetaLabs/JMDN-FastSync/logging"
 	"github.com/JupiterMetaLabs/ion"
 
@@ -232,10 +232,11 @@ func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.Pri
 
 		return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.Ack{State: constants.SYNC_REQUEST_RESPONSE, Ok: false, Error: errors.BlockInfoNil.Error()}}
 	}
+
 	blockNumber := blockInfo.GetBlockNumber()
 	blockDetails := blockInfo.GetBlockDetails()
 
-	msg := fmt.Sprintf("Block Details: %+v (StateRoot: %s, BlockHash: %s)", blockDetails, string(blockDetails.Stateroot), string(blockDetails.Blockhash))
+	msg := fmt.Sprintf("Block Details of Block %d: %+v (StateRoot: %s, BlockHash: %s)", blockNumber, blockDetails, string(blockDetails.Stateroot), string(blockDetails.Blockhash))
 		Log.Logger(namedlogger).Debug(ctx, msg,
 		ion.String("function", "SYNC_REQUEST"))
 
@@ -251,4 +252,5 @@ func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.Pri
 	}
 
 	
+
 }
