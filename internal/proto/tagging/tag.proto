@@ -1,0 +1,16 @@
+syntax = "proto3";
+
+package tagging;
+option go_package = "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/tagging";
+
+// in the version 1 we are just taging the numbers
+// in the version 2 we can tag both numbers and range also
+message Tag {
+	repeated uint64 block_number = 1;
+    repeated RangeTag range = 2;
+}
+
+message RangeTag {
+	uint64 start = 1;
+	uint64 end = 2;
+}

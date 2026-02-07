@@ -10,19 +10,20 @@ import (
 	libp2p_peer "github.com/libp2p/go-libp2p/core/peer"
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/messaging"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/helper/merkle"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/pbstream"
 	merklepb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/merkle"
+	phasepb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/phase"
 	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/priorsync"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types"
-	"github.com/JupiterMetaLabs/JMDN-FastSync/helper/merkle"
+	"github.com/JupiterMetaLabs/JMDN_Merkletree/merkletree"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/protocol"
-	"github.com/JupiterMetaLabs/JMDN_Merkletree/merkletree"
 )
 
 type PriorSync struct {
-	PriorSync *types.PriorSync
+	PriorSync *types.PriorSyncMessage
 	SyncVars  *types.Syncvars
 
 	mu     sync.Mutex
@@ -32,7 +33,7 @@ type PriorSync struct {
 
 func NewPriorSyncRouter() Priorsync_router {
 	return &PriorSync{
-		PriorSync: &types.PriorSync{},
+		PriorSync: &types.PriorSyncMessage{},
 		SyncVars:  &types.Syncvars{},
 		mu:        sync.Mutex{},
 	}
@@ -90,7 +91,7 @@ func (ps *PriorSync) HandlePriorSync(node host.Host) error {
 		_ = s.SetReadDeadline(time.Now().Add(10 * time.Second))
 		defer s.SetReadDeadline(time.Time{})
 
-		req := &priorsyncpb.PriorSync{}
+		req := &priorsyncpb.PriorSyncMessage{}
 		if err := pbstream.ReadDelimited(s, req); err != nil {
 			return
 		}
@@ -127,7 +128,7 @@ func (ps *PriorSync) SendPriorSync(
 	merkle_snapshot *merkletree.MerkleTreeSnapshot,
 	// this peer is the one we are sending the prior sync to
 	peer types.Nodeinfo,
-	data types.PriorSync,
+	data types.PriorSyncMessage,
 ) (*types.PriorSyncMessage, error) {
 	if ps.node == nil {
 		return nil, errors.New("host is nil")
@@ -139,22 +140,28 @@ func (ps *PriorSync) SendPriorSync(
 		return nil, errors.New("merkle is nil")
 	}
 
-	// Convert types.PriorSync to protobuf PriorSync
-	req := &priorsyncpb.PriorSync{
-		Blocknumber:    data.Blocknumber,
-		Stateroot:      data.Stateroot,
-		Blockhash:      data.Blockhash,
-		Merklesnapshot: merkle.MerkleSnapshotToProto(merkle_snapshot),
-		Metadata: &priorsyncpb.Metadata{
-			Checksum: data.Metadata.Checksum,
-			State:    data.Metadata.State,
-			Version:  uint32(data.Metadata.Version),
+	req := &priorsyncpb.PriorSyncMessage{
+		Priorsync: &priorsyncpb.PriorSync{
+			Blocknumber:    data.Priorsync.Blocknumber,
+			Stateroot:      data.Priorsync.Stateroot,
+			Blockhash:      data.Priorsync.Blockhash,
+			Merklesnapshot: merkle.MerkleSnapshotToProto(merkle_snapshot),
+			Metadata: &priorsyncpb.Metadata{
+				Checksum: data.Priorsync.Metadata.Checksum,
+				Version:  uint32(data.Priorsync.Metadata.Version),
+			},
+		},
+		Phase: &phasepb.Phase{
+			PresentPhase:    data.Phase.PresentPhase,
+			SuccessivePhase: data.Phase.SuccessivePhase,
+			Success:         data.Phase.Success,
+			Error:           data.Phase.Error,
 		},
 	}
-	if data.Range != nil {
-		req.Range = &merklepb.Range{
-			Start: data.Range.Start,
-			End:   data.Range.End,
+	if data.Priorsync.Range != nil {
+		req.Priorsync.Range = &merklepb.Range{
+			Start: data.Priorsync.Range.Start,
+			End:   data.Priorsync.Range.End,
 		}
 	}
 
@@ -209,7 +216,6 @@ func (ps *PriorSync) SendPriorSync(
 			},
 			Metadata: types.Metadata{
 				Checksum: resp.Priorsync.Metadata.Checksum,
-				State:    resp.Priorsync.Metadata.State,
 				Version:  uint16(resp.Priorsync.Metadata.Version),
 			},
 		}

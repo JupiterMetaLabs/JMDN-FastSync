@@ -1,6 +1,9 @@
 package example
 
-import "github.com/JupiterMetaLabs/JMDN-FastSync/internal/types"
+import (
+	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/block"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types"
+)
 
 type example_blockinfo struct{}
 
@@ -32,13 +35,26 @@ func (i *example_iterator) Prev() ([]*types.ZKBlock, error) {
 
 func (i *example_iterator) Close() {}
 
+type example_blockheader struct{}
+
+func (e example_blockinfo) NewBlockHeaderIterator() types.BlockHeader {
+	return example_blockheader{}
+}
+
+func (e example_blockheader) GetBlockHeaders(blocknumbers []uint64) ([]*block.Header, error) {
+	return nil, nil
+}
+
+func (e example_blockheader) GetBlockHeadersRange(start, end uint64) ([]*block.Header, error) {
+	return nil, nil
+}
+
 func GetBlockDetailsDummy() types.PriorSync {
 	data := types.PriorSync{
 		Blocknumber: 100,
 		Stateroot:   []byte("example-stateroot"),
 		Blockhash:   []byte("example-blockhash"),
 		Metadata: types.Metadata{
-			State:   "example-state",
 			Version: 1,
 		},
 	}
