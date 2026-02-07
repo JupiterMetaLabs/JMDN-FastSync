@@ -12,6 +12,8 @@ import (
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/checksum/checksum_priorsync"
 	ackpb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/ack"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/block"
+	headersyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/headersync"
 	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/priorsync"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types/constants"
@@ -305,7 +307,7 @@ func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.Pri
 }
 
 // This is the Phase2 function that will take the tagged blocks and send to the server node to get the block headers sync.
-func (router *Datarouter) HeaderSync(ctx context.Context, req *priorsyncpb.PriorSyncMessage) *priorsyncpb.PriorSyncMessage {
+func (router *Datarouter) HeaderSync(ctx context.Context, req *headersyncpb.HeaderSyncRequest) *headersyncpb.HeaderSyncResponse {
 	
-	return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.Ack{State: constants.SYNC_REQUEST_RESPONSE, Ok: true, Error: ""}}
+	return &headersyncpb.HeaderSyncResponse{Header: []*block.Header{}, Ack: &ackpb.Ack{State: constants.SYNC_REQUEST_RESPONSE, Ok: true, Error: ""}}
 }
