@@ -32,3 +32,5 @@ type BlockIterator interface {
 	Prev() ([]*ZKBlock, error)
 	Close()
 }
+
+

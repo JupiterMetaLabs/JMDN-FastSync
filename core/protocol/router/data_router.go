@@ -308,6 +308,10 @@ func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.Pri
 
 // This is the Phase2 function that will take the tagged blocks and send to the server node to get the block headers sync.
 func (router *Datarouter) HeaderSync(ctx context.Context, req *headersyncpb.HeaderSyncRequest) *headersyncpb.HeaderSyncResponse {
-	
+	/*
+		- This is the header sync. 
+		- After bisecting the tree in phase 1 with recursion. we get the tagged blocks per cycle. 
+		- This blocks are transmitted to the server node to get the block headers synced.
+	*/
 	return &headersyncpb.HeaderSyncResponse{Header: []*block.Header{}, Ack: &ackpb.Ack{State: constants.SYNC_REQUEST_RESPONSE, Ok: true, Error: ""}}
 }
