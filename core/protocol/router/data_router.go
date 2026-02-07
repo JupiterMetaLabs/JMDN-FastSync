@@ -14,6 +14,7 @@ import (
 	ackpb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/ack"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/block"
 	headersyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/headersync"
+	phasepb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/phase"
 	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/priorsync"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types/constants"
@@ -32,20 +33,26 @@ func NewDatarouter(nodeinfo *types.Nodeinfo) *Datarouter {
 	return &Datarouter{Nodeinfo: nodeinfo}
 }
 
-func (router *Datarouter) HandlePriorSync(ctx context.Context, req *priorsyncpb.PriorSync) *priorsyncpb.PriorSyncMessage {
+func (router *Datarouter) HandlePriorSync(ctx context.Context, req *priorsyncpb.PriorSyncMessage) *priorsyncpb.PriorSyncMessage {
 	// Extract state from metadata
-	if req.Metadata == nil {
+	if req.Priorsync.Metadata == nil || req.Phase == nil {
 		return &priorsyncpb.PriorSyncMessage{
-			Priorsync: req,
+			Priorsync: req.Priorsync,
 			Ack: &ackpb.Ack{
 				State: "UNKNOWN",
 				Ok:    false,
 				Error: errors.MetadataRequired.Error(),
 			},
+			Phase: &phasepb.Phase{
+				PresentPhase: constants.SYNC_REQUEST,
+				SuccessivePhase: constants.SYNC_REQUEST_RESPONSE,
+				Success: false,
+				Error: errors.MetadataRequired.Error(),
+			},
 		}
 	}
 
-	state := req.Metadata.State
+	state := req.Phase.PresentPhase
 
 	// Route based on state
 	switch state {
@@ -53,7 +60,7 @@ func (router *Datarouter) HandlePriorSync(ctx context.Context, req *priorsyncpb.
 		Log.Logger(namedlogger).Debug(ctx, "Sync Request - LOG",
 			ion.String("state", state),
 			ion.String("function", "HandlePriorSync"))
-		return router.SYNC_REQUEST(ctx, req)
+		return router.SYNC_REQUEST(ctx, req.Priorsync)
 
 	case "CHECKPOINT":
 		Log.Logger(namedlogger).Debug(ctx, "Checkpoint - LOG",
@@ -61,21 +68,21 @@ func (router *Datarouter) HandlePriorSync(ctx context.Context, req *priorsyncpb.
 			ion.String("function", "HandlePriorSync"))
 
 		// TODO: Implement checkpoint logic
-		return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.Ack{State: state, Ok: true, Error: ""}}
+		return &priorsyncpb.PriorSyncMessage{Priorsync: req.Priorsync, Ack: &ackpb.Ack{State: state, Ok: true, Error: ""}}
 
 	case "RECONCILE":
 		Log.Logger(namedlogger).Debug(ctx, "Reconcile - LOG",
 			ion.String("state", state),
 			ion.String("function", "HandlePriorSync"))
 		// TODO: Implement reconcile logic
-		return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.Ack{State: state, Ok: true, Error: ""}}
+		return &priorsyncpb.PriorSyncMessage{Priorsync: req.Priorsync, Ack: &ackpb.Ack{State: state, Ok: true, Error: ""}}
 
 	default:
 		Log.Logger(namedlogger).Debug(ctx, "Unknown State - LOG",
 			ion.String("state", state),
 			ion.String("function", "HandlePriorSync"))
 		return &priorsyncpb.PriorSyncMessage{
-			Priorsync: req,
+			Priorsync: req.Priorsync,
 			Ack: &ackpb.Ack{
 				State: state,
 				Ok:    false,
@@ -97,7 +104,19 @@ func (router *Datarouter) SYNC_REQUEST_V2(ctx context.Context, req *priorsyncpb.
 		Log.Logger(namedlogger).Error(ctx, "Checksum Verification Failed - LOG",
 			err,
 			ion.String("function", "SYNC_REQUEST"))
-		return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.Ack{State: constants.SYNC_REQUEST_RESPONSE, Ok: false, Error: err.Error()}}
+		return &priorsyncpb.PriorSyncMessage{
+			Priorsync: req, 
+			Ack: &ackpb.Ack{
+				State: constants.SYNC_REQUEST_RESPONSE, 
+				Ok: false, 
+				Error: err.Error()},
+			Phase: &phasepb.Phase{
+				PresentPhase: constants.SYNC_REQUEST,
+				SuccessivePhase: constants.SYNC_REQUEST_RESPONSE,
+				Success: false,
+				Error: err.Error(),
+			},
+		}
 	}
 
 	if !verified {
@@ -169,7 +188,6 @@ func (router *Datarouter) SYNC_REQUEST_V2(ctx context.Context, req *priorsyncpb.
 		Blockhash:   blockDetails.Blockhash,
 		Metadata: &priorsyncpb.Metadata{
 			Version: uint32(req.Metadata.Version),
-			State:   constants.SYNC_REQUEST_RESPONSE,
 		},
 	}
 	checksum, err := checksum_priorsync.PriorSyncChecksum().CreatefromPB(response, uint16(req.Metadata.Version))

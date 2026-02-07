@@ -40,7 +40,6 @@ func SendPriorSyncMessage(
 		Blockhash:   data.Blockhash,
 		Metadata: &priorsyncpb.Metadata{
 			Checksum: data.Metadata.Checksum,
-			State:    data.Metadata.State,
 			Version:  uint32(data.Metadata.Version),
 		},
 	}
@@ -110,7 +109,6 @@ func SendPriorSyncMessage(
 			Blockhash:   resp.Priorsync.Blockhash,
 			Metadata: types.Metadata{
 				Checksum: resp.Priorsync.Metadata.Checksum,
-				State:    resp.Priorsync.Metadata.State,
 				Version:  uint16(resp.Priorsync.Metadata.Version),
 			},
 		}
@@ -143,7 +141,6 @@ func SendMessage(ctx context.Context, node *Node, peerAddrs string, state string
 	// }
 
 	data := GetBlockDetailsDummy()
-	data.Metadata.State = state
 	data.Metadata.Version = 2
 
 	// Calculate checksum using PriorSyncChecksum
@@ -176,7 +173,6 @@ func SendMessage(ctx context.Context, node *Node, peerAddrs string, state string
 		fmt.Printf("Block Number: %d\n", resp.Priorsync.Blocknumber)
 		fmt.Printf("State Root: %s\n", string(resp.Priorsync.Stateroot))
 		fmt.Printf("Block Hash: %s\n", string(resp.Priorsync.Blockhash))
-		fmt.Printf("Response State: %s\n", resp.Priorsync.Metadata.State)
 	}
 
 	return nil

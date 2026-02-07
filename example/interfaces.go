@@ -55,7 +55,6 @@ func GetBlockDetailsDummy() types.PriorSync {
 		Stateroot:   []byte("example-stateroot"),
 		Blockhash:   []byte("example-blockhash"),
 		Metadata: types.Metadata{
-			State:   "example-state",
 			Version: 1,
 		},
 	}

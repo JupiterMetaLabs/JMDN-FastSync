@@ -19,7 +19,6 @@ message PriorSync {
 
 message Metadata {
     bytes checksum = 1;
-    string state = 2;
     uint32 version = 3;
     nodeinfo.NodeInfo nodeinfo = 4;
 }

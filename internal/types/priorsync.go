@@ -23,7 +23,6 @@ type PriorSync struct {
 
 type Metadata struct {
 	Checksum []byte
-	State    string
 	Version  uint16
 }
 
@@ -36,6 +35,7 @@ type PriorSyncAck struct {
 type PriorSyncMessage struct {
 	Priorsync *PriorSync
 	Ack       *PriorSyncAck
+	Phase     *Phase
 }
 
 type Syncvars struct {
@@ -43,4 +43,11 @@ type Syncvars struct {
 	Protocol protocol.ID
 	Version  uint16
 	NodeInfo Nodeinfo
+}
+
+type Phase struct {
+	PresentPhase    string
+	SuccessivePhase string
+	Success 		bool
+	Error 			string
 }

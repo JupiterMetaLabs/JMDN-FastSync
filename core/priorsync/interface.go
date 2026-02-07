@@ -17,7 +17,7 @@ type Priorsync_router interface {
 	HandlePriorSync(node host.Host) error
 
 	// SendPriorSync sends a PriorSync request to a specific peer and returns the response
-	SendPriorSync(merkle *merkletree.MerkleTreeSnapshot,peer types.Nodeinfo, data types.PriorSync) (*types.PriorSyncMessage, error)
+	SendPriorSync(merkle *merkletree.MerkleTreeSnapshot,peer types.Nodeinfo, data types.PriorSyncMessage) (*types.PriorSyncMessage, error)
 
 	// Close the connection
 	Close()

@@ -112,7 +112,6 @@ func (x *PriorSync) GetRange() *merkle.Range {
 type Metadata struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Checksum      []byte                 `protobuf:"bytes,1,opt,name=checksum,proto3" json:"checksum,omitempty"`
-	State         string                 `protobuf:"bytes,2,opt,name=state,proto3" json:"state,omitempty"`
 	Version       uint32                 `protobuf:"varint,3,opt,name=version,proto3" json:"version,omitempty"`
 	Nodeinfo      *nodeinfo.NodeInfo     `protobuf:"bytes,4,opt,name=nodeinfo,proto3" json:"nodeinfo,omitempty"`
 	unknownFields protoimpl.UnknownFields
@@ -154,13 +153,6 @@ func (x *Metadata) GetChecksum() []byte {
 		return x.Checksum
 	}
 	return nil
-}
-
-func (x *Metadata) GetState() string {
-	if x != nil {
-		return x.State
-	}
-	return ""
 }
 
 func (x *Metadata) GetVersion() uint32 {
@@ -248,10 +240,9 @@ const file_priorsync_priorsync_proto_rawDesc = "" +
 	"\tblockhash\x18\x03 \x01(\fR\tblockhash\x12/\n" +
 	"\bmetadata\x18\x04 \x01(\v2\x13.priorsync.MetadataR\bmetadata\x12>\n" +
 	"\x0emerklesnapshot\x18\x05 \x01(\v2\x16.merkle.MerkleSnapshotR\x0emerklesnapshot\x12#\n" +
-	"\x05range\x18\x06 \x01(\v2\r.merkle.rangeR\x05range\"\x86\x01\n" +
+	"\x05range\x18\x06 \x01(\v2\r.merkle.rangeR\x05range\"p\n" +
 	"\bMetadata\x12\x1a\n" +
-	"\bchecksum\x18\x01 \x01(\fR\bchecksum\x12\x14\n" +
-	"\x05state\x18\x02 \x01(\tR\x05state\x12\x18\n" +
+	"\bchecksum\x18\x01 \x01(\fR\bchecksum\x12\x18\n" +
 	"\aversion\x18\x03 \x01(\rR\aversion\x12.\n" +
 	"\bnodeinfo\x18\x04 \x01(\v2\x12.nodeinfo.NodeInfoR\bnodeinfo\"\x86\x01\n" +
 	"\x10PriorSyncMessage\x122\n" +
