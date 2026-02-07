@@ -303,3 +303,9 @@ func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.Pri
 
 	return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.Ack{State: constants.SYNC_REQUEST_RESPONSE, Ok: true, Error: ""}}
 }
+
+// This is the Phase2 function that will take the tagged blocks and send to the server node to get the block headers sync.
+func (router *Datarouter) HeaderSync(ctx context.Context, req *priorsyncpb.PriorSyncMessage) *priorsyncpb.PriorSyncMessage {
+	
+	return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.Ack{State: constants.SYNC_REQUEST_RESPONSE, Ok: true, Error: ""}}
+}

@@ -1,0 +1,13 @@
+syntax = "proto3";
+
+package headersync;
+
+option go_package = "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/headersync";
+
+import "tagging/tag.proto";
+import "ack/ack.proto";
+
+message HeaderSyncRequest {
+    tagging.Tag tag = 1;
+    ack.Ack ack = 2;
+}

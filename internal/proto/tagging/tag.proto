@@ -1,0 +1,7 @@
+syntax = "proto3";
+
+package tagging;
+option go_package = "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/tagging";
+message Tag {
+	repeated uint64 block_number = 1;
+}
