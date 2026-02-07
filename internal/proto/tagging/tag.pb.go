@@ -21,9 +21,12 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
+// in the version 1 we are just taging the numbers
+// in the version 2 we can tag both numbers and range also
 type Tag struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	BlockNumber   []uint64               `protobuf:"varint,1,rep,packed,name=block_number,json=blockNumber,proto3" json:"block_number,omitempty"`
+	Range         []*RangeTag            `protobuf:"bytes,2,rep,name=range,proto3" json:"range,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -65,13 +68,76 @@ func (x *Tag) GetBlockNumber() []uint64 {
 	return nil
 }
 
+func (x *Tag) GetRange() []*RangeTag {
+	if x != nil {
+		return x.Range
+	}
+	return nil
+}
+
+type RangeTag struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Start         uint64                 `protobuf:"varint,1,opt,name=start,proto3" json:"start,omitempty"`
+	End           uint64                 `protobuf:"varint,2,opt,name=end,proto3" json:"end,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RangeTag) Reset() {
+	*x = RangeTag{}
+	mi := &file_tagging_tag_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RangeTag) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RangeTag) ProtoMessage() {}
+
+func (x *RangeTag) ProtoReflect() protoreflect.Message {
+	mi := &file_tagging_tag_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RangeTag.ProtoReflect.Descriptor instead.
+func (*RangeTag) Descriptor() ([]byte, []int) {
+	return file_tagging_tag_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *RangeTag) GetStart() uint64 {
+	if x != nil {
+		return x.Start
+	}
+	return 0
+}
+
+func (x *RangeTag) GetEnd() uint64 {
+	if x != nil {
+		return x.End
+	}
+	return 0
+}
+
 var File_tagging_tag_proto protoreflect.FileDescriptor
 
 const file_tagging_tag_proto_rawDesc = "" +
 	"\n" +
-	"\x11tagging/tag.proto\x12\atagging\"(\n" +
+	"\x11tagging/tag.proto\x12\atagging\"Q\n" +
 	"\x03Tag\x12!\n" +
-	"\fblock_number\x18\x01 \x03(\x04R\vblockNumberBAZ?github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/taggingb\x06proto3"
+	"\fblock_number\x18\x01 \x03(\x04R\vblockNumber\x12'\n" +
+	"\x05range\x18\x02 \x03(\v2\x11.tagging.RangeTagR\x05range\"2\n" +
+	"\bRangeTag\x12\x14\n" +
+	"\x05start\x18\x01 \x01(\x04R\x05start\x12\x10\n" +
+	"\x03end\x18\x02 \x01(\x04R\x03endBAZ?github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/taggingb\x06proto3"
 
 var (
 	file_tagging_tag_proto_rawDescOnce sync.Once
@@ -85,16 +151,18 @@ func file_tagging_tag_proto_rawDescGZIP() []byte {
 	return file_tagging_tag_proto_rawDescData
 }
 
-var file_tagging_tag_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
+var file_tagging_tag_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
 var file_tagging_tag_proto_goTypes = []any{
-	(*Tag)(nil), // 0: tagging.Tag
+	(*Tag)(nil),      // 0: tagging.Tag
+	(*RangeTag)(nil), // 1: tagging.RangeTag
 }
 var file_tagging_tag_proto_depIdxs = []int32{
-	0, // [0:0] is the sub-list for method output_type
-	0, // [0:0] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	1, // 0: tagging.Tag.range:type_name -> tagging.RangeTag
+	1, // [1:1] is the sub-list for method output_type
+	1, // [1:1] is the sub-list for method input_type
+	1, // [1:1] is the sub-list for extension type_name
+	1, // [1:1] is the sub-list for extension extendee
+	0, // [0:1] is the sub-list for field type_name
 }
 
 func init() { file_tagging_tag_proto_init() }
@@ -108,7 +176,7 @@ func file_tagging_tag_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_tagging_tag_proto_rawDesc), len(file_tagging_tag_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   1,
+			NumMessages:   2,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

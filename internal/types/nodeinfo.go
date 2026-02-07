@@ -1,6 +1,7 @@
 package types
 
 import (
+	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/block"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/multiformats/go-multiaddr"
@@ -25,6 +26,7 @@ type BlockInfo interface {
 	GetBlockNumber() uint64
 	GetBlockDetails() PriorSync
 	NewBlockIterator(start, end uint64, batchsize int) BlockIterator
+	NewBlockHeaderIterator() BlockHeader
 }
 
 type BlockIterator interface {
@@ -33,4 +35,7 @@ type BlockIterator interface {
 	Close()
 }
 
-
+type BlockHeader interface{
+	GetBlockHeaders(blocknumbers []uint64) ([]*block.Header, error)
+	GetBlockHeadersRange(start, end uint64) ([]*block.Header, error)
+}

@@ -313,5 +313,37 @@ func (router *Datarouter) HeaderSync(ctx context.Context, req *headersyncpb.Head
 		- After bisecting the tree in phase 1 with recursion. we get the tagged blocks per cycle. 
 		- This blocks are transmitted to the server node to get the block headers synced.
 	*/
-	return &headersyncpb.HeaderSyncResponse{Header: []*block.Header{}, Ack: &ackpb.Ack{State: constants.SYNC_REQUEST_RESPONSE, Ok: true, Error: ""}}
+
+	/* get the headers of the blocks in the req.block_number slice.
+	   then get the range headers from the req.range slice.
+	   then send the all headers to the server node in sorted order.
+	*/
+
+	all_headers := []*block.Header{}
+
+	Headers_iterator := router.Nodeinfo.BlockInfo.NewBlockHeaderIterator()
+	
+	headers, err := Headers_iterator.GetBlockHeaders(req.Tag.BlockNumber)
+	if err != nil {
+		Log.Logger(namedlogger).Error(ctx, "BlockHeaderIterator Creation Failed - LOG",
+			err,
+			ion.String("function", "HEADER_SYNC"))
+		return &headersyncpb.HeaderSyncResponse{Header: []*block.Header{}, Ack: &ackpb.Ack{State: constants.SYNC_REQUEST_RESPONSE, Ok: false, Error: err.Error()}}
+	}
+
+	all_headers = append(all_headers, headers...)
+
+	for i := range(req.Tag.Range){
+		headers, err := Headers_iterator.GetBlockHeadersRange(req.Tag.Range[i].Start, req.Tag.Range[i].End)
+		if err != nil {
+			Log.Logger(namedlogger).Error(ctx, "BlockHeaderIterator Creation Failed - LOG",
+				err,
+				ion.String("function", "HEADER_SYNC"))
+			return &headersyncpb.HeaderSyncResponse{Header: []*block.Header{}, Ack: &ackpb.Ack{State: constants.SYNC_REQUEST_RESPONSE, Ok: false, Error: err.Error()}}
+		}
+
+		all_headers = append(all_headers, headers...)
+	}
+
+	return &headersyncpb.HeaderSyncResponse{Header: all_headers, Ack: &ackpb.Ack{State: constants.SYNC_REQUEST_RESPONSE, Ok: true, Error: ""}}
 }

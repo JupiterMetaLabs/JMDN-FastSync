@@ -27,7 +27,8 @@ const (
 type HeaderSyncRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Tag           *tagging.Tag           `protobuf:"bytes,1,opt,name=tag,proto3" json:"tag,omitempty"`
-	Ack           *ack.Ack               `protobuf:"bytes,2,opt,name=ack,proto3" json:"ack,omitempty"`
+	Version       uint32                 `protobuf:"varint,2,opt,name=version,proto3" json:"version,omitempty"`
+	Ack           *ack.Ack               `protobuf:"bytes,3,opt,name=ack,proto3" json:"ack,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -69,6 +70,13 @@ func (x *HeaderSyncRequest) GetTag() *tagging.Tag {
 	return nil
 }
 
+func (x *HeaderSyncRequest) GetVersion() uint32 {
+	if x != nil {
+		return x.Version
+	}
+	return 0
+}
+
 func (x *HeaderSyncRequest) GetAck() *ack.Ack {
 	if x != nil {
 		return x.Ack
@@ -79,7 +87,8 @@ func (x *HeaderSyncRequest) GetAck() *ack.Ack {
 type HeaderSyncResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Header        []*block.Header        `protobuf:"bytes,1,rep,name=header,proto3" json:"header,omitempty"`
-	Ack           *ack.Ack               `protobuf:"bytes,2,opt,name=ack,proto3" json:"ack,omitempty"`
+	Version       uint32                 `protobuf:"varint,2,opt,name=version,proto3" json:"version,omitempty"`
+	Ack           *ack.Ack               `protobuf:"bytes,3,opt,name=ack,proto3" json:"ack,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -121,6 +130,13 @@ func (x *HeaderSyncResponse) GetHeader() []*block.Header {
 	return nil
 }
 
+func (x *HeaderSyncResponse) GetVersion() uint32 {
+	if x != nil {
+		return x.Version
+	}
+	return 0
+}
+
 func (x *HeaderSyncResponse) GetAck() *ack.Ack {
 	if x != nil {
 		return x.Ack
@@ -133,13 +149,15 @@ var File_headersync_headersync_proto protoreflect.FileDescriptor
 const file_headersync_headersync_proto_rawDesc = "" +
 	"\n" +
 	"\x1bheadersync/headersync.proto\x12\n" +
-	"headersync\x1a\x11tagging/tag.proto\x1a\rack/ack.proto\x1a\x11block/block.proto\"O\n" +
+	"headersync\x1a\x11tagging/tag.proto\x1a\rack/ack.proto\x1a\x11block/block.proto\"i\n" +
 	"\x11HeaderSyncRequest\x12\x1e\n" +
-	"\x03tag\x18\x01 \x01(\v2\f.tagging.TagR\x03tag\x12\x1a\n" +
-	"\x03ack\x18\x02 \x01(\v2\b.ack.AckR\x03ack\"W\n" +
+	"\x03tag\x18\x01 \x01(\v2\f.tagging.TagR\x03tag\x12\x18\n" +
+	"\aversion\x18\x02 \x01(\rR\aversion\x12\x1a\n" +
+	"\x03ack\x18\x03 \x01(\v2\b.ack.AckR\x03ack\"q\n" +
 	"\x12HeaderSyncResponse\x12%\n" +
-	"\x06header\x18\x01 \x03(\v2\r.block.HeaderR\x06header\x12\x1a\n" +
-	"\x03ack\x18\x02 \x01(\v2\b.ack.AckR\x03ackBDZBgithub.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/headersyncb\x06proto3"
+	"\x06header\x18\x01 \x03(\v2\r.block.HeaderR\x06header\x12\x18\n" +
+	"\aversion\x18\x02 \x01(\rR\aversion\x12\x1a\n" +
+	"\x03ack\x18\x03 \x01(\v2\b.ack.AckR\x03ackBDZBgithub.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/headersyncb\x06proto3"
 
 var (
 	file_headersync_headersync_proto_rawDescOnce sync.Once
