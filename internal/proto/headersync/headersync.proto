@@ -7,15 +7,18 @@ option go_package = "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/hea
 import "tagging/tag.proto";
 import "ack/ack.proto";
 import "block/block.proto";
+import "phase/phase.proto";
 
 message HeaderSyncRequest {
     tagging.Tag tag = 1;
     uint32 version = 2;
     ack.Ack ack = 3;
+    phase.Phase phase = 4;
 }
 
 message HeaderSyncResponse {
     repeated block.Header header = 1;
     uint32 version = 2;
     ack.Ack ack = 3;
+    phase.Phase phase = 4;
 }

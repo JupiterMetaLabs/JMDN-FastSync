@@ -95,7 +95,6 @@ func SendPriorSyncMessage(
 	// Convert protobuf response to types.PriorSyncMessage
 	result := &types.PriorSyncMessage{
 		Ack: &types.PriorSyncAck{
-			State: resp.Ack.State,
 			Ok:    resp.Ack.Ok,
 			Error: resp.Ack.Error,
 		},

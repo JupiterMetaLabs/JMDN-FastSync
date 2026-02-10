@@ -9,6 +9,7 @@ package headersync
 import (
 	ack "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/ack"
 	block "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/block"
+	phase "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/phase"
 	tagging "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/tagging"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
@@ -29,6 +30,7 @@ type HeaderSyncRequest struct {
 	Tag           *tagging.Tag           `protobuf:"bytes,1,opt,name=tag,proto3" json:"tag,omitempty"`
 	Version       uint32                 `protobuf:"varint,2,opt,name=version,proto3" json:"version,omitempty"`
 	Ack           *ack.Ack               `protobuf:"bytes,3,opt,name=ack,proto3" json:"ack,omitempty"`
+	Phase         *phase.Phase           `protobuf:"bytes,4,opt,name=phase,proto3" json:"phase,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -84,11 +86,19 @@ func (x *HeaderSyncRequest) GetAck() *ack.Ack {
 	return nil
 }
 
+func (x *HeaderSyncRequest) GetPhase() *phase.Phase {
+	if x != nil {
+		return x.Phase
+	}
+	return nil
+}
+
 type HeaderSyncResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Header        []*block.Header        `protobuf:"bytes,1,rep,name=header,proto3" json:"header,omitempty"`
 	Version       uint32                 `protobuf:"varint,2,opt,name=version,proto3" json:"version,omitempty"`
 	Ack           *ack.Ack               `protobuf:"bytes,3,opt,name=ack,proto3" json:"ack,omitempty"`
+	Phase         *phase.Phase           `protobuf:"bytes,4,opt,name=phase,proto3" json:"phase,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -144,20 +154,29 @@ func (x *HeaderSyncResponse) GetAck() *ack.Ack {
 	return nil
 }
 
+func (x *HeaderSyncResponse) GetPhase() *phase.Phase {
+	if x != nil {
+		return x.Phase
+	}
+	return nil
+}
+
 var File_headersync_headersync_proto protoreflect.FileDescriptor
 
 const file_headersync_headersync_proto_rawDesc = "" +
 	"\n" +
 	"\x1bheadersync/headersync.proto\x12\n" +
-	"headersync\x1a\x11tagging/tag.proto\x1a\rack/ack.proto\x1a\x11block/block.proto\"i\n" +
+	"headersync\x1a\x11tagging/tag.proto\x1a\rack/ack.proto\x1a\x11block/block.proto\x1a\x11phase/phase.proto\"\x8d\x01\n" +
 	"\x11HeaderSyncRequest\x12\x1e\n" +
 	"\x03tag\x18\x01 \x01(\v2\f.tagging.TagR\x03tag\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\rR\aversion\x12\x1a\n" +
-	"\x03ack\x18\x03 \x01(\v2\b.ack.AckR\x03ack\"q\n" +
+	"\x03ack\x18\x03 \x01(\v2\b.ack.AckR\x03ack\x12\"\n" +
+	"\x05phase\x18\x04 \x01(\v2\f.phase.PhaseR\x05phase\"\x95\x01\n" +
 	"\x12HeaderSyncResponse\x12%\n" +
 	"\x06header\x18\x01 \x03(\v2\r.block.HeaderR\x06header\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\rR\aversion\x12\x1a\n" +
-	"\x03ack\x18\x03 \x01(\v2\b.ack.AckR\x03ackBDZBgithub.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/headersyncb\x06proto3"
+	"\x03ack\x18\x03 \x01(\v2\b.ack.AckR\x03ack\x12\"\n" +
+	"\x05phase\x18\x04 \x01(\v2\f.phase.PhaseR\x05phaseBDZBgithub.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/headersyncb\x06proto3"
 
 var (
 	file_headersync_headersync_proto_rawDescOnce sync.Once
@@ -177,18 +196,21 @@ var file_headersync_headersync_proto_goTypes = []any{
 	(*HeaderSyncResponse)(nil), // 1: headersync.HeaderSyncResponse
 	(*tagging.Tag)(nil),        // 2: tagging.Tag
 	(*ack.Ack)(nil),            // 3: ack.Ack
-	(*block.Header)(nil),       // 4: block.Header
+	(*phase.Phase)(nil),        // 4: phase.Phase
+	(*block.Header)(nil),       // 5: block.Header
 }
 var file_headersync_headersync_proto_depIdxs = []int32{
 	2, // 0: headersync.HeaderSyncRequest.tag:type_name -> tagging.Tag
 	3, // 1: headersync.HeaderSyncRequest.ack:type_name -> ack.Ack
-	4, // 2: headersync.HeaderSyncResponse.header:type_name -> block.Header
-	3, // 3: headersync.HeaderSyncResponse.ack:type_name -> ack.Ack
-	4, // [4:4] is the sub-list for method output_type
-	4, // [4:4] is the sub-list for method input_type
-	4, // [4:4] is the sub-list for extension type_name
-	4, // [4:4] is the sub-list for extension extendee
-	0, // [0:4] is the sub-list for field type_name
+	4, // 2: headersync.HeaderSyncRequest.phase:type_name -> phase.Phase
+	5, // 3: headersync.HeaderSyncResponse.header:type_name -> block.Header
+	3, // 4: headersync.HeaderSyncResponse.ack:type_name -> ack.Ack
+	4, // 5: headersync.HeaderSyncResponse.phase:type_name -> phase.Phase
+	6, // [6:6] is the sub-list for method output_type
+	6, // [6:6] is the sub-list for method input_type
+	6, // [6:6] is the sub-list for extension type_name
+	6, // [6:6] is the sub-list for extension extendee
+	0, // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_headersync_headersync_proto_init() }

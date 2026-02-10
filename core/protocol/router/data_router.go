@@ -39,13 +39,12 @@ func (router *Datarouter) HandlePriorSync(ctx context.Context, req *priorsyncpb.
 		return &priorsyncpb.PriorSyncMessage{
 			Priorsync: req.Priorsync,
 			Ack: &ackpb.Ack{
-				State: "UNKNOWN",
 				Ok:    false,
 				Error: errors.MetadataRequired.Error(),
 			},
 			Phase: &phasepb.Phase{
-				PresentPhase: constants.SYNC_REQUEST,
-				SuccessivePhase: constants.SYNC_REQUEST_RESPONSE,
+				PresentPhase: constants.UNKNOWN,
+				SuccessivePhase: constants.UNKNOWN,
 				Success: false,
 				Error: errors.MetadataRequired.Error(),
 			},
@@ -68,14 +67,14 @@ func (router *Datarouter) HandlePriorSync(ctx context.Context, req *priorsyncpb.
 			ion.String("function", "HandlePriorSync"))
 
 		// TODO: Implement checkpoint logic
-		return &priorsyncpb.PriorSyncMessage{Priorsync: req.Priorsync, Ack: &ackpb.Ack{State: state, Ok: true, Error: ""}}
+		return &priorsyncpb.PriorSyncMessage{Priorsync: req.Priorsync, Ack: &ackpb.Ack{ Ok: true, Error: ""}}
 
 	case "RECONCILE":
 		Log.Logger(namedlogger).Debug(ctx, "Reconcile - LOG",
 			ion.String("state", state),
 			ion.String("function", "HandlePriorSync"))
 		// TODO: Implement reconcile logic
-		return &priorsyncpb.PriorSyncMessage{Priorsync: req.Priorsync, Ack: &ackpb.Ack{State: state, Ok: true, Error: ""}}
+		return &priorsyncpb.PriorSyncMessage{Priorsync: req.Priorsync, Ack: &ackpb.Ack{Ok: true, Error: ""}}
 
 	default:
 		Log.Logger(namedlogger).Debug(ctx, "Unknown State - LOG",
@@ -84,8 +83,13 @@ func (router *Datarouter) HandlePriorSync(ctx context.Context, req *priorsyncpb.
 		return &priorsyncpb.PriorSyncMessage{
 			Priorsync: req.Priorsync,
 			Ack: &ackpb.Ack{
-				State: state,
 				Ok:    false,
+				Error: "unknown state: " + state,
+			},
+			Phase: &phasepb.Phase{
+				PresentPhase: state,
+				SuccessivePhase: constants.FAILURE,
+				Success: false,
 				Error: "unknown state: " + state,
 			},
 		}
@@ -106,13 +110,12 @@ func (router *Datarouter) SYNC_REQUEST_V2(ctx context.Context, req *priorsyncpb.
 			ion.String("function", "SYNC_REQUEST"))
 		return &priorsyncpb.PriorSyncMessage{
 			Priorsync: req, 
-			Ack: &ackpb.Ack{
-				State: constants.SYNC_REQUEST_RESPONSE, 
+			Ack: &ackpb.Ack{ 
 				Ok: false, 
 				Error: err.Error()},
 			Phase: &phasepb.Phase{
-				PresentPhase: constants.SYNC_REQUEST,
-				SuccessivePhase: constants.SYNC_REQUEST_RESPONSE,
+				PresentPhase: constants.SYNC_REQUEST_RESPONSE,
+				SuccessivePhase: constants.FAILURE,
 				Success: false,
 				Error: err.Error(),
 			},
@@ -123,7 +126,18 @@ func (router *Datarouter) SYNC_REQUEST_V2(ctx context.Context, req *priorsyncpb.
 		Log.Logger(namedlogger).Error(ctx, "Checksum Verification Failed - LOG",
 			errors.ChecksumMismatch,
 			ion.String("function", "SYNC_REQUEST"))
-		return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.Ack{State: constants.SYNC_REQUEST_RESPONSE, Ok: false, Error: errors.ChecksumMismatch.Error()}}
+		return &priorsyncpb.PriorSyncMessage{
+			Priorsync: req, 
+			Ack: &ackpb.Ack{ 
+				Ok: false, 
+				Error: err.Error()},
+			Phase: &phasepb.Phase{
+				PresentPhase: constants.SYNC_REQUEST_RESPONSE,
+				SuccessivePhase: constants.FAILURE,
+				Success: false,
+				Error: err.Error(),
+			},
+		}
 	}
 
 	// 2. Load the latest block information from the node using the interface function.
@@ -133,7 +147,18 @@ func (router *Datarouter) SYNC_REQUEST_V2(ctx context.Context, req *priorsyncpb.
 			errors.BlockInfoNil,
 			ion.String("function", "SYNC_REQUEST"))
 
-		return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.Ack{State: constants.SYNC_REQUEST_RESPONSE, Ok: false, Error: errors.BlockInfoNil.Error()}}
+		return &priorsyncpb.PriorSyncMessage{
+			Priorsync: req, 
+			Ack: &ackpb.Ack{ 
+				Ok: false, 
+				Error: err.Error()},
+			Phase: &phasepb.Phase{
+				PresentPhase: constants.SYNC_REQUEST_RESPONSE,
+				SuccessivePhase: constants.FAILURE,
+				Success: false,
+				Error: err.Error(),
+			},
+		}
 	}
 	blockNumber := blockInfo.GetBlockNumber()
 	blockDetails := blockInfo.GetBlockDetails()
@@ -149,19 +174,55 @@ func (router *Datarouter) SYNC_REQUEST_V2(ctx context.Context, req *priorsyncpb.
 				errors.SameBlockHeight_DifferentStateroot,
 				ion.String("function", "SYNC_REQUEST"))
 
-			return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.Ack{State: constants.SYNC_REQUEST_RESPONSE, Ok: false, Error: errors.SameBlockHeight_DifferentStateroot.Error()}}
+			return &priorsyncpb.PriorSyncMessage{
+				Priorsync: req, 
+				Ack: &ackpb.Ack{ 
+					Ok: false, 
+					Error: err.Error()},
+				Phase: &phasepb.Phase{
+					PresentPhase: constants.SYNC_REQUEST_RESPONSE,
+					SuccessivePhase: constants.FAILURE,
+					Success: false,
+					Error: err.Error(),
+				},
+			}
+
 		} else if !bytes.Equal(blockDetails.Blockhash, req.Blockhash) {
 			Log.Logger(namedlogger).Error(ctx, "Blockhash Mismatch - LOG",
 				errors.SameBlockHeight_DifferentBlockhash,
 				ion.String("function", "SYNC_REQUEST"))
 
-			return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.Ack{State: constants.SYNC_REQUEST_RESPONSE, Ok: false, Error: errors.SameBlockHeight_DifferentBlockhash.Error()}}
+			return &priorsyncpb.PriorSyncMessage{
+				Priorsync: req, 
+				Ack: &ackpb.Ack{ 
+					Ok: false, 
+					Error: err.Error()},
+				Phase: &phasepb.Phase{
+					PresentPhase: constants.SYNC_REQUEST_RESPONSE,
+					SuccessivePhase: constants.FAILURE,
+					Success: false,
+					Error: err.Error(),
+				},
+			}
+
 		} else {
 			Log.Logger(namedlogger).Warn(ctx, "Same Block Height - LOG",
 				ion.Err(errors.SameBlockHeight),
 				ion.String("function", "SYNC_REQUEST"))
 
-			return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.Ack{State: constants.SYNC_REQUEST_RESPONSE, Ok: true, Error: errors.SameBlockHeight.Error()}}
+			return &priorsyncpb.PriorSyncMessage{
+				Priorsync: req, 
+				Ack: &ackpb.Ack{ 
+					Ok: true, 
+					Error: errors.SameBlockHeight.Error()},
+				Phase: &phasepb.Phase{
+					PresentPhase: constants.SYNC_REQUEST_RESPONSE,
+					SuccessivePhase: constants.FAILURE,
+					Success: true,
+					Error: errors.SameBlockHeight.Error(),
+				},
+			}
+
 		}
 	} else if blockNumber > req.Blocknumber {
 		// If the current node block height is higger than the node from which the request is coming,
@@ -174,7 +235,18 @@ func (router *Datarouter) SYNC_REQUEST_V2(ctx context.Context, req *priorsyncpb.
 			ion.String("Provider Block Number", fmt.Sprintf("%d", req.Blocknumber)),
 			ion.String("function", "SYNC_REQUEST"))
 
-		return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.Ack{State: constants.SYNC_REQUEST_RESPONSE, Ok: true, Error: errors.BlockHeightHigher.Error()}}
+		return &priorsyncpb.PriorSyncMessage{
+			Priorsync: req, 
+			Ack: &ackpb.Ack{ 
+				Ok: true, 
+				Error: errors.BlockHeightHigher.Error()},
+			Phase: &phasepb.Phase{
+				PresentPhase: constants.SYNC_REQUEST_RESPONSE,
+				SuccessivePhase: constants.FAILURE,
+				Success: true,
+				Error: errors.BlockHeightHigher.Error(),
+			},
+		}
 	}
 
 	// If the current node block height is less than the provider node then we need to sync the blocks from the provider node.
@@ -192,7 +264,18 @@ func (router *Datarouter) SYNC_REQUEST_V2(ctx context.Context, req *priorsyncpb.
 	}
 	checksum, err := checksum_priorsync.PriorSyncChecksum().CreatefromPB(response, uint16(req.Metadata.Version))
 	if err != nil {
-		return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.Ack{State: constants.SYNC_REQUEST_RESPONSE, Ok: false, Error: err.Error()}}
+		return &priorsyncpb.PriorSyncMessage{
+			Priorsync: req, 
+			Ack: &ackpb.Ack{ 
+				Ok: false, 
+				Error: err.Error()},
+			Phase: &phasepb.Phase{
+				PresentPhase: constants.SYNC_REQUEST_RESPONSE,
+				SuccessivePhase: constants.FAILURE,
+				Success: false,
+				Error: err.Error(),
+			},
+		}
 	}
 
 	response.Metadata.Checksum = checksum
@@ -200,8 +283,13 @@ func (router *Datarouter) SYNC_REQUEST_V2(ctx context.Context, req *priorsyncpb.
 	return &priorsyncpb.PriorSyncMessage{
 		Priorsync: response,
 		Ack: &ackpb.Ack{
-			State: constants.SYNC_REQUEST_RESPONSE,
 			Ok:    true,
+			Error: "",
+		},
+		Phase: &phasepb.Phase{
+			PresentPhase: constants.SYNC_REQUEST_RESPONSE,
+			SuccessivePhase: constants.HEADER_SYNC_REQUEST,
+			Success: true,
 			Error: "",
 		},
 	}
@@ -234,14 +322,36 @@ func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.Pri
 		Log.Logger(namedlogger).Error(ctx, "Checksum Verification Failed - LOG",
 			err,
 			ion.String("function", "SYNC_REQUEST"))
-		return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.Ack{State: constants.SYNC_REQUEST_RESPONSE, Ok: false, Error: err.Error()}}
+		return &priorsyncpb.PriorSyncMessage{
+			Priorsync: req, 
+			Ack: &ackpb.Ack{ 
+				Ok: false, 
+				Error: err.Error()},
+			Phase: &phasepb.Phase{
+				PresentPhase: constants.SYNC_REQUEST_RESPONSE,
+				SuccessivePhase: constants.FAILURE,
+				Success: false,
+				Error: err.Error(),
+			},
+		}
 	}
 
 	if !verified {
 		Log.Logger(namedlogger).Error(ctx, "Checksum Verification Failed - LOG",
 			errors.ChecksumMismatch,
 			ion.String("function", "SYNC_REQUEST"))
-		return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.Ack{State: constants.SYNC_REQUEST_RESPONSE, Ok: false, Error: errors.ChecksumMismatch.Error()}}
+		return &priorsyncpb.PriorSyncMessage{
+			Priorsync: req, 
+			Ack: &ackpb.Ack{ 
+				Ok: false, 
+				Error: errors.ChecksumMismatch.Error()},
+			Phase: &phasepb.Phase{
+				PresentPhase: constants.SYNC_REQUEST_RESPONSE,
+				SuccessivePhase: constants.FAILURE,
+				Success: false,
+				Error: errors.ChecksumMismatch.Error(),
+			},
+		}
 	}
 
 	// 2. Load the latest block information from the node using the interface function.
@@ -251,7 +361,18 @@ func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.Pri
 			errors.BlockInfoNil,
 			ion.String("function", "SYNC_REQUEST"))
 
-		return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.Ack{State: constants.SYNC_REQUEST_RESPONSE, Ok: false, Error: errors.BlockInfoNil.Error()}}
+		return &priorsyncpb.PriorSyncMessage{
+			Priorsync: req, 
+			Ack: &ackpb.Ack{ 
+				Ok: false, 
+				Error: errors.BlockInfoNil.Error()},
+			Phase: &phasepb.Phase{
+				PresentPhase: constants.SYNC_REQUEST_RESPONSE,
+				SuccessivePhase: constants.FAILURE,
+				Success: false,
+				Error: errors.BlockInfoNil.Error(),
+			},
+		}
 	}
 
 	blockNumber := blockInfo.GetBlockNumber()
@@ -269,7 +390,18 @@ func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.Pri
 		Log.Logger(namedlogger).Error(ctx, "Merkle Tree Reconstruction Failed - LOG",
 			err,
 			ion.String("function", "SYNC_REQUEST"))
-		return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.Ack{State: constants.SYNC_REQUEST_RESPONSE, Ok: false, Error: err.Error()}}
+		return &priorsyncpb.PriorSyncMessage{
+			Priorsync: req, 
+			Ack: &ackpb.Ack{ 
+				Ok: false, 
+				Error: err.Error()},
+			Phase: &phasepb.Phase{
+				PresentPhase: constants.SYNC_REQUEST_RESPONSE,
+				SuccessivePhase: constants.FAILURE,
+				Success: false,
+				Error: err.Error(),
+			},
+		}
 	}
 
 	// create the local merkle tree with the same config as the target machine.
@@ -278,7 +410,18 @@ func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.Pri
 		Log.Logger(namedlogger).Error(ctx, "Merkle Tree Generation Failed - LOG",
 			err,
 			ion.String("function", "SYNC_REQUEST"))
-		return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.Ack{State: constants.SYNC_REQUEST_RESPONSE, Ok: false, Error: err.Error()}}
+		return &priorsyncpb.PriorSyncMessage{
+			Priorsync: req, 
+			Ack: &ackpb.Ack{ 
+				Ok: false, 
+				Error: err.Error()},
+			Phase: &phasepb.Phase{
+				PresentPhase: constants.SYNC_REQUEST_RESPONSE,
+				SuccessivePhase: constants.FAILURE,
+				Success: false,
+				Error: err.Error(),
+			},
+		}
 	}
 
 	target_merkletree_root, err := target_merkletree_pointer.Finalize()
@@ -286,7 +429,18 @@ func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.Pri
 		Log.Logger(namedlogger).Error(ctx, "Merkle Tree Finalization Failed - LOG",
 			err,
 			ion.String("function", "SYNC_REQUEST"))
-		return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.Ack{State: constants.SYNC_REQUEST_RESPONSE, Ok: false, Error: err.Error()}}
+		return &priorsyncpb.PriorSyncMessage{
+			Priorsync: req, 
+			Ack: &ackpb.Ack{ 
+				Ok: false, 
+				Error: err.Error()},
+			Phase: &phasepb.Phase{
+				PresentPhase: constants.SYNC_REQUEST_RESPONSE,
+				SuccessivePhase: constants.FAILURE,
+				Success: false,
+				Error: err.Error(),
+			},
+		}
 	}
 
 	local_merkletree_root, err := local_merkletree_pointer.Finalize()
@@ -294,14 +448,36 @@ func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.Pri
 		Log.Logger(namedlogger).Error(ctx, "Merkle Tree Finalization Failed - LOG",
 			err,
 			ion.String("function", "SYNC_REQUEST"))
-		return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.Ack{State: constants.SYNC_REQUEST_RESPONSE, Ok: false, Error: err.Error()}}
+		return &priorsyncpb.PriorSyncMessage{
+			Priorsync: req, 
+			Ack: &ackpb.Ack{ 
+				Ok: false, 
+				Error: err.Error()},
+			Phase: &phasepb.Phase{
+				PresentPhase: constants.SYNC_REQUEST_RESPONSE,
+				SuccessivePhase: constants.FAILURE,
+				Success: false,
+				Error: err.Error(),
+			},
+		}
 	}
 
 	// compare the merkle tree roots. If both are same then both are in sync.
 	if target_merkletree_root == local_merkletree_root {
 		Log.Logger(namedlogger).Info(ctx, "Merkle Trees are same - LOG",
 			ion.String("function", "SYNC_REQUEST"))
-		return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.Ack{State: constants.SYNC_REQUEST_RESPONSE, Ok: true, Error: ""}}
+		return &priorsyncpb.PriorSyncMessage{
+			Priorsync: req, 
+			Ack: &ackpb.Ack{ 
+				Ok: true, 
+				Error: ""},
+			Phase: &phasepb.Phase{
+				PresentPhase: constants.SYNC_REQUEST_RESPONSE,
+				SuccessivePhase: constants.HEADER_SYNC_REQUEST,
+				Success: true,
+				Error: "",
+			},
+		}
 	}
 
 	// bisect the merkle tree to find the to be synched block range.
@@ -310,7 +486,18 @@ func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.Pri
 		Log.Logger(namedlogger).Error(ctx, "Bisect Failed - LOG",
 			err,
 			ion.String("function", "SYNC_REQUEST"))
-		return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.Ack{State: constants.SYNC_REQUEST_RESPONSE, Ok: false, Error: err.Error()}}
+		return &priorsyncpb.PriorSyncMessage{
+			Priorsync: req, 
+			Ack: &ackpb.Ack{ 
+				Ok: false, 
+				Error: err.Error()},
+			Phase: &phasepb.Phase{
+				PresentPhase: constants.SYNC_REQUEST_RESPONSE,
+				SuccessivePhase: constants.FAILURE,
+				Success: false,
+				Error: err.Error(),
+			},
+		}
 	}
 
 	Log.Logger(namedlogger).Info(ctx, "Bisect Success - LOG",
@@ -321,7 +508,18 @@ func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.Pri
 	// Do recursion until the root is same. because we are bisecting the tree and should sync the leaf nodes to be synched. To be synched blocks should be tagged rather than sync directly. 
 	// once that is one we need to update the leaf and parent nodes. but shouldn't reflect the sibling nodes. time complexity is O(log n).
 
-	return &priorsyncpb.PriorSyncMessage{Priorsync: req, Ack: &ackpb.Ack{State: constants.SYNC_REQUEST_RESPONSE, Ok: true, Error: ""}}
+	return &priorsyncpb.PriorSyncMessage{
+		Priorsync: req, 
+		Ack: &ackpb.Ack{ 
+			Ok: true, 
+			Error: ""},
+		Phase: &phasepb.Phase{
+			PresentPhase: constants.SYNC_REQUEST_RESPONSE,
+			SuccessivePhase: constants.HEADER_SYNC_REQUEST,
+			Success: true,
+			Error: "",
+		},
+	}
 }
 
 // This is the Phase2 function that will take the tagged blocks and send to the server node to get the block headers sync.
@@ -346,7 +544,18 @@ func (router *Datarouter) HeaderSync(ctx context.Context, req *headersyncpb.Head
 		Log.Logger(namedlogger).Error(ctx, "BlockHeaderIterator Creation Failed - LOG",
 			err,
 			ion.String("function", "HEADER_SYNC"))
-		return &headersyncpb.HeaderSyncResponse{Header: []*block.Header{}, Ack: &ackpb.Ack{State: constants.SYNC_REQUEST_RESPONSE, Ok: false, Error: err.Error()}}
+		return &headersyncpb.HeaderSyncResponse{
+			Header: []*block.Header{}, 
+			Ack: &ackpb.Ack{
+				Ok: false, 
+				Error: err.Error()},
+			Phase: &phasepb.Phase{
+				PresentPhase: constants.HEADER_SYNC_RESPONSE,
+				SuccessivePhase: constants.FAILURE,
+				Success: false,
+				Error: err.Error(),
+			},
+		}
 	}
 
 	all_headers = append(all_headers, headers...)
@@ -357,11 +566,33 @@ func (router *Datarouter) HeaderSync(ctx context.Context, req *headersyncpb.Head
 			Log.Logger(namedlogger).Error(ctx, "BlockHeaderIterator Creation Failed - LOG",
 				err,
 				ion.String("function", "HEADER_SYNC"))
-			return &headersyncpb.HeaderSyncResponse{Header: []*block.Header{}, Ack: &ackpb.Ack{State: constants.SYNC_REQUEST_RESPONSE, Ok: false, Error: err.Error()}}
+			return &headersyncpb.HeaderSyncResponse{
+				Header: []*block.Header{}, 
+				Ack: &ackpb.Ack{ 
+					Ok: false, 
+					Error: err.Error()},
+				Phase: &phasepb.Phase{
+					PresentPhase: constants.HEADER_SYNC_RESPONSE,
+					SuccessivePhase: constants.FAILURE,
+					Success: false,
+					Error: err.Error(),
+				},
+			}
 		}
 
 		all_headers = append(all_headers, headers...)
 	}
 
-	return &headersyncpb.HeaderSyncResponse{Header: all_headers, Ack: &ackpb.Ack{State: constants.SYNC_REQUEST_RESPONSE, Ok: true, Error: ""}}
+	return &headersyncpb.HeaderSyncResponse{
+		Header: all_headers, 
+		Ack: &ackpb.Ack{ 
+			Ok: true, 
+			Error: ""},
+		Phase: &phasepb.Phase{
+			PresentPhase: constants.HEADER_SYNC_RESPONSE,
+			SuccessivePhase: constants.MERGE_REQUEST,
+			Success: true,
+			Error: "",
+		},
+	}
 }
