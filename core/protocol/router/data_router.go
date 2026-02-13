@@ -64,13 +64,12 @@ func (router *Datarouter) HandlePriorSync(ctx context.Context, req *priorsyncpb.
 			ion.String("function", "HandlePriorSync"))
 		return router.SYNC_REQUEST(ctx, req.Priorsync)
 
-	case "CHECKPOINT":
-		Log.Logger(namedlogger).Debug(ctx, "Checkpoint - LOG",
+	case constants.REQUEST_MERKLE:
+		Log.Logger(namedlogger).Debug(ctx, "Request Merkle - LOG",
 			ion.String("state", state),
 			ion.String("function", "HandlePriorSync"))
 
-		// TODO: Implement checkpoint logic
-		return &priorsyncpb.PriorSyncMessage{Priorsync: req.Priorsync, Ack: &ackpb.Ack{Ok: true, Error: ""}}
+		return router.REQUEST_MERKLE(ctx, req.Priorsync)
 
 	case "RECONCILE":
 		Log.Logger(namedlogger).Debug(ctx, "Reconcile - LOG",
@@ -618,7 +617,7 @@ func (router *Datarouter) REQUEST_MERKLE(ctx context.Context, Range *merklepb.Ra
 		},
 		Phase: &phasepb.Phase{
 			PresentPhase:    constants.REQUEST_MERKLE,
-			SuccessivePhase: constants.HEADER_SYNC_REQUEST,
+			SuccessivePhase: constants.RESPONSE_MERKLE,
 			Success:         true,
 			Error:           "",
 		},
