@@ -8,6 +8,7 @@ package merkle
 
 import (
 	ack "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/ack"
+	phase "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/phase"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -334,6 +335,7 @@ type MerkleMessage struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Snapshot      *MerkleSnapshot        `protobuf:"bytes,1,opt,name=snapshot,proto3" json:"snapshot,omitempty"`
 	Ack           *ack.Ack               `protobuf:"bytes,2,opt,name=ack,proto3" json:"ack,omitempty"`
+	Phase         *phase.Phase           `protobuf:"bytes,3,opt,name=phase,proto3" json:"phase,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -378,6 +380,13 @@ func (x *MerkleMessage) GetSnapshot() *MerkleSnapshot {
 func (x *MerkleMessage) GetAck() *ack.Ack {
 	if x != nil {
 		return x.Ack
+	}
+	return nil
+}
+
+func (x *MerkleMessage) GetPhase() *phase.Phase {
+	if x != nil {
+		return x.Phase
 	}
 	return nil
 }
@@ -490,7 +499,7 @@ var File_merkle_merkle_proto protoreflect.FileDescriptor
 
 const file_merkle_merkle_proto_rawDesc = "" +
 	"\n" +
-	"\x13merkle/merkle.proto\x12\x06merkle\x1a\rack/ack.proto\"\xd0\x02\n" +
+	"\x13merkle/merkle.proto\x12\x06merkle\x1a\rack/ack.proto\x1a\x11phase/phase.proto\"\xd0\x02\n" +
 	"\x0eMerkleSnapshot\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\x05R\aversion\x12.\n" +
 	"\x06config\x18\x02 \x01(\v2\x16.merkle.SnapshotConfigR\x06config\x12!\n" +
@@ -515,10 +524,11 @@ const file_merkle_merkle_proto_rawDesc = "" +
 	"\rMerkleRequest\x12\x14\n" +
 	"\x05start\x18\x01 \x01(\x04R\x05start\x12\x10\n" +
 	"\x03end\x18\x02 \x01(\x04R\x03end\x12.\n" +
-	"\x06config\x18\x03 \x01(\v2\x16.merkle.SnapshotConfigR\x06config\"_\n" +
+	"\x06config\x18\x03 \x01(\v2\x16.merkle.SnapshotConfigR\x06config\"\x83\x01\n" +
 	"\rMerkleMessage\x122\n" +
 	"\bsnapshot\x18\x01 \x01(\v2\x16.merkle.MerkleSnapshotR\bsnapshot\x12\x1a\n" +
-	"\x03ack\x18\x02 \x01(\v2\b.ack.AckR\x03ack\"c\n" +
+	"\x03ack\x18\x02 \x01(\v2\b.ack.AckR\x03ack\x12\"\n" +
+	"\x05phase\x18\x03 \x01(\v2\f.phase.PhaseR\x05phase\"c\n" +
 	"\x14MerkleRequestMessage\x12/\n" +
 	"\arequest\x18\x01 \x01(\v2\x15.merkle.MerkleRequestR\arequest\x12\x1a\n" +
 	"\x03ack\x18\x02 \x01(\v2\b.ack.AckR\x03ack\"/\n" +
@@ -548,22 +558,24 @@ var file_merkle_merkle_proto_goTypes = []any{
 	(*MerkleRequestMessage)(nil), // 5: merkle.MerkleRequestMessage
 	(*Range)(nil),                // 6: merkle.range
 	(*ack.Ack)(nil),              // 7: ack.Ack
+	(*phase.Phase)(nil),          // 8: phase.Phase
 }
 var file_merkle_merkle_proto_depIdxs = []int32{
-	1, // 0: merkle.MerkleSnapshot.config:type_name -> merkle.SnapshotConfig
-	2, // 1: merkle.MerkleSnapshot.peaks:type_name -> merkle.SnapshotNode
-	2, // 2: merkle.SnapshotNode.left:type_name -> merkle.SnapshotNode
-	2, // 3: merkle.SnapshotNode.right:type_name -> merkle.SnapshotNode
-	1, // 4: merkle.MerkleRequest.config:type_name -> merkle.SnapshotConfig
-	0, // 5: merkle.MerkleMessage.snapshot:type_name -> merkle.MerkleSnapshot
-	7, // 6: merkle.MerkleMessage.ack:type_name -> ack.Ack
-	3, // 7: merkle.MerkleRequestMessage.request:type_name -> merkle.MerkleRequest
-	7, // 8: merkle.MerkleRequestMessage.ack:type_name -> ack.Ack
-	9, // [9:9] is the sub-list for method output_type
-	9, // [9:9] is the sub-list for method input_type
-	9, // [9:9] is the sub-list for extension type_name
-	9, // [9:9] is the sub-list for extension extendee
-	0, // [0:9] is the sub-list for field type_name
+	1,  // 0: merkle.MerkleSnapshot.config:type_name -> merkle.SnapshotConfig
+	2,  // 1: merkle.MerkleSnapshot.peaks:type_name -> merkle.SnapshotNode
+	2,  // 2: merkle.SnapshotNode.left:type_name -> merkle.SnapshotNode
+	2,  // 3: merkle.SnapshotNode.right:type_name -> merkle.SnapshotNode
+	1,  // 4: merkle.MerkleRequest.config:type_name -> merkle.SnapshotConfig
+	0,  // 5: merkle.MerkleMessage.snapshot:type_name -> merkle.MerkleSnapshot
+	7,  // 6: merkle.MerkleMessage.ack:type_name -> ack.Ack
+	8,  // 7: merkle.MerkleMessage.phase:type_name -> phase.Phase
+	3,  // 8: merkle.MerkleRequestMessage.request:type_name -> merkle.MerkleRequest
+	7,  // 9: merkle.MerkleRequestMessage.ack:type_name -> ack.Ack
+	10, // [10:10] is the sub-list for method output_type
+	10, // [10:10] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_merkle_merkle_proto_init() }
