@@ -91,19 +91,19 @@ func (ps *PriorSync) HandlePriorSync(node host.Host) error {
 		_ = s.SetReadDeadline(time.Now().Add(10 * time.Second))
 		defer s.SetReadDeadline(time.Time{})
 
-		req := &priorsyncpb.PriorSyncMessage{}
-		if err := pbstream.ReadDelimited(s, req); err != nil {
+		streamReq := &priorsyncpb.StreamMessage{}
+		if err := pbstream.ReadDelimited(s, streamReq); err != nil {
 			return
 		}
 
 		// Route to Datarouter for state-based processing
-		resp := datarouter.HandlePriorSync(ctx, req)
+		streamResp := datarouter.HandleStreamMessage(ctx, streamReq)
 
 		// Send acknowledgment
 		_ = s.SetWriteDeadline(time.Now().Add(10 * time.Second))
 		defer s.SetWriteDeadline(time.Time{})
 
-		_ = pbstream.WriteDelimited(s, resp)
+		_ = pbstream.WriteDelimited(s, streamResp)
 	})
 
 	// Block until parent or Close() cancels
