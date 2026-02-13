@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"math"
 
-	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/merkle"
-	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/tagging"
+	merkle "github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/merkle"
 	merkle_types "github.com/JupiterMetaLabs/JMDN-FastSync/helper/merkle"
 	Log "github.com/JupiterMetaLabs/JMDN-FastSync/logging"
 	"github.com/JupiterMetaLabs/JMDN_Merkletree/merkletree"
@@ -16,12 +16,12 @@ import (
 	ackpb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/ack"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/block"
 	headersyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/headersync"
+	merklepb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/merkle"
 	phasepb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/phase"
 	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/priorsync"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types/constants"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types/errors"
-	"github.com/JupiterMetaLabs/JMDN-FastSync/logging"
 )
 
 const (
@@ -386,7 +386,7 @@ func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.Pri
 		ion.String("function", "SYNC_REQUEST"))
 
 	// Reconstruct the merkle tree of the target machine.
-	merkle_obj := merkle.NewMerkleProof()
+	merkle_obj := merkle.NewMerkleProof(blockInfo)
 	target_snap := merkle_types.ProtoToMerkleSnapshot(req.Merklesnapshot)
 	target_merkletree_pointer, err := merkle_obj.ReconstructTree(ctx, target_snap)
 	if err != nil {
@@ -534,7 +534,8 @@ func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.Pri
 		Priorsync: req,
 		Ack: &ackpb.Ack{
 			Ok:    true,
-			Error: ""},
+			Error: "",
+		},
 		Phase: &phasepb.Phase{
 			PresentPhase:    constants.SYNC_REQUEST_RESPONSE,
 			SuccessivePhase: constants.HEADER_SYNC_REQUEST,
@@ -544,75 +545,84 @@ func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.Pri
 	}
 }
 
-func (router *Datarouter) dataBisect(ctx context.Context, local_tree *merkletree.Builder, target_tree *merkletree.Builder) (*headersyncpb.HeaderSyncRequest, error) {
+// This will receive the MERKLE range to construct the merkle tree, we have to construct the merkle tree for that range of data.
+func (router *Datarouter) REQUEST_MERKLE(ctx context.Context, Range *merklepb.Range) *merklepb.MerkleMessage {
 
-	/*
-		- This is the recursive function that will bisect the merkle tree, request the needed blocks from the target node. Tag all the block numbers that needed to sync.
-		- First go through Layer 1 leaf nodes, you can get the blockmerge range of block numbers.
-		- Call the REQUEST_LEAF_RANGE for each the Leaf node range, then check the response and call the dataBisect function recursively.
-		- You have to call the dataBisect recursively until the root is same or leaf node is < LEAF_THRESHOLD or it doesn't go beyond Layer LAYER_THRESHOLD.
-		   - If < LEAF_THRESHOLD, request all the blocks in leaf as the range. no need to bisect any more just sync all the blocks even though only one block number is faulty.
-		   - If it goes beyond Layer LAYER_THRESHOLD, then request all the blocks in leaf as the range. no need to bisect any more just sync all the blocks even though only one block number is faulty.
-		- If root is same then return back the tree.
-		- At end you can see all the tagged blocks.
-		- This tagged blocks are given to HeaderSync() from the SYNC_REQUEST() function by returning back to the SYNC_REQUEST() function.
-	*/
-
-	tracer := logging.Logger(namedlogger).Tracer("Security")
-	spanCtx, span := tracer.Start(ctx, "Security.allChecksWithCache")
-	defer span.End()
-
-	type stack struct {
-		start uint64
-		end   uint64
+	cfg := merkletree.SnapshotConfig{
+		BlockMerge:    int(math.Ceil(float64(Range.End-Range.Start) * 0.05)),
+		ExpectedTotal: (Range.End - Range.Start),
 	}
-	stack := []stack{}
 
-
-	var recursivebisection func(local_tree *merkletree.Builder, target_tree *merkletree.Builder)(*tagging.Tagging, error)
-	
-	recursivebisection = func(local_tree *merkletree.Builder, target_tree *merkletree.Builder) (*tagging.Tagging, error) {
-		/*
-			First, Get the local and target tree 
-			Check the roots of the local and target tree. if both roots are same then continue.
-			then go to the leafs by bisection add to stack.
-			- You have to call the dataBisect recursively until the root is same or leaf node is < LEAF_THRESHOLD or it doesn't go beyond Layer LAYER_THRESHOLD.
-				- If < LEAF_THRESHOLD, request all the blocks in leaf as the range. no need to bisect any more just sync all the blocks even though only one block number is faulty.
-				- If it goes beyond Layer LAYER_THRESHOLD, then request all the blocks in leaf as the range. no need to bisect any more just sync all the blocks even though only one block number is faulty.
-			
-		*/
-		root_local, err := local_tree.Finalize() 
-		if err != nil {
-			Log.Logger(namedlogger).Error(ctx, "Finalize Failed - LOG",
-				err,
-				ion.String("function", "DATA_BISECT"))
-			return nil, err
+	// Build the tree with the given config and return back to the requested node as merkle tree snapshot
+	if router.Nodeinfo == nil || router.Nodeinfo.BlockInfo == nil {
+		err := fmt.Errorf("nodeinfo or blockinfo is nil")
+		Log.Logger(namedlogger).Error(ctx, "Nodeinfo or BlockInfo is nil - LOG",
+			err,
+			ion.String("function", "REQUEST_MERKLE"))
+		return &merklepb.MerkleMessage{
+			Ack: &ackpb.Ack{
+				Ok:    false,
+				Error: err.Error()},
+			Phase: &phasepb.Phase{
+				PresentPhase:    constants.REQUEST_MERKLE,
+				SuccessivePhase: constants.FAILURE,
+				Success:         false,
+				Error:           err.Error(),
+			},
 		}
-		root_target, err := target_tree.Finalize() 
-		if err != nil {
-			Log.Logger(namedlogger).Error(ctx, "Finalize Failed - LOG",
-				err,
-				ion.String("function", "DATA_BISECT"))
-			return nil, err
-		}
-
-		if root_local == root_target {
-			return nil, nil
-		}
-
-		// Bisection and add to stack
-		start, count, err := target_tree.TreeBisect(local_tree)
-		if err != nil {
-			Log.Logger(namedlogger).Error(ctx, "TreeBisect Failed - LOG",
-				err,
-				ion.String("function", "DATA_BISECT"))
-			return nil, err
-		}
-
 	}
-	recursivebisection(local_tree, target_tree)
 
-	return nil, nil
+	merkle_obj := merkle.NewMerkleProof(router.Nodeinfo.BlockInfo)
+
+	snapshot_obj, err := merkle_obj.GenerateMerkleTreeWithConfig(ctx, int64(Range.Start), int64(Range.End), &cfg)
+	if err != nil {
+		Log.Logger(namedlogger).Error(ctx, "Merkle Tree Generation Failed - LOG",
+			err,
+			ion.String("function", "REQUEST_MERKLE"))
+		return &merklepb.MerkleMessage{
+			Ack: &ackpb.Ack{
+				Ok:    false,
+				Error: err.Error()},
+			Phase: &phasepb.Phase{
+				PresentPhase:    constants.REQUEST_MERKLE,
+				SuccessivePhase: constants.FAILURE,
+				Success:         false,
+				Error:           err.Error(),
+			},
+		}
+	}
+
+	snapshot, err := merkle_obj.ToSnapshot(ctx, snapshot_obj)
+	if err != nil {
+		Log.Logger(namedlogger).Error(ctx, "Merkle Tree Snapshot Conversion Failed - LOG",
+			err,
+			ion.String("function", "REQUEST_MERKLE"))
+		return &merklepb.MerkleMessage{
+			Ack: &ackpb.Ack{
+				Ok:    false,
+				Error: err.Error()},
+			Phase: &phasepb.Phase{
+				PresentPhase:    constants.REQUEST_MERKLE,
+				SuccessivePhase: constants.FAILURE,
+				Success:         false,
+				Error:           err.Error(),
+			},
+		}
+	}
+
+	return &merklepb.MerkleMessage{
+		Snapshot: snapshot,
+		Ack: &ackpb.Ack{
+			Ok:    true,
+			Error: "",
+		},
+		Phase: &phasepb.Phase{
+			PresentPhase:    constants.REQUEST_MERKLE,
+			SuccessivePhase: constants.HEADER_SYNC_REQUEST,
+			Success:         true,
+			Error:           "",
+		},
+	}
 }
 
 // This is the Phase2 function that will take the tagged blocks and send to the server node to get the block headers sync.
@@ -623,10 +633,31 @@ func (router *Datarouter) HeaderSync(ctx context.Context, req *headersyncpb.Head
 		- This blocks are transmitted to the server node to get the block headers synced.
 	*/
 
-	/* get the headers of the blocks in the req.block_number slice.
-	   then get the range headers from the req.range slice.
-	   then send the all headers to the server node in sorted order.
+	/* 
+	- get the headers of the blocks in the req.block_number slice.
+	- then get the range headers from the req.range slice.
+	- then send the all headers to the server node in sorted order.
 	*/
+
+	// Check for nil BlockInfo to prevent panic
+	if router.Nodeinfo == nil || router.Nodeinfo.BlockInfo == nil {
+		err := fmt.Errorf("nodeinfo or blockinfo is nil")
+		Log.Logger(namedlogger).Error(ctx, "Nodeinfo or BlockInfo is nil - LOG",
+			err,
+			ion.String("function", "HEADER_SYNC"))
+		return &headersyncpb.HeaderSyncResponse{
+			Header: []*block.Header{},
+			Ack: &ackpb.Ack{
+				Ok:    false,
+				Error: err.Error()},
+			Phase: &phasepb.Phase{
+				PresentPhase:    constants.HEADER_SYNC_RESPONSE,
+				SuccessivePhase: constants.FAILURE,
+				Success:         false,
+				Error:           err.Error(),
+			},
+		}
+	}
 
 	all_headers := []*block.Header{}
 

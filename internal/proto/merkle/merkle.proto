@@ -4,6 +4,7 @@ package merkle;
 
 option go_package = "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/merkle";
 import "ack/ack.proto";
+import "phase/phase.proto";
 
 message MerkleSnapshot {
     int32 version = 1;
@@ -47,6 +48,7 @@ message MerkleRequest{
 message MerkleMessage{
     MerkleSnapshot snapshot = 1;
     ack.Ack ack = 2;
+    phase.Phase phase = 3;
 }
 
 message MerkleRequestMessage{

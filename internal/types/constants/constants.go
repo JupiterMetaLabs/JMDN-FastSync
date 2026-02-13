@@ -14,6 +14,8 @@ const (
 
 	MERGE_REQUEST  = "state:merge:mergerequest"
 	MERGE_RESPONSE = "state:merge:mergeresponse"
+
+	REQUEST_MERKLE = "state:merkle:merklerequest"
 )
 
 const (

@@ -9,6 +9,7 @@ import (
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types"
 
+	merklepb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/merkle"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/logging"
 	"github.com/JupiterMetaLabs/JMDN_Merkletree/merkletree"
 	"github.com/JupiterMetaLabs/ion"
@@ -22,11 +23,11 @@ type MerkleProofInterface interface {
 	GenerateMerkleTree(logger_ctx context.Context, startBlock, endBlock int64) (*merkletree.Builder, error)
 	GenerateMerkleTreeWithConfig(logger_ctx context.Context, startBlock, endBlock int64, config *merkletree.SnapshotConfig) (*merkletree.Builder, error)
 	ReconstructTree(logger_ctx context.Context, snap *merkletree.MerkleTreeSnapshot) (*merkletree.Builder, error)
-	ToSnapshot(logger_ctx context.Context, builder *merkletree.Builder) (*merkletree.MerkleTreeSnapshot, error)
+	ToSnapshot(logger_ctx context.Context, builder *merkletree.Builder) (*merklepb.MerkleSnapshot, error)
 }
 
-func NewMerkleProof() MerkleProofInterface {
-	return &MerkleProof{}
+func NewMerkleProof(blockInfo types.BlockInfo) MerkleProofInterface {
+	return &MerkleProof{Blockinfo: blockInfo}
 }
 
 func (m *MerkleProof) GenerateMerkleTree(logger_ctx context.Context, startBlock, endBlock int64) (*merkletree.Builder, error) {
@@ -295,8 +296,8 @@ func (m *MerkleProof) ReconstructTree(logger_ctx context.Context, snap *merkletr
 	// We pass nil for HashFactory to use the default one
 	builder, err := snap.FromSnapshot(nil)
 	if err != nil {
-		logging.Logger(logging.MerkleTree).Error(logger_ctx,  "Failed to restore builder from snapshot", err,
-			ion.String("function", "DB_OPs.merkletree.ReconstructTree")		)
+		logging.Logger(logging.MerkleTree).Error(logger_ctx, "Failed to restore builder from snapshot", err,
+			ion.String("function", "DB_OPs.merkletree.ReconstructTree"))
 		return nil, fmt.Errorf("failed to restore builder from snapshot: %w", err)
 	}
 
@@ -307,10 +308,44 @@ func (m *MerkleProof) ReconstructTree(logger_ctx context.Context, snap *merkletr
 	return builder, nil
 }
 
-
-func (m *MerkleProof) ToSnapshot(logger_ctx context.Context, builder *merkletree.Builder) (*merkletree.MerkleTreeSnapshot, error) {
+func (m *MerkleProof) ToSnapshot(logger_ctx context.Context, builder *merkletree.Builder) (*merklepb.MerkleSnapshot, error) {
 	// Use the library's ToSnapshot method
 	snapshot := builder.ToSnapshot()
 
-	return snapshot, nil
+	// Build the snapshot peaks
+	peaks := make([]*merklepb.SnapshotNode, len(snapshot.Peaks))
+	for i, peak := range snapshot.Peaks {
+		peaks[i] = convertSnapshotNode(peak)
+	}
+
+	merkle_snapshot := &merklepb.MerkleSnapshot{
+		Version: int32(snapshot.Version),
+		Config: &merklepb.SnapshotConfig{
+			BlockMerge:    int32(snapshot.Config.BlockMerge),
+			ExpectedTotal: uint64(snapshot.Config.ExpectedTotal),
+		},
+		TotalBlocks:        uint64(snapshot.TotalBlocks),
+		ExpectedNextHeight: uint64(snapshot.ExpectedNextHeight),
+		EnforceHeights:     snapshot.EnforceHeights,
+		InChunkElems:       snapshot.InChunkElems,
+		InChunkStart:       uint64(snapshot.InChunkStart),
+		Peaks:              peaks,
+	}
+
+	return merkle_snapshot, nil
+}
+
+func convertSnapshotNode(node *merkletree.SnapshotNode) *merklepb.SnapshotNode {
+	if node == nil {
+		return nil
+	}
+	return &merklepb.SnapshotNode{
+		Left:    convertSnapshotNode(node.Left),
+		Right:   convertSnapshotNode(node.Right),
+		Root:    node.Root,
+		Start:   node.Start,
+		Count:   node.Count,
+		Data:    node.Data,
+		HasData: node.HasData,
+	}
 }
