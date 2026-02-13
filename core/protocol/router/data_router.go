@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/merkle"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/tagging"
 	merkle_types "github.com/JupiterMetaLabs/JMDN-FastSync/helper/merkle"
 	Log "github.com/JupiterMetaLabs/JMDN-FastSync/logging"
 	"github.com/JupiterMetaLabs/JMDN_Merkletree/merkletree"
@@ -20,6 +21,7 @@ import (
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types/constants"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types/errors"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/logging"
 )
 
 const (
@@ -481,8 +483,27 @@ func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.Pri
 		}
 	}
 
-	// bisect the merkle tree to find the to be synched block range.
-	start, bCount, err := target_merkletree_pointer.Bisect(local_merkletree_pointer)
+	// // bisect the merkle tree to find the to be synched block range.
+	// start, bCount, err := target_merkletree_pointer.Bisect(local_merkletree_pointer)
+	// if err != nil {
+	// 	Log.Logger(namedlogger).Error(ctx, "Bisect Failed - LOG",
+	// 		err,
+	// 		ion.String("function", "SYNC_REQUEST"))
+	// 	return &priorsyncpb.PriorSyncMessage{
+	// 		Priorsync: req,
+	// 		Ack: &ackpb.Ack{
+	// 			Ok:    false,
+	// 			Error: err.Error()},
+	// 		Phase: &phasepb.Phase{
+	// 			PresentPhase:    constants.SYNC_REQUEST_RESPONSE,
+	// 			SuccessivePhase: constants.FAILURE,
+	// 			Success:         false,
+	// 			Error:           err.Error(),
+	// 		},
+	// 	}
+	// }
+
+	header_sync_req, err := router.dataBisect(ctx, local_merkletree_pointer, target_merkletree_pointer)
 	if err != nil {
 		Log.Logger(namedlogger).Error(ctx, "Bisect Failed - LOG",
 			err,
@@ -502,8 +523,8 @@ func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.Pri
 	}
 
 	Log.Logger(namedlogger).Info(ctx, "Bisect Success - LOG",
-		ion.Int64("start", int64(start)),
-		ion.Int64("bCount", int64(bCount)),
+		ion.Int64("start", int64(header_sync_req.Tag.Range[0].Start)),
+		ion.Int64("bCount", int64(header_sync_req.Tag.Range[0].End)),
 		ion.String("function", "SYNC_REQUEST"))
 
 	// Do recursion until the root is same. because we are bisecting the tree and should sync the leaf nodes to be synched. To be synched blocks should be tagged rather than sync directly.
@@ -523,7 +544,7 @@ func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.Pri
 	}
 }
 
-func (router *Datarouter) dataBisect(ctx context.Context, Builder *merkletree.Builder) (*headersyncpb.HeaderSyncRequest, error) {
+func (router *Datarouter) dataBisect(ctx context.Context, local_tree *merkletree.Builder, target_tree *merkletree.Builder) (*headersyncpb.HeaderSyncRequest, error) {
 
 	/*
 		- This is the recursive function that will bisect the merkle tree, request the needed blocks from the target node. Tag all the block numbers that needed to sync.
@@ -536,6 +557,60 @@ func (router *Datarouter) dataBisect(ctx context.Context, Builder *merkletree.Bu
 		- At end you can see all the tagged blocks.
 		- This tagged blocks are given to HeaderSync() from the SYNC_REQUEST() function by returning back to the SYNC_REQUEST() function.
 	*/
+
+	tracer := logging.Logger(namedlogger).Tracer("Security")
+	spanCtx, span := tracer.Start(ctx, "Security.allChecksWithCache")
+	defer span.End()
+
+	type stack struct {
+		start uint64
+		end   uint64
+	}
+	stack := []stack{}
+
+
+	var recursivebisection func(local_tree *merkletree.Builder, target_tree *merkletree.Builder)(*tagging.Tagging, error)
+	
+	recursivebisection = func(local_tree *merkletree.Builder, target_tree *merkletree.Builder) (*tagging.Tagging, error) {
+		/*
+			First, Get the local and target tree 
+			Check the roots of the local and target tree. if both roots are same then continue.
+			then go to the leafs by bisection add to stack.
+			- You have to call the dataBisect recursively until the root is same or leaf node is < LEAF_THRESHOLD or it doesn't go beyond Layer LAYER_THRESHOLD.
+				- If < LEAF_THRESHOLD, request all the blocks in leaf as the range. no need to bisect any more just sync all the blocks even though only one block number is faulty.
+				- If it goes beyond Layer LAYER_THRESHOLD, then request all the blocks in leaf as the range. no need to bisect any more just sync all the blocks even though only one block number is faulty.
+			
+		*/
+		root_local, err := local_tree.Finalize() 
+		if err != nil {
+			Log.Logger(namedlogger).Error(ctx, "Finalize Failed - LOG",
+				err,
+				ion.String("function", "DATA_BISECT"))
+			return nil, err
+		}
+		root_target, err := target_tree.Finalize() 
+		if err != nil {
+			Log.Logger(namedlogger).Error(ctx, "Finalize Failed - LOG",
+				err,
+				ion.String("function", "DATA_BISECT"))
+			return nil, err
+		}
+
+		if root_local == root_target {
+			return nil, nil
+		}
+
+		// Bisection and add to stack
+		start, count, err := target_tree.TreeBisect(local_tree)
+		if err != nil {
+			Log.Logger(namedlogger).Error(ctx, "TreeBisect Failed - LOG",
+				err,
+				ion.String("function", "DATA_BISECT"))
+			return nil, err
+		}
+
+	}
+	recursivebisection(local_tree, target_tree)
 
 	return nil, nil
 }

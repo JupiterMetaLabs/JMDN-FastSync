@@ -3,7 +3,6 @@ module github.com/JupiterMetaLabs/JMDN-FastSync
 go 1.25.0
 
 require (
-	github.com/JupiterMetaLabs/JMDN_Merkletree v0.0.0-20260210115045-f9b3a1289697
 	github.com/ethereum/go-ethereum v1.16.8
 	github.com/multiformats/go-multiaddr v0.16.0
 	github.com/tidwall/wal v1.2.1
@@ -109,6 +108,7 @@ require (
 )
 
 require (
+	github.com/JupiterMetaLabs/JMDN_Merkletree v0.0.0-20260213044906-5629a60edea4
 	github.com/JupiterMetaLabs/goroutine-orchestrator v0.1.5
 	github.com/JupiterMetaLabs/ion v0.3.3
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0 // indirect
