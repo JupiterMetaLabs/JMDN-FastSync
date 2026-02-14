@@ -153,12 +153,12 @@ func (router *Datarouter) SYNC_REQUEST_V2(ctx context.Context, req *priorsyncpb.
 			Priorsync: req,
 			Ack: &ackpb.Ack{
 				Ok:    false,
-				Error: err.Error()},
+				Error: errors.ChecksumMismatch.Error()},
 			Phase: &phasepb.Phase{
 				PresentPhase:    constants.SYNC_REQUEST_RESPONSE,
 				SuccessivePhase: constants.FAILURE,
 				Success:         false,
-				Error:           err.Error(),
+				Error:           errors.ChecksumMismatch.Error(),
 			},
 		}
 	}
@@ -174,12 +174,12 @@ func (router *Datarouter) SYNC_REQUEST_V2(ctx context.Context, req *priorsyncpb.
 			Priorsync: req,
 			Ack: &ackpb.Ack{
 				Ok:    false,
-				Error: err.Error()},
+				Error: errors.BlockInfoNil.Error()},
 			Phase: &phasepb.Phase{
 				PresentPhase:    constants.SYNC_REQUEST_RESPONSE,
 				SuccessivePhase: constants.FAILURE,
 				Success:         false,
-				Error:           err.Error(),
+				Error:           errors.BlockInfoNil.Error(),
 			},
 		}
 	}
@@ -201,12 +201,12 @@ func (router *Datarouter) SYNC_REQUEST_V2(ctx context.Context, req *priorsyncpb.
 				Priorsync: req,
 				Ack: &ackpb.Ack{
 					Ok:    false,
-					Error: err.Error()},
+					Error: errors.SameBlockHeight_DifferentStateroot.Error()},
 				Phase: &phasepb.Phase{
 					PresentPhase:    constants.SYNC_REQUEST_RESPONSE,
 					SuccessivePhase: constants.FAILURE,
 					Success:         false,
-					Error:           err.Error(),
+					Error:           errors.SameBlockHeight_DifferentStateroot.Error(),
 				},
 			}
 
@@ -219,12 +219,12 @@ func (router *Datarouter) SYNC_REQUEST_V2(ctx context.Context, req *priorsyncpb.
 				Priorsync: req,
 				Ack: &ackpb.Ack{
 					Ok:    false,
-					Error: err.Error()},
+					Error: errors.SameBlockHeight_DifferentBlockhash.Error()},
 				Phase: &phasepb.Phase{
 					PresentPhase:    constants.SYNC_REQUEST_RESPONSE,
 					SuccessivePhase: constants.FAILURE,
 					Success:         false,
-					Error:           err.Error(),
+					Error:           errors.SameBlockHeight_DifferentBlockhash.Error(),
 				},
 			}
 
