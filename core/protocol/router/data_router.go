@@ -84,22 +84,18 @@ func (router *Datarouter) HandlePriorSync(ctx context.Context, req *priorsyncpb.
 	}
 }
 
-func (router *Datarouter) HandleMerkle(ctx context.Context, merkleReq *merklepb.MerkleRequestMessage) *priorsyncpb.StreamMessage {
+func (router *Datarouter) HandleMerkle(ctx context.Context, merkleReq *merklepb.MerkleRequestMessage) *merklepb.MerkleMessage {
 	if merkleReq == nil || merkleReq.Request == nil {
-		return &priorsyncpb.StreamMessage{
-			Payload: &priorsyncpb.StreamMessage_Merkle{
-				Merkle: &merklepb.MerkleMessage{
-					Ack: &ackpb.Ack{
-						Ok:    false,
-						Error: "Merkle request or range is nil",
-					},
-					Phase: &phasepb.Phase{
-						PresentPhase:    constants.REQUEST_MERKLE,
-						SuccessivePhase: constants.FAILURE,
-						Success:         false,
-						Error:           "Merkle request or range is nil",
-					},
-				},
+		return &merklepb.MerkleMessage{
+			Ack: &ackpb.Ack{
+				Ok:    false,
+				Error: "Merkle request or range is nil",
+			},
+			Phase: &phasepb.Phase{
+				PresentPhase:    constants.REQUEST_MERKLE,
+				SuccessivePhase: constants.FAILURE,
+				Success:         false,
+				Error:           "Merkle request or range is nil",
 			},
 		}
 	}
@@ -110,13 +106,7 @@ func (router *Datarouter) HandleMerkle(ctx context.Context, merkleReq *merklepb.
 		End:   merkleReq.Request.End,
 	}
 
-	resp := router.REQUEST_MERKLE(ctx, merkleRange)
-
-	return &priorsyncpb.StreamMessage{
-		Payload: &priorsyncpb.StreamMessage_Merkle{
-			Merkle: resp,
-		},
-	}
+	return router.REQUEST_MERKLE(ctx, merkleRange)
 }
 
 func (router *Datarouter) SYNC_REQUEST_V2(ctx context.Context, req *priorsyncpb.PriorSync) *priorsyncpb.PriorSyncMessage {
