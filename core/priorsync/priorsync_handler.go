@@ -4,21 +4,17 @@ import (
 	"context"
 	"errors"
 	"sync"
-	"time"
 
-	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/router"
+	sync_proto "github.com/JupiterMetaLabs/JMDN-FastSync/core/sync"
 	libp2p_peer "github.com/libp2p/go-libp2p/core/peer"
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/messaging"
-	"github.com/JupiterMetaLabs/JMDN-FastSync/helper/merkle"
-	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/pbstream"
 	merklepb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/merkle"
 	phasepb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/phase"
 	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/priorsync"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types"
-	"github.com/JupiterMetaLabs/JMDN_Merkletree/merkletree"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types/constants"
 	"github.com/libp2p/go-libp2p/core/host"
-	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/protocol"
 )
 
@@ -61,7 +57,8 @@ func (ps *PriorSync) HandlePriorSync(node host.Host) error {
 	// derive child from parent; child cannot outlive parent
 	ctx, cancel := context.WithCancel(ps.SyncVars.Ctx)
 
-	datarouter := router.NewDatarouter(&ps.SyncVars.NodeInfo)
+	// Initialize Sync Handler (Builder Pattern)
+	syncHandler := sync_proto.NewSyncHandler(&ps.SyncVars.NodeInfo)
 
 	ps.mu.Lock()
 
@@ -76,41 +73,24 @@ func (ps *PriorSync) HandlePriorSync(node host.Host) error {
 	ps.node = node
 	ps.mu.Unlock()
 
-	protoID := ps.SyncVars.Protocol
+	protoID := constants.PriorSyncProtocol
+	merkleProtoID := constants.MerkleProtocol
 
-	node.SetStreamHandler(protoID, func(s network.Stream) {
-		defer s.Close()
+	// Register Handlers using Sync Package
+	if err := syncHandler.HandlePriorSync(ctx, protoID, node); err != nil {
+		return err
+	}
 
-		// refuse work if shutting down
-		select {
-		case <-ctx.Done():
-			return
-		default:
-		}
-
-		_ = s.SetReadDeadline(time.Now().Add(10 * time.Second))
-		defer s.SetReadDeadline(time.Time{})
-
-		streamReq := &priorsyncpb.StreamMessage{}
-		if err := pbstream.ReadDelimited(s, streamReq); err != nil {
-			return
-		}
-
-		// Route to Datarouter for state-based processing
-		streamResp := datarouter.HandleStreamMessage(ctx, streamReq)
-
-		// Send acknowledgment
-		_ = s.SetWriteDeadline(time.Now().Add(10 * time.Second))
-		defer s.SetWriteDeadline(time.Time{})
-
-		_ = pbstream.WriteDelimited(s, streamResp)
-	})
+	if err := syncHandler.HandleMerkle(ctx, merkleProtoID, node); err != nil {
+		return err
+	}
 
 	// Block until parent or Close() cancels
 	<-ctx.Done()
 
-	// Unregister handler when stopping
+	// Unregister handlers when stopping
 	node.RemoveStreamHandler(protoID)
+	node.RemoveStreamHandler(merkleProtoID)
 
 	// Clear stored cancel/node
 	ps.mu.Lock()
@@ -124,10 +104,11 @@ func (ps *PriorSync) HandlePriorSync(node host.Host) error {
 // SendPriorSync sends a PriorSync message to a peer and returns the response.
 // Usually you'll do node.NewStream(ctx, peerID, protoID) and write the payload.
 func (ps *PriorSync) SendPriorSync(
+	ctx context.Context,
 	// As per the observation, data is synced irregularly so we need to check the missing blocks too so merkle check
-	merkle_snapshot *merkletree.MerkleTreeSnapshot,
+	merkle_snapshot *merklepb.MerkleSnapshot,
 	// this peer is the one we are sending the prior sync to
-	peer types.Nodeinfo,
+	peerNode types.Nodeinfo,
 	data types.PriorSyncMessage,
 ) (*types.PriorSyncMessage, error) {
 	if ps.node == nil {
@@ -145,7 +126,7 @@ func (ps *PriorSync) SendPriorSync(
 			Blocknumber:    data.Priorsync.Blocknumber,
 			Stateroot:      data.Priorsync.Stateroot,
 			Blockhash:      data.Priorsync.Blockhash,
-			Merklesnapshot: merkle.MerkleSnapshotToProto(merkle_snapshot),
+			Merklesnapshot: merkle_snapshot,
 			Metadata: &priorsyncpb.Metadata{
 				Checksum: data.Priorsync.Metadata.Checksum,
 				Version:  uint32(data.Priorsync.Metadata.Version),
@@ -167,8 +148,8 @@ func (ps *PriorSync) SendPriorSync(
 
 	// Prepare peer.AddrInfo from types.Nodeinfo
 	peerInfo := libp2p_peer.AddrInfo{
-		ID:    peer.PeerID,
-		Addrs: peer.Multiaddr,
+		ID:    peerNode.PeerID,
+		Addrs: peerNode.Multiaddr,
 	}
 
 	// Prepare response container
@@ -221,6 +202,44 @@ func (ps *PriorSync) SendPriorSync(
 	}
 
 	return result, nil
+}
+
+// SendMerkleRequest sends a MerkleRequestMessage to a peer and returns the response.
+func (ps *PriorSync) SendMerkleRequest(
+	ctx context.Context,
+	peerNode types.Nodeinfo,
+	req *merklepb.MerkleRequestMessage,
+) (*merklepb.MerkleMessage, error) {
+	if ps.node == nil {
+		return nil, errors.New("host is nil")
+	}
+	if ps.SyncVars == nil {
+		return nil, errors.New("sync vars not set")
+	}
+
+	// Prepare peer.AddrInfo from types.Nodeinfo
+	peerInfo := libp2p_peer.AddrInfo{
+		ID:    peerNode.PeerID,
+		Addrs: peerNode.Multiaddr,
+	}
+
+	// Prepare response container
+	resp := &merklepb.MerkleMessage{}
+
+	// Send using SendProtoDelimited with MerkleProtocol
+	if err := messaging.SendProtoDelimited(
+		ctx,
+		ps.SyncVars.Version,
+		ps.node,
+		peerInfo,
+		constants.MerkleProtocol,
+		req,
+		resp,
+	); err != nil {
+		return nil, errors.New("failed to send merkle request: " + err.Error())
+	}
+
+	return resp, nil
 }
 
 func (ps *PriorSync) Close() {
