@@ -15,7 +15,6 @@ import (
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types/constants"
 	"github.com/libp2p/go-libp2p/core/host"
-	"github.com/libp2p/go-libp2p/core/protocol"
 )
 
 type PriorSync struct {
@@ -35,12 +34,11 @@ func NewPriorSyncRouter() Priorsync_router {
 	}
 }
 
-func (ps *PriorSync) SetSyncVars(ctx context.Context, protoID protocol.ID, protocolVersion uint16, nodeInfo types.Nodeinfo) Priorsync_router {
+func (ps *PriorSync) SetSyncVars(ctx context.Context, protocolVersion uint16, nodeInfo types.Nodeinfo) Priorsync_router {
 	if ps.SyncVars == nil {
 		ps.SyncVars = &types.Syncvars{}
 	}
 	ps.SyncVars.Version = protocolVersion
-	ps.SyncVars.Protocol = protoID
 	ps.SyncVars.NodeInfo = nodeInfo
 	ps.SyncVars.Ctx = ctx
 	return ps
@@ -66,7 +64,8 @@ func (ps *PriorSync) HandlePriorSync(node host.Host) error {
 	if ps.cancel != nil {
 		ps.cancel()
 		if ps.node != nil {
-			ps.node.RemoveStreamHandler(ps.SyncVars.Protocol)
+			ps.node.RemoveStreamHandler(constants.PriorSyncProtocol)
+			ps.node.RemoveStreamHandler(constants.MerkleProtocol)
 		}
 	}
 	ps.cancel = cancel
@@ -161,7 +160,7 @@ func (ps *PriorSync) SendPriorSync(
 		ps.SyncVars.Version,
 		ps.node,
 		peerInfo, // Pass full AddrInfo for transport selection
-		ps.SyncVars.Protocol,
+		constants.PriorSyncProtocol,
 		req,
 		resp,
 	); err != nil {
@@ -246,16 +245,13 @@ func (ps *PriorSync) Close() {
 	ps.mu.Lock()
 	cancel := ps.cancel
 	node := ps.node
-	protoID := protocol.ID("")
-	if ps.SyncVars != nil {
-		protoID = ps.SyncVars.Protocol
-	}
 	ps.mu.Unlock()
 
 	if cancel != nil {
 		cancel() // stops the HandlePriorSync wait + makes handler exit quickly
 	}
-	if node != nil && protoID != "" {
-		node.RemoveStreamHandler(protoID) // stops new streams immediately
+	if node != nil {
+		node.RemoveStreamHandler(constants.PriorSyncProtocol)
+		node.RemoveStreamHandler(constants.MerkleProtocol) // Also remove Merkle handler
 	}
 }

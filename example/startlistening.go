@@ -38,7 +38,7 @@ func StartListening(ctx context.Context, port string, version uint16) (*Node, er
 
 	// Create PriorSync protocol handler from core
 	ps := priorsync.NewPriorSyncRouter()
-	ps.SetSyncVars(node.GetContext(), protocol.ID(ProtocolID), version, nodeInfo)
+	ps.SetSyncVars(node.GetContext(), version, nodeInfo)
 
 	// Start handling in background - core handler manages its own stream handler registration
 	go func() {
