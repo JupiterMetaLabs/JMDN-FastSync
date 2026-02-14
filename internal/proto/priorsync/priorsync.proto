@@ -28,3 +28,11 @@ message PriorSyncMessage{
     ack.Ack ack = 2;
     phase.Phase phase = 3;
 }
+
+message StreamMessage {
+    oneof payload {
+        PriorSyncMessage prior_sync = 1;
+        merkle.MerkleMessage merkle = 2;
+        merkle.MerkleRequestMessage merkle_req = 3;
+    }
+}

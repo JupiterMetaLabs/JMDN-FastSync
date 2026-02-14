@@ -363,39 +363,62 @@ func (router *Datarouter) requestLeafRangesBatch(
 	return responses, nil
 }
 
-// requestSingleRange requests block hashes for a specific range from the target node.
-// TODO: This needs to be implemented with actual network protocol.
-// For now, it's a placeholder that needs integration with your network layer.
+// requestSingleRange requests a merkle tree snapshot for a specific range from the target node.
+// Uses the existing REQUEST_MERKLE protocol to get the target's merkle tree.
 func (router *Datarouter) requestSingleRange(
 	ctx context.Context,
 	start uint64,
 	count uint32,
 ) (rangeResponse, error) {
 
-	Log.Logger(namedlogger).Debug(ctx, "Requesting range from target node",
+	Log.Logger(namedlogger).Debug(ctx, "Requesting merkle snapshot from target node",
 		ion.Uint64("start", start),
+		ion.Uint64("end", start+uint64(count)),
 		ion.Int("count", int(count)),
 		ion.String("function", "requestSingleRange"))
 
-	// TODO: Implement actual network request here
-	// This should:
-	// 1. Send a REQUEST_LEAF_RANGE message to the target node
-	// 2. Include the start block number and count
-	// 3. Receive the response containing block hashes
-	// 4. Return the hashes as []merkletree.Hash32
-
-	// Placeholder implementation:
+	// TODO: Send REQUEST_MERKLE message to target node via network layer
+	// This should use your existing network protocol to send the request.
+	// For example:
+	//
+	// rangeMsg := &merklepb.Range{
+	//     Start: start,
+	//     End:   start + uint64(count),
+	// }
+	// merkleResponse, err := router.NetworkClient.SendMerkleRequest(ctx, rangeMsg)
+	// if err != nil {
+	//     return rangeResponse{start: start, err: err}, err
+	// }
+	//
+	// if !merkleResponse.Ack.Ok {
+	//     return rangeResponse{start: start, err: fmt.Errorf("target node error: %s", merkleResponse.Ack.Error)},
+	//            fmt.Errorf("target node error: %s", merkleResponse.Ack.Error)
+	// }
+	//
+	// // Convert snapshot to builder to extract hashes
+	// snapshot := merkleResponse.Snapshot
+	// builder, err := snapshot.FromSnapshot(merkletree.DefaultHashFactory)
+	// if err != nil {
+	//     return rangeResponse{start: start, err: err}, err
+	// }
+	//
+	// // Extract hashes from the builder
+	// hashes, err := extractHashesFromBuilder(builder, start, count)
+	// if err != nil {
+	//     return rangeResponse{start: start, err: err}, err
+	// }
+	//
 	// return rangeResponse{
-	// 	start:  start,
-	// 	hashes: receivedHashesFromNetwork,
-	// 	err:    nil,
+	//     start:  start,
+	//     hashes: hashes,
+	//     err:    nil,
 	// }, nil
 
 	return rangeResponse{
 		start:  start,
 		hashes: nil,
-		err:    fmt.Errorf("requestSingleRange not yet implemented - network protocol integration required"),
-	}, fmt.Errorf("requestSingleRange not yet implemented")
+		err:    fmt.Errorf("requestSingleRange: network integration required - send REQUEST_MERKLE to target node"),
+	}, fmt.Errorf("requestSingleRange: network integration required")
 }
 
 // getLocalHashes retrieves block hashes from the local node for a specific range.
@@ -408,6 +431,7 @@ func (router *Datarouter) getLocalHashes(
 
 	Log.Logger(namedlogger).Debug(ctx, "Getting local hashes",
 		ion.Uint64("start", start),
+		ion.Uint64("end", start+uint64(count)),
 		ion.Int("count", int(count)),
 		ion.String("function", "getLocalHashes"))
 
@@ -417,26 +441,49 @@ func (router *Datarouter) getLocalHashes(
 		return nil, fmt.Errorf("blockInfo is nil")
 	}
 
-	// TODO: Implement hash retrieval from local blockchain
-	// This should:
-	// 1. Iterate from start to start+count
-	// 2. For each block, get its hash
-	// 3. Return as []merkletree.Hash32
-
-	// Placeholder implementation:
-	hashes := make([]merkletree.Hash32, count)
-	for i := uint32(0); i < count; i++ {
-		blockNum := start + uint64(i)
-		fmt.Print(blockNum)
-
-		// TODO: Get actual block hash from blockchain
-		// block := blockInfo.GetBlock(blockNum)
-		// hashes[i] = block.Hash()
-
-		// Log.Logger(namedlogger).Trace(ctx, "Getting hash for block",
-		// 	ion.Uint64("block_number", blockNum),
-		// 	ion.String("function", "getLocalHashes"))
+	// Get the block header iterator to retrieve hashes
+	iterator := blockInfo.NewBlockHeaderIterator()
+	if iterator == nil {
+		return nil, fmt.Errorf("failed to create block header iterator")
 	}
 
-	return hashes, fmt.Errorf("getLocalHashes not yet implemented - blockchain interface integration required")
+	// Use GetBlockHeadersRange to fetch all headers at once (more efficient than one-by-one)
+	end := start + uint64(count)
+	headers, err := iterator.GetBlockHeadersRange(start, end)
+	if err != nil {
+		Log.Logger(namedlogger).Error(ctx, "Failed to get block headers range",
+			err,
+			ion.Uint64("start", start),
+			ion.Uint64("end", end),
+			ion.String("function", "getLocalHashes"))
+		return nil, fmt.Errorf("failed to get block headers for range [%d, %d): %w", start, end, err)
+	}
+
+	if len(headers) != int(count) {
+		return nil, fmt.Errorf("expected %d headers but got %d for range [%d, %d)", count, len(headers), start, end)
+	}
+
+	// Extract hashes from headers
+	hashes := make([]merkletree.Hash32, count)
+	for i, header := range headers {
+		if header == nil {
+			return nil, fmt.Errorf("received nil header at index %d (block %d)", i, start+uint64(i))
+		}
+
+		blockHash := header.GetBlockHash()
+		if len(blockHash) != 32 {
+			return nil, fmt.Errorf("invalid block hash length %d for block %d (expected 32 bytes)",
+				len(blockHash), header.GetBlockNumber())
+		}
+
+		copy(hashes[i][:], blockHash)
+	}
+
+	Log.Logger(namedlogger).Debug(ctx, "Successfully retrieved local hashes",
+		ion.Int("num_hashes", len(hashes)),
+		ion.Uint64("start", start),
+		ion.Uint64("end", end),
+		ion.String("function", "getLocalHashes"))
+
+	return hashes, nil
 }
