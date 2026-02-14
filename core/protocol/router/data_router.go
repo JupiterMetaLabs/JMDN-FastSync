@@ -64,20 +64,6 @@ func (router *Datarouter) HandlePriorSync(ctx context.Context, req *priorsyncpb.
 			ion.String("function", "HandlePriorSync"))
 		return router.SYNC_REQUEST(ctx, req.Priorsync)
 
-	case constants.REQUEST_MERKLE:
-		Log.Logger(namedlogger).Debug(ctx, "Request Merkle - LOG",
-			ion.String("state", state),
-			ion.String("function", "HandlePriorSync"))
-
-		return router.REQUEST_MERKLE(ctx, req.Priorsync)
-
-	case "RECONCILE":
-		Log.Logger(namedlogger).Debug(ctx, "Reconcile - LOG",
-			ion.String("state", state),
-			ion.String("function", "HandlePriorSync"))
-		// TODO: Implement reconcile logic
-		return &priorsyncpb.PriorSyncMessage{Priorsync: req.Priorsync, Ack: &ackpb.Ack{Ok: true, Error: ""}}
-
 	default:
 		Log.Logger(namedlogger).Debug(ctx, "Unknown State - LOG",
 			ion.String("state", state),
@@ -95,6 +81,41 @@ func (router *Datarouter) HandlePriorSync(ctx context.Context, req *priorsyncpb.
 				Error:           "unknown state: " + state,
 			},
 		}
+	}
+}
+
+func (router *Datarouter) HandleMerkle(ctx context.Context, merkleReq *merklepb.MerkleRequestMessage) *priorsyncpb.StreamMessage {
+	if merkleReq == nil || merkleReq.Request == nil {
+		return &priorsyncpb.StreamMessage{
+			Payload: &priorsyncpb.StreamMessage_Merkle{
+				Merkle: &merklepb.MerkleMessage{
+					Ack: &ackpb.Ack{
+						Ok:    false,
+						Error: "Merkle request or range is nil",
+					},
+					Phase: &phasepb.Phase{
+						PresentPhase:    constants.REQUEST_MERKLE,
+						SuccessivePhase: constants.FAILURE,
+						Success:         false,
+						Error:           "Merkle request or range is nil",
+					},
+				},
+			},
+		}
+	}
+
+	// Convert MerkleRequest to Range
+	merkleRange := &merklepb.Range{
+		Start: merkleReq.Request.Start,
+		End:   merkleReq.Request.End,
+	}
+
+	resp := router.REQUEST_MERKLE(ctx, merkleRange)
+
+	return &priorsyncpb.StreamMessage{
+		Payload: &priorsyncpb.StreamMessage_Merkle{
+			Merkle: resp,
+		},
 	}
 }
 
@@ -132,12 +153,12 @@ func (router *Datarouter) SYNC_REQUEST_V2(ctx context.Context, req *priorsyncpb.
 			Priorsync: req,
 			Ack: &ackpb.Ack{
 				Ok:    false,
-				Error: err.Error()},
+				Error: errors.ChecksumMismatch.Error()},
 			Phase: &phasepb.Phase{
 				PresentPhase:    constants.SYNC_REQUEST_RESPONSE,
 				SuccessivePhase: constants.FAILURE,
 				Success:         false,
-				Error:           err.Error(),
+				Error:           errors.ChecksumMismatch.Error(),
 			},
 		}
 	}
@@ -153,12 +174,12 @@ func (router *Datarouter) SYNC_REQUEST_V2(ctx context.Context, req *priorsyncpb.
 			Priorsync: req,
 			Ack: &ackpb.Ack{
 				Ok:    false,
-				Error: err.Error()},
+				Error: errors.BlockInfoNil.Error()},
 			Phase: &phasepb.Phase{
 				PresentPhase:    constants.SYNC_REQUEST_RESPONSE,
 				SuccessivePhase: constants.FAILURE,
 				Success:         false,
-				Error:           err.Error(),
+				Error:           errors.BlockInfoNil.Error(),
 			},
 		}
 	}
@@ -180,12 +201,12 @@ func (router *Datarouter) SYNC_REQUEST_V2(ctx context.Context, req *priorsyncpb.
 				Priorsync: req,
 				Ack: &ackpb.Ack{
 					Ok:    false,
-					Error: err.Error()},
+					Error: errors.SameBlockHeight_DifferentStateroot.Error()},
 				Phase: &phasepb.Phase{
 					PresentPhase:    constants.SYNC_REQUEST_RESPONSE,
 					SuccessivePhase: constants.FAILURE,
 					Success:         false,
-					Error:           err.Error(),
+					Error:           errors.SameBlockHeight_DifferentStateroot.Error(),
 				},
 			}
 
@@ -198,12 +219,12 @@ func (router *Datarouter) SYNC_REQUEST_V2(ctx context.Context, req *priorsyncpb.
 				Priorsync: req,
 				Ack: &ackpb.Ack{
 					Ok:    false,
-					Error: err.Error()},
+					Error: errors.SameBlockHeight_DifferentBlockhash.Error()},
 				Phase: &phasepb.Phase{
 					PresentPhase:    constants.SYNC_REQUEST_RESPONSE,
 					SuccessivePhase: constants.FAILURE,
 					Success:         false,
-					Error:           err.Error(),
+					Error:           errors.SameBlockHeight_DifferentBlockhash.Error(),
 				},
 			}
 
@@ -632,10 +653,10 @@ func (router *Datarouter) HeaderSync(ctx context.Context, req *headersyncpb.Head
 		- This blocks are transmitted to the server node to get the block headers synced.
 	*/
 
-	/* 
-	- get the headers of the blocks in the req.block_number slice.
-	- then get the range headers from the req.range slice.
-	- then send the all headers to the server node in sorted order.
+	/*
+		- get the headers of the blocks in the req.block_number slice.
+		- then get the range headers from the req.range slice.
+		- then send the all headers to the server node in sorted order.
 	*/
 
 	// Check for nil BlockInfo to prevent panic
