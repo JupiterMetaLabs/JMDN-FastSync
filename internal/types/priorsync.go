@@ -4,12 +4,11 @@ import (
 	"context"
 
 	"github.com/JupiterMetaLabs/JMDN_Merkletree/merkletree"
-	"github.com/libp2p/go-libp2p/core/protocol"
 )
 
-type Range struct{
+type Range struct {
 	Start uint64
-	End uint64
+	End   uint64
 }
 
 type PriorSync struct {
@@ -17,7 +16,7 @@ type PriorSync struct {
 	Stateroot   []byte
 	Blockhash   []byte
 	MerkleTree  *merkletree.MerkleTreeSnapshot
-	Range 		*Range
+	Range       *Range
 	Metadata    Metadata
 }
 
@@ -40,7 +39,6 @@ type PriorSyncMessage struct {
 
 type Syncvars struct {
 	Ctx      context.Context
-	Protocol protocol.ID
 	Version  uint16
 	NodeInfo Nodeinfo
 }
@@ -48,6 +46,6 @@ type Syncvars struct {
 type Phase struct {
 	PresentPhase    string
 	SuccessivePhase string
-	Success 		bool
-	Error 			string
+	Success         bool
+	Error           string
 }
