@@ -61,26 +61,29 @@ func (ps *PriorSync) HandlePriorSync(node host.Host) error {
 	ps.mu.Lock()
 
 	// If called twice, stop the old one first
+
+	var RemoveStreams func()
+	RemoveStreams = func() {
+		ps.node.RemoveStreamHandler(constants.PriorSyncProtocol)
+		ps.node.RemoveStreamHandler(constants.MerkleProtocol)
+	}
+
 	if ps.cancel != nil {
 		ps.cancel()
 		if ps.node != nil {
-			ps.node.RemoveStreamHandler(constants.PriorSyncProtocol)
-			ps.node.RemoveStreamHandler(constants.MerkleProtocol)
+			RemoveStreams()
 		}
 	}
 	ps.cancel = cancel
 	ps.node = node
 	ps.mu.Unlock()
 
-	protoID := constants.PriorSyncProtocol
-	merkleProtoID := constants.MerkleProtocol
-
 	// Register Handlers using Sync Package
-	if err := syncHandler.HandlePriorSync(ctx, protoID, node); err != nil {
+	if err := syncHandler.HandlePriorSync(ctx, node); err != nil {
 		return err
 	}
 
-	if err := syncHandler.HandleMerkle(ctx, merkleProtoID, node); err != nil {
+	if err := syncHandler.HandleMerkle(ctx, node); err != nil {
 		return err
 	}
 
@@ -88,8 +91,7 @@ func (ps *PriorSync) HandlePriorSync(node host.Host) error {
 	<-ctx.Done()
 
 	// Unregister handlers when stopping
-	node.RemoveStreamHandler(protoID)
-	node.RemoveStreamHandler(merkleProtoID)
+	RemoveStreams()
 
 	// Clear stored cancel/node
 	ps.mu.Lock()
@@ -156,7 +158,7 @@ func (ps *PriorSync) SendPriorSync(
 
 	// Send using SendProtoDelimited with full peer info for transport selection
 	if err := messaging.SendProtoDelimited(
-		ps.SyncVars.Ctx,
+		ctx,
 		ps.SyncVars.Version,
 		ps.node,
 		peerInfo, // Pass full AddrInfo for transport selection
