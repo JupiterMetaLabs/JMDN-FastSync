@@ -9,30 +9,30 @@ import (
 	merklepb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/merkle"
 	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/priorsync"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types/constants"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
-	"github.com/libp2p/go-libp2p/core/protocol"
 )
 
 type Sync struct {
-	nodeinfo *types.Nodeinfo
+	nodeinfo   *types.Nodeinfo
 	Datarouter *router.Datarouter
 }
 
 type sync_interface interface {
-	HandlePriorSync(ctx context.Context, protocol protocol.ID, node host.Host) error
-	HandleMerkle(ctx context.Context, protocol protocol.ID, node host.Host) error
+	HandlePriorSync(ctx context.Context, node host.Host) error
+	HandleMerkle(ctx context.Context, node host.Host) error
 }
 
-func NewSyncHandler(nodeinfo *types.Nodeinfo) *Sync {
+func NewSyncHandler(nodeinfo *types.Nodeinfo) sync_interface {
 	return &Sync{
-		nodeinfo: nodeinfo,
+		nodeinfo:   nodeinfo,
 		Datarouter: router.NewDatarouter(nodeinfo),
 	}
 }
 
-func (s *Sync) HandlePriorSync(ctx context.Context, protocol protocol.ID, node host.Host) error {
-	node.SetStreamHandler(protocol, func(str network.Stream) {
+func (s *Sync) HandlePriorSync(ctx context.Context, node host.Host) error {
+	node.SetStreamHandler(constants.PriorSyncProtocol, func(str network.Stream) {
 		defer str.Close()
 
 		// refuse work if shutting down
@@ -62,8 +62,8 @@ func (s *Sync) HandlePriorSync(ctx context.Context, protocol protocol.ID, node h
 	return nil
 }
 
-func (s *Sync) HandleMerkle(ctx context.Context, protocol protocol.ID, node host.Host) error {
-	node.SetStreamHandler(protocol, func(str network.Stream) {
+func (s *Sync) HandleMerkle(ctx context.Context, node host.Host) error {
+	node.SetStreamHandler(constants.MerkleProtocol, func(str network.Stream) {
 		defer str.Close()
 
 		// refuse work if shutting down
