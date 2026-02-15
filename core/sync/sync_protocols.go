@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/communication"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/router"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/pbstream"
 	merklepb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/merkle"
@@ -24,10 +25,10 @@ type sync_interface interface {
 	HandleMerkle(ctx context.Context, node host.Host) error
 }
 
-func NewSyncHandler(nodeinfo *types.Nodeinfo) sync_interface {
+func NewSyncHandler(nodeinfo *types.Nodeinfo, comm communication.CommunicationInterface) sync_interface {
 	return &Sync{
 		nodeinfo:   nodeinfo,
-		Datarouter: router.NewDatarouter(nodeinfo),
+		Datarouter: router.NewDatarouter(nodeinfo, comm),
 	}
 }
 

@@ -14,22 +14,24 @@ import (
 	libp2p_peer "github.com/libp2p/go-libp2p/core/peer"
 )
 
-type Communication struct{
-	host host.Host
+type Communication struct {
+	host            host.Host
 	protocolVersion uint16
 }
 
-type communication_interface interface{
+type CommunicationInterface interface {
 	// SendPriorSync sends a PriorSync request to a specific peer and returns the response
 	SendPriorSync(ctx context.Context, merkle *merklepb.MerkleSnapshot, peer types.Nodeinfo, data types.PriorSyncMessage) (*types.PriorSyncMessage, error)
 
 	// This is to send the request for merkle tree for the given range.
 	SendMerkleRequest(ctx context.Context, peerNode types.Nodeinfo, req *merklepb.MerkleRequestMessage) (*merklepb.MerkleMessage, error)
-
 }
 
-func NewCommunication() communication_interface {
-	return &Communication{}
+func NewCommunication(host host.Host, protocolVersion uint16) CommunicationInterface {
+	return &Communication{
+		host:            host,
+		protocolVersion: protocolVersion,
+	}
 }
 
 // SendPriorSync sends a PriorSync message to a peer and returns the response.

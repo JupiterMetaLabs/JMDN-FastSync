@@ -5,6 +5,7 @@ import (
 	"errors"
 	"sync"
 
+	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/communication"
 	sync_proto "github.com/JupiterMetaLabs/JMDN-FastSync/core/sync"
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types"
@@ -50,8 +51,11 @@ func (ps *PriorSync) HandlePriorSync(node host.Host) error {
 	// derive child from parent; child cannot outlive parent
 	ctx, cancel := context.WithCancel(ps.SyncVars.Ctx)
 
+	// Initialize Communication
+	comm := communication.NewCommunication(node, ps.SyncVars.Version)
+
 	// Initialize Sync Handler (Builder Pattern)
-	syncHandler := sync_proto.NewSyncHandler(&ps.SyncVars.NodeInfo)
+	syncHandler := sync_proto.NewSyncHandler(&ps.SyncVars.NodeInfo, comm)
 
 	ps.mu.Lock()
 
