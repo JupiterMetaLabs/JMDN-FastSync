@@ -14,12 +14,12 @@ import (
 	libp2p_peer "github.com/libp2p/go-libp2p/core/peer"
 )
 
-type Communication struct{
+type communication struct{
 	host host.Host
 	protocolVersion uint16
 }
 
-type communication_interface interface{
+type Communicator interface{
 	// SendPriorSync sends a PriorSync request to a specific peer and returns the response
 	SendPriorSync(ctx context.Context, merkle *merklepb.MerkleSnapshot, peer types.Nodeinfo, data types.PriorSyncMessage) (*types.PriorSyncMessage, error)
 
@@ -28,13 +28,16 @@ type communication_interface interface{
 
 }
 
-func NewCommunication() communication_interface {
-	return &Communication{}
+func NewCommunication(host host.Host, protocolVersion uint16) Communicator {
+	return &communication{
+		host: host,
+		protocolVersion: protocolVersion,
+	}
 }
 
 // SendPriorSync sends a PriorSync message to a peer and returns the response.
 // Usually you'll do node.NewStream(ctx, peerID, protoID) and write the payload.
-func (c *Communication) SendPriorSync(
+func (c *communication) SendPriorSync(
 	ctx context.Context,
 	// As per the observation, data is synced irregularly so we need to check the missing blocks too so merkle check
 	merkle_snapshot *merklepb.MerkleSnapshot,
@@ -133,7 +136,7 @@ func (c *Communication) SendPriorSync(
 }
 
 // SendMerkleRequest sends a MerkleRequestMessage to a peer and returns the response.
-func (c *Communication) SendMerkleRequest(
+func (c *communication) SendMerkleRequest(
 	ctx context.Context,
 	peerNode types.Nodeinfo,
 	req *merklepb.MerkleRequestMessage,
