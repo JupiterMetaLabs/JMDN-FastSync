@@ -25,7 +25,7 @@ type sync_interface interface {
 	HandleMerkle(ctx context.Context, node host.Host) error
 }
 
-func NewSyncHandler(nodeinfo *types.Nodeinfo, comm communication.CommunicationInterface) sync_interface {
+func NewSyncHandler(nodeinfo *types.Nodeinfo, comm communication.Communicator) sync_interface {
 	return &Sync{
 		nodeinfo:   nodeinfo,
 		Datarouter: router.NewDatarouter(nodeinfo, comm),

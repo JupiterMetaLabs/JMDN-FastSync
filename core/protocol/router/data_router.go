@@ -33,10 +33,10 @@ const (
 
 type Datarouter struct {
 	Nodeinfo *types.Nodeinfo
-	Comm     communication.CommunicationInterface
+	Comm     communication.Communicator
 }
 
-func NewDatarouter(nodeinfo *types.Nodeinfo, comm communication.CommunicationInterface) *Datarouter {
+func NewDatarouter(nodeinfo *types.Nodeinfo, comm communication.Communicator) *Datarouter {
 	return &Datarouter{
 		Nodeinfo: nodeinfo,
 		Comm:     comm,
