@@ -9,8 +9,8 @@ import (
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/checksum"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/checksum/checksum_priorsync"
 	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/priorsync"
-	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types"
 	"github.com/libp2p/go-libp2p/core/protocol"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
 )
 
 const ProtocolID = "/priorsync/1.0.0"

@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 	"time"
-	constants "github.com/JupiterMetaLabs/JMDN-FastSync/internal/types/constants"
+	constants "github.com/JupiterMetaLabs/JMDN-FastSync/common/types/constants"
 	"github.com/JupiterMetaLabs/ion"
 )
 

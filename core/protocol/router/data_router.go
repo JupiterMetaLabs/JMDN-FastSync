@@ -20,9 +20,9 @@ import (
 	merklepb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/merkle"
 	phasepb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/phase"
 	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/priorsync"
-	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types"
-	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types/constants"
-	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types/errors"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/constants"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/errors"
 	libp2p_peer "github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
 )

@@ -8,8 +8,8 @@ import (
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/communication"
 	sync_proto "github.com/JupiterMetaLabs/JMDN-FastSync/core/sync"
 
-	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types"
-	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types/constants"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/constants"
 	"github.com/libp2p/go-libp2p/core/host"
 )
 

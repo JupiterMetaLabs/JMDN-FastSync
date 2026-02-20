@@ -12,7 +12,7 @@ import (
 
 	headersyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/headersync"
 	merklepb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/merkle"
-	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
 )
 
 const (

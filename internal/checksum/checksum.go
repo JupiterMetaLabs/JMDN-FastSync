@@ -2,7 +2,7 @@ package checksum
 
 import (
 	"crypto/sha256"
-	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types/errors"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/errors"
 	"encoding/binary"
 	"hash/crc32"
 )
