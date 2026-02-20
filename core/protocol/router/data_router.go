@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/communication"
 	merkle "github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/merkle"
 	merkle_types "github.com/JupiterMetaLabs/JMDN-FastSync/helper/merkle"
 	Log "github.com/JupiterMetaLabs/JMDN-FastSync/logging"
@@ -19,9 +20,11 @@ import (
 	merklepb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/merkle"
 	phasepb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/phase"
 	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/priorsync"
-	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types"
-	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types/constants"
-	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types/errors"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/constants"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/errors"
+	libp2p_peer "github.com/libp2p/go-libp2p/core/peer"
+	"github.com/multiformats/go-multiaddr"
 )
 
 const (
@@ -30,10 +33,14 @@ const (
 
 type Datarouter struct {
 	Nodeinfo *types.Nodeinfo
+	Comm     communication.Communicator
 }
 
-func NewDatarouter(nodeinfo *types.Nodeinfo) *Datarouter {
-	return &Datarouter{Nodeinfo: nodeinfo}
+func NewDatarouter(nodeinfo *types.Nodeinfo, comm communication.Communicator) *Datarouter {
+	return &Datarouter{
+		Nodeinfo: nodeinfo,
+		Comm:     comm,
+	}
 }
 
 func (router *Datarouter) HandlePriorSync(ctx context.Context, req *priorsyncpb.PriorSyncMessage) *priorsyncpb.PriorSyncMessage {
@@ -62,7 +69,30 @@ func (router *Datarouter) HandlePriorSync(ctx context.Context, req *priorsyncpb.
 		Log.Logger(namedlogger).Debug(ctx, "Sync Request - LOG",
 			ion.String("state", state),
 			ion.String("function", "HandlePriorSync"))
-		return router.SYNC_REQUEST(ctx, req.Priorsync)
+
+		// Extract peer info from metadata if available
+		var peerInfo types.Nodeinfo
+		if req.Priorsync.Metadata != nil && req.Priorsync.Metadata.Nodeinfo != nil {
+			pbNodeInfo := req.Priorsync.Metadata.Nodeinfo
+			var maddrs []multiaddr.Multiaddr
+			for _, maBytes := range pbNodeInfo.Multiaddrs {
+				ma, err := multiaddr.NewMultiaddrBytes(maBytes)
+				if err == nil {
+					maddrs = append(maddrs, ma)
+				}
+			}
+
+			pid, _ := libp2p_peer.IDFromBytes(pbNodeInfo.PeerId)
+
+			peerInfo = types.Nodeinfo{
+				PeerID:       pid,
+				Multiaddr:    maddrs,
+				Capabilities: pbNodeInfo.Capabilities,
+				Version:      uint16(pbNodeInfo.Version),
+			}
+		}
+
+		return router.SYNC_REQUEST(ctx, req.Priorsync, peerInfo)
 
 	default:
 		Log.Logger(namedlogger).Debug(ctx, "Unknown State - LOG",
@@ -308,7 +338,7 @@ func (router *Datarouter) SYNC_REQUEST_V2(ctx context.Context, req *priorsyncpb.
 	}
 }
 
-func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.PriorSync) *priorsyncpb.PriorSyncMessage {
+func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.PriorSync, peerNode types.Nodeinfo) *priorsyncpb.PriorSyncMessage {
 
 	/*
 		- Check the checksum to make sure there is no data loss and message sent and received are same.
@@ -513,7 +543,7 @@ func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.Pri
 	// 	}
 	// }
 
-	header_sync_req, err := router.dataBisect(ctx, local_merkletree_pointer, target_merkletree_pointer)
+	header_sync_req, err := router.dataBisect(ctx, local_merkletree_pointer, target_merkletree_pointer, peerNode)
 	if err != nil {
 		Log.Logger(namedlogger).Error(ctx, "Bisect Failed - LOG",
 			err,

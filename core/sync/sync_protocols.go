@@ -4,12 +4,13 @@ import (
 	"context"
 	"time"
 
+	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/communication"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/router"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/pbstream"
 	merklepb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/merkle"
 	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/priorsync"
-	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types"
-	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types/constants"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/constants"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 )
@@ -24,10 +25,10 @@ type sync_interface interface {
 	HandleMerkle(ctx context.Context, node host.Host) error
 }
 
-func NewSyncHandler(nodeinfo *types.Nodeinfo) sync_interface {
+func NewSyncHandler(nodeinfo *types.Nodeinfo, comm communication.Communicator) sync_interface {
 	return &Sync{
 		nodeinfo:   nodeinfo,
-		Datarouter: router.NewDatarouter(nodeinfo),
+		Datarouter: router.NewDatarouter(nodeinfo, comm),
 	}
 }
 
