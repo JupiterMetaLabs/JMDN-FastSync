@@ -3,7 +3,7 @@ package protocol
 import (
 	"context"
 
-	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
 	"github.com/libp2p/go-libp2p/core/host"
 )
 

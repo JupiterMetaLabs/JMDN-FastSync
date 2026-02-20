@@ -2,7 +2,7 @@ package example
 
 import (
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/block"
-	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
 )
 
 type example_blockinfo struct{}

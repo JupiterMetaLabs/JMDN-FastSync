@@ -8,29 +8,28 @@ import (
 	merklepb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/merkle"
 	phasepb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/phase"
 	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/priorsync"
-	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types"
-	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types/constants"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/constants"
 	"github.com/libp2p/go-libp2p/core/host"
 	libp2p_peer "github.com/libp2p/go-libp2p/core/peer"
 )
 
-type communication struct{
-	host host.Host
+type communication struct {
+	host            host.Host
 	protocolVersion uint16
 }
 
-type Communicator interface{
+type Communicator interface {
 	// SendPriorSync sends a PriorSync request to a specific peer and returns the response
 	SendPriorSync(ctx context.Context, merkle *merklepb.MerkleSnapshot, peer types.Nodeinfo, data types.PriorSyncMessage) (*types.PriorSyncMessage, error)
 
 	// This is to send the request for merkle tree for the given range.
 	SendMerkleRequest(ctx context.Context, peerNode types.Nodeinfo, req *merklepb.MerkleRequestMessage) (*merklepb.MerkleMessage, error)
-
 }
 
 func NewCommunication(host host.Host, protocolVersion uint16) Communicator {
 	return &communication{
-		host: host,
+		host:            host,
 		protocolVersion: protocolVersion,
 	}
 }
