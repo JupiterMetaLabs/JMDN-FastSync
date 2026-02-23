@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package merkle;
 
-option go_package = "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/merkle";
+option go_package = "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/merkle";
 import "ack/ack.proto";
 import "phase/phase.proto";
 

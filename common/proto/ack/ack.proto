@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package ack;
 
-option go_package = "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/ack";
+option go_package = "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/ack";
 
 message Ack {
   bool ok = 1;

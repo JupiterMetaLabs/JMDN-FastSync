@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package phase;
 
-option go_package = "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/phase";
+option go_package = "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/phase";
 
 message Phase {
     string present_phase = 1;

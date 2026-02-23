@@ -2,7 +2,7 @@
 // versions:
 // 	protoc-gen-go v1.36.9
 // 	protoc        v6.32.0
-// source: block.proto
+// source: block/block.proto
 
 package block
 
@@ -42,7 +42,7 @@ type Header struct {
 
 func (x *Header) Reset() {
 	*x = Header{}
-	mi := &file_block_proto_msgTypes[0]
+	mi := &file_block_block_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -54,7 +54,7 @@ func (x *Header) String() string {
 func (*Header) ProtoMessage() {}
 
 func (x *Header) ProtoReflect() protoreflect.Message {
-	mi := &file_block_proto_msgTypes[0]
+	mi := &file_block_block_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -67,7 +67,7 @@ func (x *Header) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Header.ProtoReflect.Descriptor instead.
 func (*Header) Descriptor() ([]byte, []int) {
-	return file_block_proto_rawDescGZIP(), []int{0}
+	return file_block_block_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *Header) GetProofHash() string {
@@ -186,7 +186,7 @@ type Transaction struct {
 
 func (x *Transaction) Reset() {
 	*x = Transaction{}
-	mi := &file_block_proto_msgTypes[1]
+	mi := &file_block_block_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -198,7 +198,7 @@ func (x *Transaction) String() string {
 func (*Transaction) ProtoMessage() {}
 
 func (x *Transaction) ProtoReflect() protoreflect.Message {
-	mi := &file_block_proto_msgTypes[1]
+	mi := &file_block_block_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -211,7 +211,7 @@ func (x *Transaction) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Transaction.ProtoReflect.Descriptor instead.
 func (*Transaction) Descriptor() ([]byte, []int) {
-	return file_block_proto_rawDescGZIP(), []int{1}
+	return file_block_block_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *Transaction) GetHash() []byte {
@@ -343,7 +343,7 @@ type AccessTuple struct {
 
 func (x *AccessTuple) Reset() {
 	*x = AccessTuple{}
-	mi := &file_block_proto_msgTypes[2]
+	mi := &file_block_block_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -355,7 +355,7 @@ func (x *AccessTuple) String() string {
 func (*AccessTuple) ProtoMessage() {}
 
 func (x *AccessTuple) ProtoReflect() protoreflect.Message {
-	mi := &file_block_proto_msgTypes[2]
+	mi := &file_block_block_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -368,7 +368,7 @@ func (x *AccessTuple) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AccessTuple.ProtoReflect.Descriptor instead.
 func (*AccessTuple) Descriptor() ([]byte, []int) {
-	return file_block_proto_rawDescGZIP(), []int{2}
+	return file_block_block_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *AccessTuple) GetAddress() []byte {
@@ -410,7 +410,7 @@ type ZKBlock struct {
 
 func (x *ZKBlock) Reset() {
 	*x = ZKBlock{}
-	mi := &file_block_proto_msgTypes[3]
+	mi := &file_block_block_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -422,7 +422,7 @@ func (x *ZKBlock) String() string {
 func (*ZKBlock) ProtoMessage() {}
 
 func (x *ZKBlock) ProtoReflect() protoreflect.Message {
-	mi := &file_block_proto_msgTypes[3]
+	mi := &file_block_block_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -435,7 +435,7 @@ func (x *ZKBlock) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ZKBlock.ProtoReflect.Descriptor instead.
 func (*ZKBlock) Descriptor() ([]byte, []int) {
-	return file_block_proto_rawDescGZIP(), []int{3}
+	return file_block_block_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *ZKBlock) GetStarkProof() []byte {
@@ -557,11 +557,11 @@ func (x *ZKBlock) GetBlockNumber() uint64 {
 	return 0
 }
 
-var File_block_proto protoreflect.FileDescriptor
+var File_block_block_proto protoreflect.FileDescriptor
 
-const file_block_proto_rawDesc = "" +
+const file_block_block_proto_rawDesc = "" +
 	"\n" +
-	"\vblock.proto\x12\x05block\"\x91\x03\n" +
+	"\x11block/block.proto\x12\x05block\"\x91\x03\n" +
 	"\x06Header\x12\x1d\n" +
 	"\n" +
 	"proof_hash\x18\x01 \x01(\tR\tproofHash\x12\x16\n" +
@@ -630,28 +630,28 @@ const file_block_proto_rawDesc = "" +
 	"block_hash\x18\x0e \x01(\fR\tblockHash\x12\x1b\n" +
 	"\tgas_limit\x18\x0f \x01(\x04R\bgasLimit\x12\x19\n" +
 	"\bgas_used\x18\x10 \x01(\x04R\agasUsed\x12!\n" +
-	"\fblock_number\x18\x11 \x01(\x04R\vblockNumberB?Z=github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/blockb\x06proto3"
+	"\fblock_number\x18\x11 \x01(\x04R\vblockNumberB=Z;github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/blockb\x06proto3"
 
 var (
-	file_block_proto_rawDescOnce sync.Once
-	file_block_proto_rawDescData []byte
+	file_block_block_proto_rawDescOnce sync.Once
+	file_block_block_proto_rawDescData []byte
 )
 
-func file_block_proto_rawDescGZIP() []byte {
-	file_block_proto_rawDescOnce.Do(func() {
-		file_block_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_block_proto_rawDesc), len(file_block_proto_rawDesc)))
+func file_block_block_proto_rawDescGZIP() []byte {
+	file_block_block_proto_rawDescOnce.Do(func() {
+		file_block_block_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_block_block_proto_rawDesc), len(file_block_block_proto_rawDesc)))
 	})
-	return file_block_proto_rawDescData
+	return file_block_block_proto_rawDescData
 }
 
-var file_block_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
-var file_block_proto_goTypes = []any{
+var file_block_block_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
+var file_block_block_proto_goTypes = []any{
 	(*Header)(nil),      // 0: block.Header
 	(*Transaction)(nil), // 1: block.Transaction
 	(*AccessTuple)(nil), // 2: block.AccessTuple
 	(*ZKBlock)(nil),     // 3: block.ZKBlock
 }
-var file_block_proto_depIdxs = []int32{
+var file_block_block_proto_depIdxs = []int32{
 	2, // 0: block.Transaction.access_list:type_name -> block.AccessTuple
 	1, // 1: block.ZKBlock.transactions:type_name -> block.Transaction
 	2, // [2:2] is the sub-list for method output_type
@@ -661,26 +661,26 @@ var file_block_proto_depIdxs = []int32{
 	0, // [0:2] is the sub-list for field type_name
 }
 
-func init() { file_block_proto_init() }
-func file_block_proto_init() {
-	if File_block_proto != nil {
+func init() { file_block_block_proto_init() }
+func file_block_block_proto_init() {
+	if File_block_block_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_block_proto_rawDesc), len(file_block_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_block_block_proto_rawDesc), len(file_block_block_proto_rawDesc)),
 			NumEnums:      0,
 			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
-		GoTypes:           file_block_proto_goTypes,
-		DependencyIndexes: file_block_proto_depIdxs,
-		MessageInfos:      file_block_proto_msgTypes,
+		GoTypes:           file_block_block_proto_goTypes,
+		DependencyIndexes: file_block_block_proto_depIdxs,
+		MessageInfos:      file_block_block_proto_msgTypes,
 	}.Build()
-	File_block_proto = out.File
-	file_block_proto_goTypes = nil
-	file_block_proto_depIdxs = nil
+	File_block_block_proto = out.File
+	file_block_block_proto_goTypes = nil
+	file_block_block_proto_depIdxs = nil
 }

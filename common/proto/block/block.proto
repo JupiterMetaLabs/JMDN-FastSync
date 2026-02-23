@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package block;
 
-option go_package = "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/block";
+option go_package = "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/block";
 
 message Header {
     string proof_hash = 1;

@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package nodeinfo;
 
-option go_package = "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/nodeinfo";
+option go_package = "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/nodeinfo";
 
 message NodeInfo {
   bytes peer_id = 1;

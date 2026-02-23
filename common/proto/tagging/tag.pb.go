@@ -137,7 +137,7 @@ const file_tagging_tag_proto_rawDesc = "" +
 	"\x05range\x18\x02 \x03(\v2\x11.tagging.RangeTagR\x05range\"2\n" +
 	"\bRangeTag\x12\x14\n" +
 	"\x05start\x18\x01 \x01(\x04R\x05start\x12\x10\n" +
-	"\x03end\x18\x02 \x01(\x04R\x03endBAZ?github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/taggingb\x06proto3"
+	"\x03end\x18\x02 \x01(\x04R\x03endB?Z=github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/taggingb\x06proto3"
 
 var (
 	file_tagging_tag_proto_rawDescOnce sync.Once

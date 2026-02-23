@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package priorsync;
 
-option go_package = "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/priorsync";
+option go_package = "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/priorsync";
 import "nodeinfo/nodeinfo.proto";
 import "ack/ack.proto";
 import "phase/phase.proto";
