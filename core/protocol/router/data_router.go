@@ -13,7 +13,7 @@ import (
 	"github.com/JupiterMetaLabs/JMDN_Merkletree/merkletree"
 	"github.com/JupiterMetaLabs/ion"
 
-	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/checksum/checksum_priorsync"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/common/checksum/checksum_priorsync"
 	ackpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/ack"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/block"
 	headersyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/headersync"

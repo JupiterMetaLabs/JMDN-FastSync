@@ -7,7 +7,7 @@ import (
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/messaging"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/checksum"
-	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/checksum/checksum_priorsync"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/common/checksum/checksum_priorsync"
 	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/priorsync"
 	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
