@@ -1,7 +1,7 @@
 package merkle
 
 import (
-	pbmerkle "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/merkle"
+	pbmerkle "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/merkle"
 	"github.com/JupiterMetaLabs/JMDN_Merkletree/merkletree"
 )
 

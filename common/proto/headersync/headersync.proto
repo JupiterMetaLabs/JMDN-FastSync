@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package headersync;
 
-option go_package = "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/headersync";
+option go_package = "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/headersync";
 
 import "tagging/tag.proto";
 import "ack/ack.proto";

@@ -1,7 +1,7 @@
 syntax = "proto3";
 
 package tagging;
-option go_package = "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/tagging";
+option go_package = "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/tagging";
 
 // in the version 1 we are just taging the numbers
 // in the version 2 we can tag both numbers and range also

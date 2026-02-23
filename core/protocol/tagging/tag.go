@@ -1,7 +1,7 @@
 package tagging
 
 import (
-	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/tagging"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/tagging"
 )
 
 type Tagging struct {

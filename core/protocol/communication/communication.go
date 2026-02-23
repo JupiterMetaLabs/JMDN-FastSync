@@ -5,9 +5,9 @@ import (
 	"errors"
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/messaging"
-	merklepb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/merkle"
-	phasepb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/phase"
-	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/priorsync"
+	merklepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/merkle"
+	phasepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/phase"
+	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/priorsync"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/constants"
 	"github.com/libp2p/go-libp2p/core/host"

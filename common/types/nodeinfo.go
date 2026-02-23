@@ -1,7 +1,7 @@
 package types
 
 import (
-	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/block"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/block"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/multiformats/go-multiaddr"

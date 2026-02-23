@@ -1,7 +1,7 @@
 package example
 
 import (
-	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/block"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/block"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
 )
 

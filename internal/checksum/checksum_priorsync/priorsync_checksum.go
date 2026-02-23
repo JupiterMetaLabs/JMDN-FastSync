@@ -2,8 +2,8 @@ package checksum_priorsync
 
 import (
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/checksum"
-	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/merkle"
-	pb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/priorsync"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/merkle"
+	pb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/priorsync"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/errors"
 	"google.golang.org/protobuf/proto"

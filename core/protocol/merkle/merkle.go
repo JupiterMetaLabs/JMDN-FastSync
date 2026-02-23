@@ -9,7 +9,7 @@ import (
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
 
-	merklepb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/merkle"
+	merklepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/merkle"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/logging"
 	"github.com/JupiterMetaLabs/JMDN_Merkletree/merkletree"
 	"github.com/JupiterMetaLabs/ion"

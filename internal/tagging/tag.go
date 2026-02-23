@@ -1,6 +1,6 @@
 package tagging
 
-import "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/merkle"
+import "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/merkle"
 
 type Tag struct {
 	BlockNumber []uint64
