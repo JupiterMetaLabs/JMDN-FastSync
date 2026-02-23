@@ -10,8 +10,8 @@ import (
 	"github.com/JupiterMetaLabs/JMDN_Merkletree/merkletree"
 	"github.com/JupiterMetaLabs/ion"
 
-	headersyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/headersync"
-	merklepb "github.com/JupiterMetaLabs/JMDN-FastSync/internal/proto/merkle"
+	headersyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/headersync"
+	merklepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/merkle"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
 )
 
