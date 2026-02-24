@@ -447,14 +447,12 @@ func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.Pri
 		}
 	}
 
-	endRange := int64(req.Range.End)
-	if endRange == -1 || endRange > int64(blockNumber) {
-		endRange = int64(blockNumber)
+	if req.Range.End == math.MaxUint64 || req.Range.End > blockNumber {
+		req.Range.End = blockNumber
 	}
-	req.Range.End = uint64(endRange)
 
 	// create the local merkle tree with the same config as the target machine.
-	local_merkletree_pointer, err := merkle_obj.GenerateMerkleTreeWithConfig(ctx, int64(req.Range.Start), int64(req.Range.End), &target_snap.Config)
+	local_merkletree_pointer, err := merkle_obj.GenerateMerkleTreeWithConfig(ctx, req.Range.Start, req.Range.End, &target_snap.Config)
 	if err != nil {
 		Log.Logger(namedlogger).Error(ctx, "Merkle Tree Generation Failed - LOG",
 			err,
@@ -600,7 +598,7 @@ func (router *Datarouter) REQUEST_MERKLE(ctx context.Context, Range *merklepb.Ra
 
 	merkle_obj := merkle.NewMerkleProof(router.Nodeinfo.BlockInfo)
 
-	snapshot_obj, err := merkle_obj.GenerateMerkleTreeWithConfig(ctx, int64(Range.Start), int64(Range.End), &cfg)
+	snapshot_obj, err := merkle_obj.GenerateMerkleTreeWithConfig(ctx, Range.Start, Range.End, &cfg)
 	if err != nil {
 		Log.Logger(namedlogger).Error(ctx, "Merkle Tree Generation Failed - LOG",
 			err,
