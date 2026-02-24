@@ -20,8 +20,8 @@ type MerkleProof struct {
 }
 
 type MerkleProofInterface interface {
-	GenerateMerkleTree(logger_ctx context.Context, startBlock, endBlock int64) (*merkletree.Builder, error)
-	GenerateMerkleTreeWithConfig(logger_ctx context.Context, startBlock, endBlock int64, config *merkletree.SnapshotConfig) (*merkletree.Builder, error)
+	GenerateMerkleTree(logger_ctx context.Context, startBlock, endBlock uint64) (*merkletree.Builder, error)
+	GenerateMerkleTreeWithConfig(logger_ctx context.Context, startBlock, endBlock uint64, config *merkletree.SnapshotConfig) (*merkletree.Builder, error)
 	ReconstructTree(logger_ctx context.Context, snap *merkletree.MerkleTreeSnapshot) (*merkletree.Builder, error)
 	ToSnapshot(logger_ctx context.Context, builder *merkletree.Builder) (*merklepb.MerkleSnapshot, error)
 }
@@ -30,32 +30,21 @@ func NewMerkleProof(blockInfo types.BlockInfo) MerkleProofInterface {
 	return &MerkleProof{Blockinfo: blockInfo}
 }
 
-func (m *MerkleProof) GenerateMerkleTree(logger_ctx context.Context, startBlock, endBlock int64) (*merkletree.Builder, error) {
+func (m *MerkleProof) GenerateMerkleTree(logger_ctx context.Context, startBlock, endBlock uint64) (*merkletree.Builder, error) {
 
-	if endBlock == -1 {
+	if endBlock == math.MaxUint64{
 		// If the endBlock is -1, then we need to get the latest block number from the db.
 		latestBlockNumber := m.Blockinfo.GetBlockNumber()
 
 		// m.Blockinfo.GetBlockNumber().Client.Logger.Debug(logger_ctx, "Latest block number", ion.Int64("latest_block_number", int64(latestBlockNumber)), ion.String("function", "DB_OPs.merkletree.GenerateMerkleTree"))
-		endBlock = int64(latestBlockNumber)
-	} else if endBlock < startBlock && endBlock >= 0 {
+		endBlock = latestBlockNumber
+	} else if endBlock < startBlock {
 		str := fmt.Sprintf("endBlock (%d) cannot be less than startBlock (%d)", endBlock, startBlock)
 		err := errors.New(str)
 
 		logging.Logger(logging.MerkleTree).Error(logger_ctx, "GenerateMerkleTree", err,
-			ion.Int64("start_block", startBlock),
-			ion.Int64("end_block", endBlock),
-			ion.String("function", "DB_OPs.merkletree.GenerateMerkleTree"),
-		)
-
-		return nil, err
-	} else if endBlock < -1 {
-		str := fmt.Sprintf("endBlock (%d) cannot be less than -1", endBlock)
-		err := errors.New(str)
-
-		logging.Logger(logging.MerkleTree).Error(logger_ctx, "GenerateMerkleTree", err,
-			ion.Int64("start_block", startBlock),
-			ion.Int64("end_block", endBlock),
+			ion.Uint64("start_block", startBlock),
+			ion.Uint64("end_block", endBlock),
 			ion.String("function", "DB_OPs.merkletree.GenerateMerkleTree"),
 		)
 
@@ -63,11 +52,13 @@ func (m *MerkleProof) GenerateMerkleTree(logger_ctx context.Context, startBlock,
 	}
 
 	cfg := merkletree.Config{
-		ExpectedTotal: uint64(endBlock - startBlock + 1),
+		ExpectedTotal: endBlock - startBlock + 1,
 		BlockMerge:    int(math.Ceil(float64(endBlock-startBlock+1) * 0.005)),
 	}
 
-	fmt.Println("BlockMerge: ", cfg.BlockMerge)
+	logging.Logger(logging.MerkleTree).Info(logger_ctx, "BlockMerge", 
+		ion.Int("block_merge", cfg.BlockMerge), 
+		ion.String("function", "DB_OPs.merkletree.GenerateMerkleTree"))
 
 	Builder, err := merkletree.NewBuilder(cfg)
 	if err != nil {
@@ -76,9 +67,9 @@ func (m *MerkleProof) GenerateMerkleTree(logger_ctx context.Context, startBlock,
 
 	// Initialize the BlockIterator with a batch size (e.g., 1000)
 	// We use 1000 to balance memory usage and network round trips.
-	iterator := m.Blockinfo.NewBlockIterator(uint64(startBlock), uint64(endBlock), 1000)
+	iterator := m.Blockinfo.NewBlockIterator(startBlock, endBlock, 1000)
 
-	expectedBlockNumber := uint64(startBlock)
+	expectedBlockNumber := startBlock
 
 	for {
 		blocks, err := iterator.Next()
@@ -135,11 +126,11 @@ func (m *MerkleProof) GenerateMerkleTree(logger_ctx context.Context, startBlock,
 	}
 
 	// Check for trailing gap
-	if expectedBlockNumber <= uint64(endBlock) {
-		gapSize := uint64(endBlock) - expectedBlockNumber + 1
+	if expectedBlockNumber <= endBlock {
+		gapSize := endBlock - expectedBlockNumber + 1
 		logging.Logger(logging.MerkleTree).Warn(logger_ctx, "Detected missing trailing blocks, filling with empty hashes",
 			ion.Uint64("gap_start", expectedBlockNumber),
-			ion.Uint64("gap_end", uint64(endBlock)),
+			ion.Uint64("gap_end", endBlock),
 			ion.Uint64("gap_size", gapSize),
 			ion.String("function", "DB_OPs.merkletree.GenerateMerkleTree"),
 		)
@@ -160,32 +151,21 @@ func (m *MerkleProof) GenerateMerkleTree(logger_ctx context.Context, startBlock,
 	return Builder, nil
 }
 
-func (m *MerkleProof) GenerateMerkleTreeWithConfig(logger_ctx context.Context, startBlock, endBlock int64, config *merkletree.SnapshotConfig) (*merkletree.Builder, error) {
+func (m *MerkleProof) GenerateMerkleTreeWithConfig(logger_ctx context.Context, startBlock, endBlock uint64, config *merkletree.SnapshotConfig) (*merkletree.Builder, error) {
 
-	if endBlock == -1 {
+	if endBlock == math.MaxUint64 {
 		// If the endBlock is -1, then we need to get the latest block number from the db.
 		latestBlockNumber := m.Blockinfo.GetBlockNumber()
 
 		// m.Blockinfo.GetBlockNumber().Client.Logger.Debug(logger_ctx, "Latest block number", ion.Int64("latest_block_number", int64(latestBlockNumber)), ion.String("function", "DB_OPs.merkletree.GenerateMerkleTree"))
-		endBlock = int64(latestBlockNumber)
+		endBlock = latestBlockNumber
 	} else if endBlock < startBlock && endBlock >= 0 {
 		str := fmt.Sprintf("endBlock (%d) cannot be less than startBlock (%d)", endBlock, startBlock)
 		err := errors.New(str)
 
 		logging.Logger(logging.MerkleTree).Error(logger_ctx, "GenerateMerkleTree", err,
-			ion.Int64("start_block", startBlock),
-			ion.Int64("end_block", endBlock),
-			ion.String("function", "DB_OPs.merkletree.GenerateMerkleTree"),
-		)
-
-		return nil, err
-	} else if endBlock < -1 {
-		str := fmt.Sprintf("endBlock (%d) cannot be less than -1", endBlock)
-		err := errors.New(str)
-
-		logging.Logger(logging.MerkleTree).Error(logger_ctx, "GenerateMerkleTree", err,
-			ion.Int64("start_block", startBlock),
-			ion.Int64("end_block", endBlock),
+			ion.Uint64("start_block", startBlock),
+			ion.Uint64("end_block", endBlock),
 			ion.String("function", "DB_OPs.merkletree.GenerateMerkleTree"),
 		)
 
@@ -193,7 +173,7 @@ func (m *MerkleProof) GenerateMerkleTreeWithConfig(logger_ctx context.Context, s
 	}
 
 	cfg := merkletree.Config{
-		ExpectedTotal: uint64(endBlock - startBlock + 1),
+		ExpectedTotal: endBlock - startBlock + 1,
 		BlockMerge:    config.BlockMerge,
 	}
 
@@ -206,9 +186,9 @@ func (m *MerkleProof) GenerateMerkleTreeWithConfig(logger_ctx context.Context, s
 
 	// Initialize the BlockIterator with a batch size (e.g., 1000)
 	// We use 1000 to balance memory usage and network round trips.
-	iterator := m.Blockinfo.NewBlockIterator(uint64(startBlock), uint64(endBlock), 1000)
+	iterator := m.Blockinfo.NewBlockIterator(startBlock, endBlock, 1000)
 
-	expectedBlockNumber := uint64(startBlock)
+	expectedBlockNumber := startBlock
 
 	for {
 		blocks, err := iterator.Next()
@@ -265,11 +245,11 @@ func (m *MerkleProof) GenerateMerkleTreeWithConfig(logger_ctx context.Context, s
 	}
 
 	// Check for trailing gap
-	if expectedBlockNumber <= uint64(endBlock) {
-		gapSize := uint64(endBlock) - expectedBlockNumber + 1
+	if expectedBlockNumber <= endBlock {
+		gapSize := endBlock - expectedBlockNumber + 1
 		logging.Logger(logging.MerkleTree).Warn(logger_ctx, "Detected missing trailing blocks, filling with empty hashes",
 			ion.Uint64("gap_start", expectedBlockNumber),
-			ion.Uint64("gap_end", uint64(endBlock)),
+			ion.Uint64("gap_end", endBlock),
 			ion.Uint64("gap_size", gapSize),
 			ion.String("function", "DB_OPs.merkletree.GenerateMerkleTree"),
 		)
