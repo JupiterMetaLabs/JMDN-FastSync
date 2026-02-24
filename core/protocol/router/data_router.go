@@ -447,6 +447,12 @@ func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.Pri
 		}
 	}
 
+	endRange := int64(req.Range.End)
+	if endRange == -1 || endRange > int64(blockNumber) {
+		endRange = int64(blockNumber)
+	}
+	req.Range.End = uint64(endRange)
+
 	// create the local merkle tree with the same config as the target machine.
 	local_merkletree_pointer, err := merkle_obj.GenerateMerkleTreeWithConfig(ctx, int64(req.Range.Start), int64(req.Range.End), &target_snap.Config)
 	if err != nil {
@@ -522,26 +528,6 @@ func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.Pri
 			},
 		}
 	}
-
-	// // bisect the merkle tree to find the to be synched block range.
-	// start, bCount, err := target_merkletree_pointer.Bisect(local_merkletree_pointer)
-	// if err != nil {
-	// 	Log.Logger(namedlogger).Error(ctx, "Bisect Failed - LOG",
-	// 		err,
-	// 		ion.String("function", "SYNC_REQUEST"))
-	// 	return &priorsyncpb.PriorSyncMessage{
-	// 		Priorsync: req,
-	// 		Ack: &ackpb.Ack{
-	// 			Ok:    false,
-	// 			Error: err.Error()},
-	// 		Phase: &phasepb.Phase{
-	// 			PresentPhase:    constants.SYNC_REQUEST_RESPONSE,
-	// 			SuccessivePhase: constants.FAILURE,
-	// 			Success:         false,
-	// 			Error:           err.Error(),
-	// 		},
-	// 	}
-	// }
 
 	header_sync_req, err := router.dataBisect(ctx, local_merkletree_pointer, target_merkletree_pointer, peerNode)
 	if err != nil {
