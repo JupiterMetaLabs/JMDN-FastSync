@@ -7,10 +7,11 @@ import (
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/communication"
 	sync_proto "github.com/JupiterMetaLabs/JMDN-FastSync/core/sync"
-
+	"github.com/JupiterMetaLabs/JMDN-FastSync/logging"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/constants"
 	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/JupiterMetaLabs/ion"
 )
 
 type PriorSync struct {
@@ -34,6 +35,14 @@ func (ps *PriorSync) SetSyncVars(ctx context.Context, protocolVersion uint16, no
 	if ps.SyncVars == nil {
 		ps.SyncVars = &types.Syncvars{}
 	}
+	
+	// Debugging
+	logging.Logger(logging.PriorSync).Info(ctx, "Setting sync vars",
+		ion.Int64("protocolVersion", int64(protocolVersion)),
+		ion.String("peerID", nodeInfo.PeerID.String()),
+		ion.String("multiaddr", nodeInfo.Multiaddr[0].String()),
+	)
+
 	ps.SyncVars.Version = protocolVersion
 	ps.SyncVars.NodeInfo = nodeInfo
 	ps.SyncVars.Ctx = ctx

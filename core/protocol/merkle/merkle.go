@@ -292,17 +292,6 @@ func (m *MerkleProof) GenerateMerkleTreeWithConfig(logger_ctx context.Context, s
 
 // ReconstructTree restores a Merkle Builder from a MerkleTreeSnapshot.
 func (m *MerkleProof) ReconstructTree(logger_ctx context.Context, snap *merkletree.MerkleTreeSnapshot) (*merkletree.Builder, error) {
-	// DEBUGING: Save the received snapshot to disk so we can inspect what arrived over the wire.
-	if saveErr := snap.SavetoJson("received_snapshot.json"); saveErr != nil {
-		logging.Logger(logging.MerkleTree).Warn(logger_ctx, "Failed to save received snapshot to JSON (debug only)",
-			ion.String("function", "DB_OPs.merkletree.ReconstructTree"),
-			ion.Err(saveErr),
-		)
-	} else {
-		logging.Logger(logging.MerkleTree).Info(logger_ctx, "Received snapshot saved to received_snapshot.json (debug)",
-			ion.String("function", "DB_OPs.merkletree.ReconstructTree"),
-		)
-	}
 
 	// Use the library's FromSnapshot method
 	// We pass nil for HashFactory to use the default one
