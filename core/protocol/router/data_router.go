@@ -92,7 +92,37 @@ func (router *Datarouter) HandlePriorSync(ctx context.Context, req *priorsyncpb.
 			}
 		}
 
-		return router.SYNC_REQUEST(ctx, req.Priorsync, peerInfo)
+		return router.SYNC_REQUEST(ctx, req.Priorsync, peerInfo, false)
+	
+	case constants.SYNC_REQUEST_AUTOPROCEED:
+		Log.Logger(namedlogger).Debug(ctx, "Sync Request Auto Proceed - LOG",
+			ion.String("state", state),
+			ion.String("function", "HandlePriorSync"))
+
+		// Extract peer info from metadata if available
+		var peerInfo types.Nodeinfo
+		if req.Priorsync.Metadata != nil && req.Priorsync.Metadata.Nodeinfo != nil {
+			pbNodeInfo := req.Priorsync.Metadata.Nodeinfo
+			var maddrs []multiaddr.Multiaddr
+			for _, maBytes := range pbNodeInfo.Multiaddrs {
+				ma, err := multiaddr.NewMultiaddrBytes(maBytes)
+				if err == nil {
+					maddrs = append(maddrs, ma)
+				}
+			}
+
+			pid, _ := libp2p_peer.IDFromBytes(pbNodeInfo.PeerId)
+
+			peerInfo = types.Nodeinfo{
+				PeerID:       pid,
+				Multiaddr:    maddrs,
+				Capabilities: pbNodeInfo.Capabilities,
+				Version:      uint16(pbNodeInfo.Version),
+			}
+		}
+
+		return router.SYNC_REQUEST(ctx, req.Priorsync, peerInfo, true)
+
 
 	default:
 		Log.Logger(namedlogger).Debug(ctx, "Unknown State - LOG",
@@ -338,7 +368,7 @@ func (router *Datarouter) SYNC_REQUEST_V2(ctx context.Context, req *priorsyncpb.
 	}
 }
 
-func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.PriorSync, peerNode types.Nodeinfo) *priorsyncpb.PriorSyncMessage {
+func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.PriorSync, peerNode types.Nodeinfo, autoproceed bool) *priorsyncpb.PriorSyncMessage {
 
 	/*
 		- Check the checksum to make sure there is no data loss and message sent and received are same.
@@ -550,6 +580,12 @@ func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.Pri
 		ion.Int64("start", int64(header_sync_req.Tag.Range[0].Start)),
 		ion.Int64("bCount", int64(header_sync_req.Tag.Range[0].End)),
 		ion.String("function", "SYNC_REQUEST"))
+
+	if autoproceed {
+		// Call the header sync and other essential steps and recompute the req then return so that two nodes are in sync and have same data.
+		//TODO: Implement the auto proceed logic.
+		
+	}
 
 	// Do recursion until the root is same. because we are bisecting the tree and should sync the leaf nodes to be synched. To be synched blocks should be tagged rather than sync directly.
 	// once that is one we need to update the leaf and parent nodes. but shouldn't reflect the sibling nodes. time complexity is O(log n).
