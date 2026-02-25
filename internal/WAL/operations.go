@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/tidwall/wal"
 	wal_types "github.com/JupiterMetaLabs/JMDN-FastSync/internal/types/wal"
+	"github.com/tidwall/wal"
 )
 
 const (
@@ -22,7 +22,12 @@ type LSNMetadata struct {
 	LastUpdated    int64  `json:"last_updated"`
 }
 
-// NewWAL creates a new WAL instance with LSN tracking
+// NewWAL creates a new WAL (Write-Ahead Log) instance.
+// Parameters:
+//   - dir: The directory where WAL files and metadata will be stored.
+//   - batchSize: The number of events to buffer before auto-flushing to disk.
+//
+// Returns a pointer to the WAL instance or an error if initialization fails.
 func NewWAL(dir string, batchSize int) (*WAL, error) {
 	if batchSize <= 0 {
 		batchSize = wal_types.DefaultBatchSize
@@ -54,7 +59,9 @@ func NewWAL(dir string, batchSize int) (*WAL, error) {
 	return w, nil
 }
 
-// loadLSN loads the LSN from metadata file or initializes it
+// loadLSN attempts to load the current LSN state from the metadata file.
+// If the file doesn't exist (new WAL), it initializes the LSN to 0.
+// This is called internally during NewWAL.
 func (w *WAL) loadLSN() error {
 	metadataPath := filepath.Join(w.Dir, lsnMetadataFile)
 
@@ -80,7 +87,8 @@ func (w *WAL) loadLSN() error {
 	return nil
 }
 
-// saveLSN persists the current LSN to metadata file
+// saveLSN persists the current LSN and flush state to a JSON metadata file.
+// This ensures that after a crash, the WAL knows where it left off.
 func (w *WAL) saveLSN() error {
 	metadata := LSNMetadata{
 		CurrentLSN:     w.currentLSN.Load(),
@@ -101,12 +109,14 @@ func (w *WAL) saveLSN() error {
 	return nil
 }
 
-// nextLSN atomically increments and returns the next LSN
+// nextLSN generates the next logical sequence number in a thread-safe manner.
 func (w *WAL) nextLSN() uint64 {
 	return w.currentLSN.Add(1)
 }
 
-// WriteEvent writes an event to the WAL using the adapter pattern
+// WriteEvent accepts an EventAdapter, assigns it an LSN, and adds it to the buffer.
+// If the buffer reaches BatchSize, it triggers an automatic flush to disk.
+// Returns the assigned LSN or an error if serialization/flushing fails.
 func (w *WAL) WriteEvent(event wal_types.EventAdapter) (uint64, error) {
 	w.Mu.Lock()
 	defer w.Mu.Unlock()
@@ -141,7 +151,8 @@ func (w *WAL) WriteEvent(event wal_types.EventAdapter) (uint64, error) {
 	return lsn, nil
 }
 
-// flushBuffer writes all buffered events to the WAL
+// flushBuffer performs the actual disk I/O, writing all buffered entries to the log.
+// It also updates the lastFlushedLSN and persists the metadata.
 func (w *WAL) flushBuffer() error {
 	if len(w.Buffer) == 0 {
 		return nil
@@ -176,14 +187,17 @@ func (w *WAL) flushBuffer() error {
 	return nil
 }
 
-// Flush forces a flush of the buffer to disk
+// Flush manually triggers a write of all buffered events to the disk.
+// Use this when you need to ensure data persistence before a specific operation.
 func (w *WAL) Flush() error {
 	w.Mu.Lock()
 	defer w.Mu.Unlock()
 	return w.flushBuffer()
 }
 
-// ReplayEvents reads all events from the WAL in LSN order for hydration
+// ReplayEvents iterates through all events stored in the WAL from the beginning.
+// For each event, it calls the provided handler function.
+// This is the core mechanism for state hydration/recovery.
 func (w *WAL) ReplayEvents(handler func(entry WALEntry) error) error {
 	w.Mu.RLock()
 	defer w.Mu.RUnlock()
@@ -220,7 +234,8 @@ func (w *WAL) ReplayEvents(handler func(entry WALEntry) error) error {
 	return nil
 }
 
-// ReplayEventsByType replays events of a specific type
+// ReplayEventsByType is a filtered version of ReplayEvents that only
+// processes events matching the specified WALType.
 func (w *WAL) ReplayEventsByType(walType wal_types.WALType, handler func(entry WALEntry) error) error {
 	return w.ReplayEvents(func(entry WALEntry) error {
 		if entry.Type == walType {
@@ -230,19 +245,19 @@ func (w *WAL) ReplayEventsByType(walType wal_types.WALType, handler func(entry W
 	})
 }
 
-// GetLastLSN returns the current LSN value
+// GetLastLSN returns the most recently assigned LSN (may not be on disk yet).
 func (w *WAL) GetLastLSN() uint64 {
 	return w.currentLSN.Load()
 }
 
-// GetLastFlushedLSN returns the last LSN that was flushed to disk
+// GetLastFlushedLSN returns the highest LSN that is guaranteed to be on disk.
 func (w *WAL) GetLastFlushedLSN() uint64 {
 	w.Mu.RLock()
 	defer w.Mu.RUnlock()
 	return w.lastFlushedLSN
 }
 
-// Close flushes any remaining data and closes the WAL
+// Close ensures all buffered data is flushed before closing the underlying log.
 func (w *WAL) Close() error {
 	w.Mu.Lock()
 	defer w.Mu.Unlock()
@@ -260,8 +275,8 @@ func (w *WAL) Close() error {
 	return nil
 }
 
-// TruncateBefore removes all entries before the given LSN
-// This is useful for pruning old events after successful hydration
+// TruncateBefore eliminates all log entries with an LSN lower than the specified value.
+// CAUTION: This is a destructive operation. Use only after state is safely checkpointed.
 func (w *WAL) TruncateBefore(lsn uint64) error {
 	w.Mu.Lock()
 	defer w.Mu.Unlock()
