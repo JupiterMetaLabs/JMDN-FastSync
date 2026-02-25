@@ -12,6 +12,9 @@ const (
 const (
 	DefaultBatchSize = 1000
 	DefaultDir       = "./internal/WAL/.tmp/wal"
+	SegmentSizeLimit = 100 * 1024 * 1024 // 100MB
+	MaxSnapshotLimit = 5                 // Keep 5 most recent checkpoints
+	CheckpointDir    = "checkpoint"
 )
 
 // EventOperation defines the type of operation in event sourcing

@@ -38,8 +38,13 @@ func NewWAL(dir string, batchSize int) (*WAL, error) {
 		return nil, fmt.Errorf("failed to create WAL directory: %w", err)
 	}
 
+	// Configure WAL options (e.g., 100MB segments)
+	opts := &wal.Options{
+		SegmentSize: wal_types.SegmentSizeLimit,
+	}
+
 	// Open the WAL log
-	log, err := wal.Open(dir, nil)
+	log, err := wal.Open(dir, opts)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open WAL: %w", err)
 	}
@@ -49,6 +54,12 @@ func NewWAL(dir string, batchSize int) (*WAL, error) {
 		Log:       log,
 		Buffer:    make([]WALEntry, 0, batchSize),
 		BatchSize: batchSize,
+	}
+
+	// Ensure checkpoint directory exists
+	checkpointPath := filepath.Join(dir, wal_types.CheckpointDir)
+	if err := os.MkdirAll(checkpointPath, 0755); err != nil {
+		return nil, fmt.Errorf("failed to create checkpoint directory: %w", err)
 	}
 
 	// Load or initialize LSN
@@ -280,6 +291,11 @@ func (w *WAL) Close() error {
 func (w *WAL) TruncateBefore(lsn uint64) error {
 	w.Mu.Lock()
 	defer w.Mu.Unlock()
+	return w.truncateBeforeUnlocked(lsn)
+}
+
+// truncateBeforeUnlocked is the non-locking version of TruncateBefore
+func (w *WAL) truncateBeforeUnlocked(lsn uint64) error {
 
 	// Find the corresponding index for the LSN
 	firstIndex, err := w.Log.FirstIndex()
@@ -318,4 +334,61 @@ func (w *WAL) TruncateBefore(lsn uint64) error {
 	}
 
 	return nil
+}
+
+// CreateCheckpoint creates a new LSN marker and manages checkpoint rotation.
+// It ensures that only MaxSnapshotLimit checkpoints exist and truncates the WAL
+// up to the oldest checkpoint's LSN when the limit is reached.
+func (w *WAL) CreateCheckpoint() (uint64, error) {
+	w.Mu.Lock()
+	defer w.Mu.Unlock()
+
+	// 1. Ensure any buffered events are flushed before checkpointing
+	if err := w.flushBuffer(); err != nil {
+		return 0, fmt.Errorf("failed to flush before checkpoint: %w", err)
+	}
+
+	lsn := w.lastFlushedLSN
+	checkpointPath := filepath.Join(w.Dir, wal_types.CheckpointDir)
+	newCheckpointFile := filepath.Join(checkpointPath, fmt.Sprintf("lsn_%020d", lsn))
+
+	// 2. Create the new checkpoint marker
+	if err := os.WriteFile(newCheckpointFile, []byte(fmt.Sprintf("%d", lsn)), 0644); err != nil {
+		return 0, fmt.Errorf("failed to create checkpoint marker: %w", err)
+	}
+
+	// 3. Manage rotation
+	files, err := os.ReadDir(checkpointPath)
+	if err != nil {
+		return 0, fmt.Errorf("failed to read checkpoints: %w", err)
+	}
+
+	// Filter and count checkpoint files
+	var checkpointFiles []string
+	for _, f := range files {
+		if !f.IsDir() && len(f.Name()) > 4 && f.Name()[:4] == "lsn_" {
+			checkpointFiles = append(checkpointFiles, f.Name())
+		}
+	}
+
+	// If we exceed the limit, truncate and remove the oldest
+	if len(checkpointFiles) > wal_types.MaxSnapshotLimit {
+		// Files are named lsn_%020d, so sorting them Lexicographically is same as sorting by LSN
+		// os.ReadDir already returns them sorted by name
+		oldestFile := checkpointFiles[0]
+		var oldestLSN uint64
+		fmt.Sscanf(oldestFile, "lsn_%d", &oldestLSN)
+
+		// Truncate WAL up to the oldest LSN
+		if err := w.truncateBeforeUnlocked(oldestLSN); err != nil {
+			return 0, fmt.Errorf("failed to truncate oldest checkpoint: %w", err)
+		}
+
+		// Remove the oldest marker file
+		if err := os.Remove(filepath.Join(checkpointPath, oldestFile)); err != nil {
+			return 0, fmt.Errorf("failed to remove oldest checkpoint marker: %w", err)
+		}
+	}
+
+	return lsn, nil
 }
