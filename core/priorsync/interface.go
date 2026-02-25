@@ -11,8 +11,8 @@ type Priorsync_router interface {
 	// Set the information prior so that this variables can be reused
 	SetSyncVars(ctx context.Context, protocolversion uint16, Nodeinfo types.Nodeinfo) Priorsync_router
 
-	// HandlePriorSync processes an incoming PriorSync request from a peer
-	HandlePriorSync(node host.Host) error
+	// SetupNetworkHandlers processes an incoming PriorSync request from a peer
+	SetupNetworkHandlers(node host.Host) error
 
 	// Close the connection
 	Close()

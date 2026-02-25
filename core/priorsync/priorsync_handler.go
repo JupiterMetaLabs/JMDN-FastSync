@@ -35,7 +35,7 @@ func (ps *PriorSync) SetSyncVars(ctx context.Context, protocolVersion uint16, no
 	if ps.SyncVars == nil {
 		ps.SyncVars = &types.Syncvars{}
 	}
-	
+
 	// Debugging
 	logging.Logger(logging.PriorSync).Info(ctx, "Setting sync vars",
 		ion.Int64("protocolVersion", int64(protocolVersion)),
@@ -49,7 +49,7 @@ func (ps *PriorSync) SetSyncVars(ctx context.Context, protocolVersion uint16, no
 	return ps
 }
 
-func (ps *PriorSync) HandlePriorSync(node host.Host) error {
+func (ps *PriorSync) SetupNetworkHandlers(node host.Host) error {
 	if node == nil {
 		return errors.New("host is nil")
 	}

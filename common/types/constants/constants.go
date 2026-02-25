@@ -7,6 +7,7 @@ const (
 
 const (
 	SYNC_REQUEST          = "state:priorsync:syncrequest"
+	SYNC_REQUEST_AUTOPROCEED = "state:priorsync:syncrequest:auto"
 	SYNC_REQUEST_RESPONSE = "state:priorsync:syncrequestresponse"
 
 	HEADER_SYNC_REQUEST  = "state:headersync:headersyncrequest"
