@@ -9,7 +9,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/JupiterMetaLabs/JMDN-FastSync/example"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/tests/example"
 )
 
 func main() {
