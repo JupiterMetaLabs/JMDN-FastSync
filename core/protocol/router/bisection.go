@@ -3,9 +3,12 @@ package router
 import (
 	"context"
 	"fmt"
+	"math"
 	"sync"
 
+	merkle "github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/merkle"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/tagging"
+	merkle_types "github.com/JupiterMetaLabs/JMDN-FastSync/helper/merkle"
 	Log "github.com/JupiterMetaLabs/JMDN-FastSync/logging"
 	"github.com/JupiterMetaLabs/JMDN_Merkletree/merkletree"
 	"github.com/JupiterMetaLabs/ion"
@@ -18,40 +21,44 @@ import (
 const (
 	// LEAF_THRESHOLD is the minimum number of blocks in a range before we stop bisecting
 	// and just tag the entire range for synchronization.
-	// Based on BlockMerge=10 from merkletree tests, this should be at least that size.
 	LEAF_THRESHOLD = 10
 
 	// LAYER_THRESHOLD is the maximum recursion depth for bisection.
 	// After this depth, we tag the entire remaining range to avoid excessive network calls.
-	// Lower values = fewer network round trips but less precise sync
-	// Higher values = more precise sync but more network overhead
 	LAYER_THRESHOLD = 6
 
-	// MAX_PARALLEL_REQUESTS limits concurrent network requests to avoid overwhelming the target node
+	// MAX_PARALLEL_REQUESTS limits concurrent network requests to avoid overwhelming the target node.
 	MAX_PARALLEL_REQUESTS = 10
 )
 
-// bisectionWorkItem represents a range of blocks to be bisected at a specific layer
+// bisectionWorkItem represents a range of blocks to be bisected at a specific layer.
 type bisectionWorkItem struct {
 	start uint64 // Starting block number
 	count uint32 // Number of blocks in this range
 	layer int    // Current layer/depth in the bisection tree
 }
 
-// rangeRequest represents a request for block hashes from the target node
+// rangeRequest represents a request for a sub-range merkle tree from the target node.
 type rangeRequest struct {
-	start uint64
-	count uint32
+	start      uint64
+	count      uint32
+	blockMerge int // BlockMerge to use for the sub-range tree
 }
 
-// rangeResponse contains the hashes received from the target node
+// rangeResponse contains the reconstructed Builder from the target node's snapshot.
 type rangeResponse struct {
-	start  uint64
-	hashes []merkletree.Hash32
-	err    error
+	start   uint64
+	builder *merkletree.Builder
+	err     error
 }
 
-// dataBisectOptimized performs breadth-first bisection with batched network requests.
+// dataBisect performs breadth-first bisection using TreeDiff to find ALL differing
+// ranges between local and target trees, then iteratively refines large ranges
+// by requesting finer-grained sub-trees from the peer.
+//
+// Unlike the previous approach (TreeBisect which only returned the first mismatch),
+// TreeDiff returns every differing range in a single pass, ensuring no mismatches
+// are silently missed.
 func (router *Datarouter) dataBisect(
 	ctx context.Context,
 	local_tree *merkletree.Builder,
@@ -59,276 +66,236 @@ func (router *Datarouter) dataBisect(
 	peerNode types.Nodeinfo,
 ) (*headersyncpb.HeaderSyncRequest, error) {
 
-	Log.Logger(namedlogger).Info(ctx, "Starting optimized data bisection",
-		ion.String("function", "dataBisectOptimized"))
+	Log.Logger(namedlogger).Info(ctx, "Starting data bisection",
+		ion.String("function", "dataBisect"))
 
-	// Initialize tagging system to track all blocks that need synchronization
 	tag := tagging.NewTagging()
 
-	// Check if trees are already identical
+	// Check if trees are already identical.
 	root_local, err := local_tree.Finalize()
 	if err != nil {
-		Log.Logger(namedlogger).Error(ctx, "Failed to finalize local tree",
-			err,
-			ion.String("function", "dataBisectOptimized"))
+		Log.Logger(namedlogger).Error(ctx, "Failed to finalize local tree", err,
+			ion.String("function", "dataBisect"))
 		return nil, fmt.Errorf("failed to finalize local tree: %w", err)
 	}
 
 	root_target, err := target_tree.Finalize()
 	if err != nil {
-		Log.Logger(namedlogger).Error(ctx, "Failed to finalize target tree",
-			err,
-			ion.String("function", "dataBisectOptimized"))
+		Log.Logger(namedlogger).Error(ctx, "Failed to finalize target tree", err,
+			ion.String("function", "dataBisect"))
 		return nil, fmt.Errorf("failed to finalize target tree: %w", err)
 	}
 
 	if root_local == root_target {
 		Log.Logger(namedlogger).Info(ctx, "Trees are identical, no bisection needed",
-			ion.String("function", "dataBisectOptimized"))
-		return &headersyncpb.HeaderSyncRequest{
-			Tag: tag.Tag,
-		}, nil
+			ion.String("function", "dataBisect"))
+		return &headersyncpb.HeaderSyncRequest{Tag: tag.Tag}, nil
 	}
 
-	// Find the first mismatch to start the bisection process
-	start, count, err := target_tree.TreeBisect(local_tree)
+	// Use TreeDiff to find ALL differing ranges in one pass.
+	// This is the critical fix: TreeBisect only returned the first (leftmost) mismatch,
+	// silently missing all other differing ranges. TreeDiff traverses the entire tree
+	// structure and returns every range where the two trees diverge.
+	diffs, err := local_tree.TreeDiff(target_tree)
 	if err != nil {
-		Log.Logger(namedlogger).Error(ctx, "Initial TreeBisect failed",
-			err,
-			ion.String("function", "dataBisectOptimized"))
-		return nil, fmt.Errorf("initial bisect failed: %w", err)
+		Log.Logger(namedlogger).Error(ctx, "Initial TreeDiff failed", err,
+			ion.String("function", "dataBisect"))
+		return nil, fmt.Errorf("initial TreeDiff failed: %w", err)
 	}
 
-	if count == 0 {
-		// No mismatches found (shouldn't happen if roots differ, but handle it)
-		Log.Logger(namedlogger).Warn(ctx, "TreeBisect returned no mismatches despite different roots",
-			ion.String("function", "dataBisectOptimized"))
-		return &headersyncpb.HeaderSyncRequest{
-			Tag: tag.Tag,
-		}, nil
+	if len(diffs) == 0 {
+		Log.Logger(namedlogger).Warn(ctx, "TreeDiff returned no diffs despite different roots",
+			ion.String("function", "dataBisect"))
+		return &headersyncpb.HeaderSyncRequest{Tag: tag.Tag}, nil
 	}
 
-	Log.Logger(namedlogger).Info(ctx, "Initial mismatch found",
-		ion.Uint64("start", start),
-		ion.Int("count", int(count)),
-		ion.String("function", "dataBisectOptimized"))
+	Log.Logger(namedlogger).Info(ctx, "Initial diffs found",
+		ion.Int("num_diffs", len(diffs)),
+		ion.String("function", "dataBisect"))
 
-	// Initialize the work queue with the first mismatch
-	currentLayer := []bisectionWorkItem{
-		{
-			start: start,
-			count: count,
+	// Seed the work queue with all initial diffs.
+	currentLayer := make([]bisectionWorkItem, 0, len(diffs))
+	for _, d := range diffs {
+		currentLayer = append(currentLayer, bisectionWorkItem{
+			start: d.Start,
+			count: d.Count,
 			layer: 0,
-		},
+		})
 	}
 
-	// BREADTH-FIRST PROCESSING
-	// Process all ranges at the same layer before moving to the next layer
+	// BREADTH-FIRST PROCESSING:
+	// Process all ranges at the same layer before moving to the next layer.
+	// At each layer, ranges that are small enough get tagged immediately.
+	// Larger ranges are refined by requesting finer-grained sub-trees from the peer
+	// and comparing them with TreeDiff again.
 	for len(currentLayer) > 0 {
-		// Check if we've exceeded the layer threshold
 		if currentLayer[0].layer >= LAYER_THRESHOLD {
 			Log.Logger(namedlogger).Info(ctx, "Reached layer threshold, tagging remaining ranges",
 				ion.Int("layer", currentLayer[0].layer),
 				ion.Int("remaining_ranges", len(currentLayer)),
-				ion.String("function", "dataBisectOptimized"))
+				ion.String("function", "dataBisect"))
 			break
 		}
 
 		Log.Logger(namedlogger).Debug(ctx, "Processing layer",
 			ion.Int("layer", currentLayer[0].layer),
 			ion.Int("num_ranges", len(currentLayer)),
-			ion.String("function", "dataBisectOptimized"))
+			ion.String("function", "dataBisect"))
 
 		nextLayer := []bisectionWorkItem{}
-
-		// Separate items that need bisection from those that meet threshold
 		itemsToProcess := []bisectionWorkItem{}
 
 		for _, item := range currentLayer {
-			// Threshold check: if range is small enough, tag it and skip further bisection
 			if item.count <= LEAF_THRESHOLD {
-				Log.Logger(namedlogger).Debug(ctx, "Range below leaf threshold, tagging entire range",
+				Log.Logger(namedlogger).Debug(ctx, "Range below leaf threshold, tagging",
 					ion.Uint64("start", item.start),
 					ion.Int("count", int(item.count)),
-					ion.Int("layer", item.layer),
-					ion.String("function", "dataBisectOptimized"))
-
+					ion.String("function", "dataBisect"))
 				tag.TagRange(item.start, item.start+uint64(item.count)-1)
 				continue
 			}
-
 			itemsToProcess = append(itemsToProcess, item)
 		}
 
 		if len(itemsToProcess) == 0 {
-			// All items were tagged, move to next layer
 			currentLayer = nextLayer
 			continue
 		}
 
-		// Build batch requests for all items that need processing
+		// Build batch requests. Each request uses a finer-grained BlockMerge so the
+		// sub-tree has more leaf nodes, allowing deeper bisection.
 		batchRequests := make([]rangeRequest, len(itemsToProcess))
 		for i, item := range itemsToProcess {
 			batchRequests[i] = rangeRequest{
-				start: item.start,
-				count: item.count,
+				start:      item.start,
+				count:      item.count,
+				blockMerge: calculateSubBlockMerge(item.count),
 			}
 		}
 
-		// ✅ PARALLEL NETWORK CALLS - Request all ranges in this layer simultaneously
-		Log.Logger(namedlogger).Info(ctx, "Making batch network request",
+		Log.Logger(namedlogger).Info(ctx, "Making batch network request for sub-trees",
 			ion.Int("num_requests", len(batchRequests)),
 			ion.Int("layer", itemsToProcess[0].layer),
-			ion.String("function", "dataBisectOptimized"))
+			ion.String("function", "dataBisect"))
 
-		batchResponses, err := router.requestLeafRangesBatch(ctx, batchRequests, peerNode)
+		// Parallel network calls: request sub-range merkle trees from the peer.
+		batchResponses, err := router.requestSubTreesBatch(ctx, batchRequests, peerNode)
 		if err != nil {
-			Log.Logger(namedlogger).Error(ctx, "Batch request failed",
-				err,
-				ion.String("function", "dataBisectOptimized"))
+			Log.Logger(namedlogger).Error(ctx, "Batch request failed", err,
+				ion.String("function", "dataBisect"))
 			return nil, fmt.Errorf("batch request failed at layer %d: %w", itemsToProcess[0].layer, err)
 		}
 
-		// Process each response and build subtrees for further bisection
 		for i, item := range itemsToProcess {
 			response := batchResponses[i]
 
 			if response.err != nil {
-				Log.Logger(namedlogger).Error(ctx, "Failed to get range from target",
-					response.err,
+				Log.Logger(namedlogger).Error(ctx, "Failed to get sub-tree from target", response.err,
 					ion.Uint64("start", item.start),
 					ion.Int("count", int(item.count)),
-					ion.String("function", "dataBisectOptimized"))
-				return nil, fmt.Errorf("failed to get range [%d, %d): %w", item.start, item.start+uint64(item.count), response.err)
+					ion.String("function", "dataBisect"))
+				return nil, fmt.Errorf("failed to get sub-tree for range [%d, %d]: %w",
+					item.start, item.start+uint64(item.count)-1, response.err)
 			}
 
-			targetHashes := response.hashes
+			target_subtree := response.builder
 
-			// Get corresponding local hashes for this range
-			localHashes, err := router.getLocalHashes(ctx, item.start, item.count)
+			// Build the local sub-tree with the SAME BlockMerge config so the tree
+			// structures and hashes are directly comparable.
+			local_subtree, err := router.buildLocalSubtree(ctx, item.start, item.count, batchRequests[i].blockMerge)
 			if err != nil {
-				Log.Logger(namedlogger).Error(ctx, "Failed to get local hashes",
-					err,
+				Log.Logger(namedlogger).Error(ctx, "Failed to build local sub-tree", err,
 					ion.Uint64("start", item.start),
 					ion.Int("count", int(item.count)),
-					ion.String("function", "dataBisectOptimized"))
-				return nil, fmt.Errorf("failed to get local hashes for range [%d, %d): %w", item.start, item.start+uint64(item.count), err)
+					ion.String("function", "dataBisect"))
+				return nil, fmt.Errorf("failed to build local sub-tree for range [%d, %d]: %w",
+					item.start, item.start+uint64(item.count)-1, err)
 			}
 
-			// Build subtrees for this specific range
-			cfg := merkletree.Config{BlockMerge: 10} // Use same config as main tree
-
-			target_subtree, err := merkletree.NewBuilder(cfg)
+			// Compare sub-trees using TreeDiff to find ALL sub-diffs.
+			subDiffs, err := local_subtree.TreeDiff(target_subtree)
 			if err != nil {
-				return nil, fmt.Errorf("failed to create target subtree builder: %w", err)
-			}
-			_, err = target_subtree.Push(item.start, targetHashes)
-			if err != nil {
-				return nil, fmt.Errorf("failed to push target hashes: %w", err)
-			}
-
-			local_subtree, err := merkletree.NewBuilder(cfg)
-			if err != nil {
-				return nil, fmt.Errorf("failed to create local subtree builder: %w", err)
-			}
-			_, err = local_subtree.Push(item.start, localHashes)
-			if err != nil {
-				return nil, fmt.Errorf("failed to push local hashes: %w", err)
-			}
-
-			// Check if the subtree roots match
-			root_local_sub, err := local_subtree.Finalize()
-			if err != nil {
-				return nil, fmt.Errorf("failed to finalize local subtree: %w", err)
-			}
-
-			root_target_sub, err := target_subtree.Finalize()
-			if err != nil {
-				return nil, fmt.Errorf("failed to finalize target subtree: %w", err)
-			}
-
-			if root_local_sub == root_target_sub {
-				// Roots match, no further bisection needed for this range
-				Log.Logger(namedlogger).Debug(ctx, "Subtree roots match, skipping",
+				Log.Logger(namedlogger).Error(ctx, "Sub-tree TreeDiff failed", err,
 					ion.Uint64("start", item.start),
 					ion.Int("count", int(item.count)),
-					ion.String("function", "dataBisectOptimized"))
+					ion.String("function", "dataBisect"))
+				return nil, fmt.Errorf("sub-tree TreeDiff failed for range [%d, %d]: %w",
+					item.start, item.start+uint64(item.count)-1, err)
+			}
+
+			if len(subDiffs) == 0 {
+				Log.Logger(namedlogger).Debug(ctx, "Sub-trees match, skipping",
+					ion.Uint64("start", item.start),
+					ion.Int("count", int(item.count)),
+					ion.String("function", "dataBisect"))
 				continue
 			}
 
-			// Find the mismatch within this subtree
-			subStart, subCount, err := target_subtree.TreeBisect(local_subtree)
-			if err != nil {
-				Log.Logger(namedlogger).Error(ctx, "TreeBisect failed on subtree",
-					err,
-					ion.Uint64("start", item.start),
-					ion.Int("count", int(item.count)),
-					ion.String("function", "dataBisectOptimized"))
-				return nil, fmt.Errorf("subtree bisect failed for range [%d, %d): %w", item.start, item.start+uint64(item.count), err)
-			}
-
-			if subCount > 0 {
-				// Found a mismatch, add to next layer for deeper bisection
-				Log.Logger(namedlogger).Debug(ctx, "Found mismatch in subtree, adding to next layer",
-					ion.Uint64("sub_start", subStart),
-					ion.Int("sub_count", int(subCount)),
+			for _, sd := range subDiffs {
+				Log.Logger(namedlogger).Debug(ctx, "Found sub-diff, adding to next layer",
+					ion.Uint64("sub_start", sd.Start),
+					ion.Int("sub_count", int(sd.Count)),
 					ion.Int("next_layer", item.layer+1),
-					ion.String("function", "dataBisectOptimized"))
+					ion.String("function", "dataBisect"))
 
 				nextLayer = append(nextLayer, bisectionWorkItem{
-					start: subStart,
-					count: subCount,
+					start: sd.Start,
+					count: sd.Count,
 					layer: item.layer + 1,
 				})
 			}
 		}
 
-		// Move to the next layer
 		currentLayer = nextLayer
 	}
 
-	// Tag any remaining items that hit the layer threshold
+	// Tag any remaining items that hit the layer threshold.
 	for _, item := range currentLayer {
 		Log.Logger(namedlogger).Info(ctx, "Tagging range at layer threshold",
 			ion.Uint64("start", item.start),
 			ion.Int("count", int(item.count)),
 			ion.Int("layer", item.layer),
-			ion.String("function", "dataBisectOptimized"))
-
+			ion.String("function", "dataBisect"))
 		tag.TagRange(item.start, item.start+uint64(item.count)-1)
 	}
 
 	Log.Logger(namedlogger).Info(ctx, "Bisection complete",
 		ion.Int("num_block_tags", len(tag.Tag.BlockNumber)),
 		ion.Int("num_range_tags", len(tag.Tag.Range)),
-		ion.String("function", "dataBisectOptimized"))
+		ion.String("function", "dataBisect"))
 
-	return &headersyncpb.HeaderSyncRequest{
-		Tag: tag.Tag,
-	}, nil
+	return &headersyncpb.HeaderSyncRequest{Tag: tag.Tag}, nil
 }
 
-// requestLeafRangesBatch makes parallel requests to the target node for multiple block ranges.
-// This is a critical optimization that reduces total latency from O(n*latency) to O(latency).
-func (router *Datarouter) requestLeafRangesBatch(
+// calculateSubBlockMerge determines the BlockMerge value for a sub-range tree.
+// Uses 5% of the range size with a minimum of 1, ensuring the sub-tree is
+// more granular than the parent tree.
+func calculateSubBlockMerge(count uint32) int {
+	bm := int(math.Ceil(float64(count) * 0.05))
+	if bm < 1 {
+		bm = 1
+	}
+	return bm
+}
+
+// requestSubTreesBatch makes parallel requests for sub-range merkle trees from
+// the target node. Each response contains a reconstructed Builder ready for
+// TreeDiff comparison.
+func (router *Datarouter) requestSubTreesBatch(
 	ctx context.Context,
 	requests []rangeRequest,
 	peerNode types.Nodeinfo,
 ) ([]rangeResponse, error) {
-
 	if len(requests) == 0 {
 		return []rangeResponse{}, nil
 	}
 
-	Log.Logger(namedlogger).Debug(ctx, "Starting batch request",
+	Log.Logger(namedlogger).Debug(ctx, "Starting batch sub-tree request",
 		ion.Int("num_requests", len(requests)),
-		ion.String("function", "requestLeafRangesBatch"))
+		ion.String("function", "requestSubTreesBatch"))
 
 	responses := make([]rangeResponse, len(requests))
 	var wg sync.WaitGroup
-	var mu sync.Mutex
-
-	// Limit concurrent requests to avoid overwhelming the network/target
 	semaphore := make(chan struct{}, MAX_PARALLEL_REQUESTS)
 
 	for i, req := range requests {
@@ -336,207 +303,112 @@ func (router *Datarouter) requestLeafRangesBatch(
 		go func(idx int, r rangeRequest) {
 			defer wg.Done()
 
-			// Acquire semaphore
 			semaphore <- struct{}{}
 			defer func() { <-semaphore }()
 
-			// Make the network request
-			resp, err := router.requestSingleRange(ctx, r.start, r.count, peerNode)
-
-			// Store the response
-			mu.Lock()
-			responses[idx] = resp
-			if err != nil {
-				responses[idx].err = err
-			}
-			mu.Unlock()
+			responses[idx] = router.requestSubTree(ctx, r, peerNode)
 		}(i, req)
 	}
 
-	// Wait for all requests to complete
 	wg.Wait()
 
-	Log.Logger(namedlogger).Debug(ctx, "Batch request complete",
+	Log.Logger(namedlogger).Debug(ctx, "Batch sub-tree request complete",
 		ion.Int("num_responses", len(responses)),
-		ion.String("function", "requestLeafRangesBatch"))
+		ion.String("function", "requestSubTreesBatch"))
 
 	return responses, nil
 }
 
-// requestSingleRange requests a merkle tree snapshot for a specific range from the target node.
-// Uses the existing REQUEST_MERKLE protocol to get the target's merkle tree.
-func (router *Datarouter) requestSingleRange(
+// requestSubTree requests a merkle tree snapshot for a sub-range from the target node,
+// reconstructs a Builder from the snapshot, and returns it for comparison.
+//
+// The request includes the desired SnapshotConfig (BlockMerge) so the target builds
+// the sub-tree with the same granularity that the local node will use. This ensures
+// the two trees are structurally compatible for TreeDiff comparison.
+func (router *Datarouter) requestSubTree(
 	ctx context.Context,
-	start uint64,
-	count uint32,
+	req rangeRequest,
 	peerNode types.Nodeinfo,
-) (rangeResponse, error) {
+) rangeResponse {
+	endInclusive := req.start + uint64(req.count) - 1
 
-	Log.Logger(namedlogger).Debug(ctx, "Requesting merkle snapshot from target node",
-		ion.Uint64("start", start),
-		ion.Uint64("end", start+uint64(count)),
-		ion.Int("count", int(count)),
-		ion.String("function", "requestSingleRange"))
+	Log.Logger(namedlogger).Debug(ctx, "Requesting sub-tree from target",
+		ion.Uint64("start", req.start),
+		ion.Uint64("end", endInclusive),
+		ion.Int("blockMerge", req.blockMerge),
+		ion.String("function", "requestSubTree"))
 
+	// Include the Config in the request so the target builds the tree with the
+	// same BlockMerge. Without this, the target would calculate its own BlockMerge
+	// (5% of range) which could differ from what the local node uses, producing
+	// incompatible tree structures and hashes.
 	merkleReq := &merklepb.MerkleRequestMessage{
 		Request: &merklepb.MerkleRequest{
-			Start: start,
-			End:   start + uint64(count),
+			Start: req.start,
+			End:   endInclusive,
+			Config: &merklepb.SnapshotConfig{
+				BlockMerge:    int32(req.blockMerge),
+				ExpectedTotal: uint64(req.count),
+			},
 		},
 	}
 
 	merkleResponse, err := router.Comm.SendMerkleRequest(ctx, peerNode, merkleReq)
 	if err != nil {
-		Log.Logger(namedlogger).Error(ctx, "Failed to send Merkle Request",
-			err,
-			ion.String("function", "requestSingleRange"))
-		return rangeResponse{start: start, err: err}, err
+		Log.Logger(namedlogger).Error(ctx, "Failed to send Merkle Request", err,
+			ion.String("function", "requestSubTree"))
+		return rangeResponse{start: req.start, err: fmt.Errorf("SendMerkleRequest failed: %w", err)}
 	}
 
 	if merkleResponse.Ack != nil && !merkleResponse.Ack.Ok {
 		err := fmt.Errorf("target node error: %s", merkleResponse.Ack.Error)
-		Log.Logger(namedlogger).Error(ctx, "Target node returned error",
-			err,
-			ion.String("function", "requestSingleRange"))
-		return rangeResponse{start: start, err: err}, err
+		Log.Logger(namedlogger).Error(ctx, "Target node returned error", err,
+			ion.String("function", "requestSubTree"))
+		return rangeResponse{start: req.start, err: err}
 	}
 
-	// Extract hashes from snapshot
-	// We need to reconstruct the tree or builder from the snapshot to get the hashes
-	// The snapshot includes leaf nodes (hashes) if it's a leaf range request
+	if merkleResponse.Snapshot == nil {
+		err := fmt.Errorf("target returned nil snapshot for range [%d, %d]", req.start, endInclusive)
+		Log.Logger(namedlogger).Error(ctx, "Target returned nil snapshot", err,
+			ion.String("function", "requestSubTree"))
+		return rangeResponse{start: req.start, err: err}
+	}
 
-	// Assuming ProtoToMerkleSnapshot exists from previous context or helper
-	// And assuming we can extract hashes.
-	// As per standard merkletree, we can walk the snapshot.
-	// But simply, the snapshot might NOT directly give us a slice of hashes easily without reconstruction.
-	// However, merkletree.ReconstructTreeFromSnapshot (or similar) can give us a builder.
+	// Convert the protobuf snapshot to the domain type and reconstruct a live Builder.
+	snap := merkle_types.ProtoToMerkleSnapshot(merkleResponse.Snapshot)
+	if snap == nil {
+		return rangeResponse{start: req.start, err: fmt.Errorf("failed to convert proto snapshot to domain type")}
+	}
 
-	// Let's assume we can get hashes.
-	// For now, let's look at how we can get hashes from `merkleResponse.Snapshot`.
+	builder, err := snap.FromSnapshot(nil)
+	if err != nil {
+		Log.Logger(namedlogger).Error(ctx, "Failed to reconstruct tree from snapshot", err,
+			ion.String("function", "requestSubTree"))
+		return rangeResponse{start: req.start, err: fmt.Errorf("failed to reconstruct tree from snapshot: %w", err)}
+	}
 
-	// We need to convert pb Snapshot to merkletree.Snapshot
-	// helper/merkle/merkle_types.go (or similar) likely has this.
-	// Let's assume `merkle_types.ProtoToMerkleSnapshot` is available as used in data_router.go
-
-	// snapshot := merkle_types.ProtoToMerkleSnapshot(merkleResponse.Snapshot)
-	// But wait, requestSingleRange needs to return []Hash32.
-	// The snapshot contains the structure. If we requested a range that matches the leaves (which we did),
-	// the hashes should be in the snapshot.
-	// Actually, `bisection.go` logic expects `hashes` to push to a builder.
-
-	// IMPORTANT: The `Snapshot` might be of a tree covering the range.
-	// If the range is small (LEAF_THRESHOLD), the snapshot should essentially contain the leaves.
-	// But `reconstructTree` returns a tree/builder.
-	// We can try to extract leaves from it.
-
-	// For now, I'll put a placeholder for hash extraction or use a helper if I can find one.
-	// Since I don't see `extractHashes` helper, I might need to implement it or use what's available.
-	// `merkletree` package usually has `Leaves()` or we can iterate.
-
-	// Let's use `merkle_types.ProtoToMerkleSnapshot` which seems to be imported as `merkle_types` in `bisection.go` (I should check imports).
-	// In `data_router.go`, imports: `merkle_types "github.com/JupiterMetaLabs/JMDN-FastSync/helper/merkle"`
-	// I need to add this import to `bisection.go` as well.
-
-	// snap := merkle_types.ProtoToMerkleSnapshot(merkleResponse.Snapshot)
-
-	// Recover builder from snapshot
-	// This might be expensive if we just want hashes.
-	// But correctness first.
-	// `merkle_obj := merkle.NewMerkleProof(router.Nodeinfo.BlockInfo)` - but we are verifying REMOTE data.
-	// We just want to extract hashes.
-
-	// If `snap.Tree` gives us nodes, we can traverse.
-	// For this optimized step, let's assume `snap` has the hashes we need.
-	// We need a way to flatten the snapshot to hashes for the range.
-
-	// For the sake of completing the wiring, I will proceed with assuming a helper `ExtractLeavesFromSnapshot(snap)` exists or I'll inline a simple traversal.
-	// Actually, `merkletree.Snapshot` usually has a `Nodes` list.
-	// If we can't easily extract, we might need `merkle.ReconstructTree` but that requires `BlockInfo` (which we don't have for remote).
-	// Wait, `ReconstructTree` in `merkletree` package usually rebuilds the tree structure from hashes.
-
-	// Let's assume for now we can get the hashes.
-	// As a fallback, if `MerkleMessage` contained raw hashes it would be easier, but it contains a snapshot.
-
-	// Let's try to just return the snapshot and let the caller handle it?
-	// No, `dataBisect` expects `hashes`.
-
-	// I will add a TODO or a best-effort extraction.
-	// Given I can't see `helper` code right now, I'll assume we can get it.
-
-	// TODO: Implement proper hash extraction from Snapshot.
-	// For now returning empty hashes to allow compilation and basic flow.
-	// In a real implementation, we'd walk `snap.Nodes`.
-
-	return rangeResponse{
-		start:  start,
-		hashes: nil, // TODO: Extract hashes
-		err:    nil,
-	}, nil
+	return rangeResponse{start: req.start, builder: builder}
 }
 
-// getLocalHashes retrieves block hashes from the local node for a specific range.
-// This is used to build local subtrees for comparison with target subtrees.
-func (router *Datarouter) getLocalHashes(
+// buildLocalSubtree generates a local merkle tree for a specific sub-range
+// using the given BlockMerge config. This ensures the local and target sub-trees
+// have identical structure for accurate TreeDiff comparison.
+func (router *Datarouter) buildLocalSubtree(
 	ctx context.Context,
 	start uint64,
 	count uint32,
-) ([]merkletree.Hash32, error) {
-
-	Log.Logger(namedlogger).Debug(ctx, "Getting local hashes",
-		ion.Uint64("start", start),
-		ion.Uint64("end", start+uint64(count)),
-		ion.Int("count", int(count)),
-		ion.String("function", "getLocalHashes"))
-
-	// Get block info interface
-	blockInfo := router.Nodeinfo.BlockInfo
-	if blockInfo == nil {
-		return nil, fmt.Errorf("blockInfo is nil")
+	blockMerge int,
+) (*merkletree.Builder, error) {
+	if router.Nodeinfo == nil || router.Nodeinfo.BlockInfo == nil {
+		return nil, fmt.Errorf("nodeinfo or blockinfo is nil")
 	}
 
-	// Get the block header iterator to retrieve hashes
-	iterator := blockInfo.NewBlockHeaderIterator()
-	if iterator == nil {
-		return nil, fmt.Errorf("failed to create block header iterator")
+	merkle_obj := merkle.NewMerkleProof(router.Nodeinfo.BlockInfo)
+	cfg := &merkletree.SnapshotConfig{
+		BlockMerge:    blockMerge,
+		ExpectedTotal: uint64(count),
 	}
 
-	// Use GetBlockHeadersRange to fetch all headers at once (more efficient than one-by-one)
-	end := start + uint64(count)
-	headers, err := iterator.GetBlockHeadersRange(start, end)
-	if err != nil {
-		Log.Logger(namedlogger).Error(ctx, "Failed to get block headers range",
-			err,
-			ion.Uint64("start", start),
-			ion.Uint64("end", end),
-			ion.String("function", "getLocalHashes"))
-		return nil, fmt.Errorf("failed to get block headers for range [%d, %d): %w", start, end, err)
-	}
-
-	if len(headers) != int(count) {
-		return nil, fmt.Errorf("expected %d headers but got %d for range [%d, %d)", count, len(headers), start, end)
-	}
-
-	// Extract hashes from headers
-	hashes := make([]merkletree.Hash32, count)
-	for i, header := range headers {
-		if header == nil {
-			return nil, fmt.Errorf("received nil header at index %d (block %d)", i, start+uint64(i))
-		}
-
-		blockHash := header.GetBlockHash()
-		if len(blockHash) != 32 {
-			return nil, fmt.Errorf("invalid block hash length %d for block %d (expected 32 bytes)",
-				len(blockHash), header.GetBlockNumber())
-		}
-
-		copy(hashes[i][:], blockHash)
-	}
-
-	Log.Logger(namedlogger).Debug(ctx, "Successfully retrieved local hashes",
-		ion.Int("num_hashes", len(hashes)),
-		ion.Uint64("start", start),
-		ion.Uint64("end", end),
-		ion.String("function", "getLocalHashes"))
-
-	return hashes, nil
+	endInclusive := start + uint64(count) - 1
+	return merkle_obj.GenerateMerkleTreeWithConfig(ctx, start, endInclusive, cfg)
 }

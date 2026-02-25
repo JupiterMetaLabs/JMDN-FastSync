@@ -160,13 +160,14 @@ func (router *Datarouter) HandleMerkle(ctx context.Context, merkleReq *merklepb.
 		}
 	}
 
-	// Convert MerkleRequest to Range
 	merkleRange := &merklepb.Range{
 		Start: merkleReq.Request.Start,
 		End:   merkleReq.Request.End,
 	}
 
-	return router.REQUEST_MERKLE(ctx, merkleRange)
+	// Pass the requester's config so we build the tree with the same BlockMerge.
+	// If nil, REQUEST_MERKLE falls back to a default calculation.
+	return router.REQUEST_MERKLE(ctx, merkleRange, merkleReq.Request.Config)
 }
 
 func (router *Datarouter) SYNC_REQUEST_V2(ctx context.Context, req *priorsyncpb.PriorSync) *priorsyncpb.PriorSyncMessage {
@@ -576,19 +577,37 @@ func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.Pri
 		}
 	}
 
+	// Log bisection results safely (Tag.Range may be empty if only block-level tags exist).
+	numRangeTags := len(header_sync_req.Tag.Range)
+	numBlockTags := len(header_sync_req.Tag.BlockNumber)
 	Log.Logger(namedlogger).Info(ctx, "Bisect Success - LOG",
-		ion.Int64("start", int64(header_sync_req.Tag.Range[0].Start)),
-		ion.Int64("bCount", int64(header_sync_req.Tag.Range[0].End)),
+		ion.Int("num_range_tags", numRangeTags),
+		ion.Int("num_block_tags", numBlockTags),
 		ion.String("function", "SYNC_REQUEST"))
 
-	if autoproceed {
-		// Call the header sync and other essential steps and recompute the req then return so that two nodes are in sync and have same data.
-		//TODO: Implement the auto proceed logic.
-		
+	if numRangeTags > 0 {
+		Log.Logger(namedlogger).Info(ctx, "First tagged range",
+			ion.Int64("start", int64(header_sync_req.Tag.Range[0].Start)),
+			ion.Int64("end", int64(header_sync_req.Tag.Range[0].End)),
+			ion.String("function", "SYNC_REQUEST"))
 	}
 
-	// Do recursion until the root is same. because we are bisecting the tree and should sync the leaf nodes to be synched. To be synched blocks should be tagged rather than sync directly.
-	// once that is one we need to update the leaf and parent nodes. but shouldn't reflect the sibling nodes. time complexity is O(log n).
+	if autoproceed {
+		// TODO: Implement auto-proceed logic:
+		// 1. Send header_sync_req to the peer via HeaderSync protocol
+		// 2. Apply received headers to local state
+		// 3. Recompute merkle trees and verify roots match
+		// 4. If roots still differ, repeat the bisection cycle
+		Log.Logger(namedlogger).Info(ctx, "Auto-proceed requested but not yet implemented",
+			ion.String("function", "SYNC_REQUEST"))
+	}
+
+	// The bisection identified all blocks that need syncing (stored in header_sync_req.Tag).
+	// The next phase (HEADER_SYNC_REQUEST) should use these tags to fetch the actual
+	// block headers from the peer. For now we return success with the successive phase
+	// set so the caller knows to proceed with header sync.
+	// TODO: Pass header_sync_req.Tag to the caller or persist it for the header sync phase.
+	// _ = header_sync_req // Tags are logged above; will be used when header sync flow is wired.
 
 	return &priorsyncpb.PriorSyncMessage{
 		Priorsync: req,
@@ -605,12 +624,25 @@ func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.Pri
 	}
 }
 
-// This will receive the MERKLE range to construct the merkle tree, we have to construct the merkle tree for that range of data.
-func (router *Datarouter) REQUEST_MERKLE(ctx context.Context, Range *merklepb.Range) *merklepb.MerkleMessage {
+// REQUEST_MERKLE constructs a merkle tree for the given range and returns it as a snapshot.
+// If reqConfig is provided (non-nil with BlockMerge > 0), it is used for tree construction.
+// Otherwise a default config is calculated (5% of range as BlockMerge).
+func (router *Datarouter) REQUEST_MERKLE(ctx context.Context, Range *merklepb.Range, reqConfig *merklepb.SnapshotConfig) *merklepb.MerkleMessage {
 
-	cfg := merkletree.SnapshotConfig{
-		BlockMerge:    int(math.Ceil(float64(Range.End-Range.Start) * 0.05)),
-		ExpectedTotal: (Range.End - Range.Start),
+	var cfg merkletree.SnapshotConfig
+	if reqConfig != nil && reqConfig.BlockMerge > 0 {
+		// Use the requester's config so both sides build structurally identical trees.
+		cfg = merkletree.SnapshotConfig{
+			BlockMerge:    int(reqConfig.BlockMerge),
+			ExpectedTotal: reqConfig.ExpectedTotal,
+		}
+	} else {
+		// Default: 5% of range size as BlockMerge.
+		totalBlocks := Range.End - Range.Start + 1
+		cfg = merkletree.SnapshotConfig{
+			BlockMerge:    int(math.Ceil(float64(totalBlocks) * 0.05)),
+			ExpectedTotal: totalBlocks,
+		}
 	}
 
 	// Build the tree with the given config and return back to the requested node as merkle tree snapshot
