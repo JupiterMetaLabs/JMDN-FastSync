@@ -52,7 +52,6 @@ type rangeResponse struct {
 	err     error
 }
 
-
 // dataBisect performs breadth-first bisection using TreeDiff to find ALL differing
 // ranges between local and target trees, then iteratively refines large ranges
 // by requesting finer-grained sub-trees from the peer.
@@ -124,6 +123,17 @@ func (router *Datarouter) dataBisect(
 		})
 	}
 
+	// Derive the peer's highest block number from the target tree's rightmost leaf.
+	// Any diff range starting beyond this point means the peer doesn't have those blocks,
+	// so there's no point requesting a sub-tree from them — tag immediately for sync.
+	peerBlockHeight, err := GetLatestBlockNumber(target_tree)
+	if err != nil {
+		Log.Logger(namedlogger).Warn(ctx, "Could not determine peer block height from target tree, skipping peer height check",
+			ion.Err(err),
+			ion.String("function", "dataBisect"))
+		peerBlockHeight = ^uint64(0) // max uint64 — disables the check
+	}
+
 	// BREADTH-FIRST PROCESSING:
 	// Process all ranges at the same layer before moving to the next layer.
 	// At each layer, ranges that are small enough get tagged immediately.
@@ -151,6 +161,18 @@ func (router *Datarouter) dataBisect(
 				Log.Logger(namedlogger).Debug(ctx, "Range below leaf threshold, tagging",
 					ion.Uint64("start", item.start),
 					ion.Int("count", int(item.count)),
+					ion.String("function", "dataBisect"))
+				tag.TagRange(item.start, item.start+uint64(item.count)-1)
+				continue
+			}
+			// If the range starts beyond the peer's last block, the peer cannot serve
+			// a sub-tree for it. Tag directly — these are blocks the local node has
+			// but the peer doesn't, so they need to be synced.
+			if item.start > peerBlockHeight {
+				Log.Logger(namedlogger).Debug(ctx, "Range beyond peer block height, tagging for sync",
+					ion.Uint64("start", item.start),
+					ion.Int("count", int(item.count)),
+					ion.Uint64("peer_block_height", peerBlockHeight),
 					ion.String("function", "dataBisect"))
 				tag.TagRange(item.start, item.start+uint64(item.count)-1)
 				continue

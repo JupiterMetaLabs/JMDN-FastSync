@@ -93,7 +93,7 @@ func (router *Datarouter) HandlePriorSync(ctx context.Context, req *priorsyncpb.
 		}
 
 		return router.SYNC_REQUEST(ctx, req.Priorsync, peerInfo, false)
-	
+
 	case constants.SYNC_REQUEST_AUTOPROCEED:
 		Log.Logger(namedlogger).Debug(ctx, "Sync Request Auto Proceed - LOG",
 			ion.String("state", state),
@@ -122,7 +122,6 @@ func (router *Datarouter) HandlePriorSync(ctx context.Context, req *priorsyncpb.
 		}
 
 		return router.SYNC_REQUEST(ctx, req.Priorsync, peerInfo, true)
-
 
 	default:
 		Log.Logger(namedlogger).Debug(ctx, "Unknown State - LOG",
@@ -585,12 +584,23 @@ func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.Pri
 		ion.Int("num_block_tags", numBlockTags),
 		ion.String("function", "SYNC_REQUEST"))
 
-	if numRangeTags > 0 {
-		Log.Logger(namedlogger).Info(ctx, "First tagged range",
-			ion.Int64("start", int64(header_sync_req.Tag.Range[0].Start)),
-			ion.Int64("end", int64(header_sync_req.Tag.Range[0].End)),
-			ion.String("function", "SYNC_REQUEST"))
-	}
+	// >> Log tagged ranges and blocks - just for verbose logging
+
+	// for i, r := range header_sync_req.Tag.Range {
+	// 	Log.Logger(namedlogger).Info(ctx, "Tagged range",
+	// 		ion.Int("index", i),
+	// 		ion.Int64("start", int64(r.Start)),
+	// 		ion.Int64("end", int64(r.End)),
+	// 		ion.Int64("count", int64(r.End-r.Start+1)),
+	// 		ion.String("function", "SYNC_REQUEST"))
+	// }
+
+	// for i, bn := range header_sync_req.Tag.BlockNumber {
+	// 	Log.Logger(namedlogger).Info(ctx, "Tagged block",
+	// 		ion.Int("index", i),
+	// 		ion.Int64("block_number", int64(bn)),
+	// 		ion.String("function", "SYNC_REQUEST"))
+	// }
 
 	if autoproceed {
 		// TODO: Implement auto-proceed logic:
