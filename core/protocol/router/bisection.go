@@ -52,6 +52,7 @@ type rangeResponse struct {
 	err     error
 }
 
+
 // dataBisect performs breadth-first bisection using TreeDiff to find ALL differing
 // ranges between local and target trees, then iteratively refines large ranges
 // by requesting finer-grained sub-trees from the peer.
@@ -188,14 +189,15 @@ func (router *Datarouter) dataBisect(
 
 		for i, item := range itemsToProcess {
 			response := batchResponses[i]
-
-			if response.err != nil {
-				Log.Logger(namedlogger).Error(ctx, "Failed to get sub-tree from target", response.err,
+			// WITH THIS:
+			if response.err != nil || response.builder == nil {
+				Log.Logger(namedlogger).Warn(ctx, "Sub-tree unavailable (peer missing or blocks not present), tagging range for sync",
 					ion.Uint64("start", item.start),
 					ion.Int("count", int(item.count)),
+					ion.Err(response.err),
 					ion.String("function", "dataBisect"))
-				return nil, fmt.Errorf("failed to get sub-tree for range [%d, %d]: %w",
-					item.start, item.start+uint64(item.count)-1, response.err)
+				tag.TagRange(item.start, item.start+uint64(item.count)-1)
+				continue
 			}
 
 			target_subtree := response.builder
