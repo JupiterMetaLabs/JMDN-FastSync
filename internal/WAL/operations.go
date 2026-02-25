@@ -339,6 +339,7 @@ func (w *WAL) truncateBeforeUnlocked(lsn uint64) error {
 // CreateCheckpoint creates a new LSN marker and manages checkpoint rotation.
 // It ensures that only MaxSnapshotLimit checkpoints exist and truncates the WAL
 // up to the oldest checkpoint's LSN when the limit is reached.
+// We are locking in the CreateCheckpoint() function so we are not locking again in the truncate functon.
 func (w *WAL) CreateCheckpoint() (uint64, error) {
 	w.Mu.Lock()
 	defer w.Mu.Unlock()
