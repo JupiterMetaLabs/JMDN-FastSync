@@ -49,6 +49,16 @@ func (e example_blockheader) GetBlockHeadersRange(start, end uint64) ([]*block.H
 	return nil, nil
 }
 
+type example_writeheaders struct{}
+
+func (e example_blockinfo) NewHeadersWriter() types.WriteHeaders {
+	return example_writeheaders{}
+}
+
+func (e example_writeheaders) WriteHeaders(headers []*block.Header) error {
+	return nil
+}
+
 func GetBlockDetailsDummy() types.PriorSync {
 	data := types.PriorSync{
 		Blocknumber: 100,

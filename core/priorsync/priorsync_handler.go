@@ -74,6 +74,7 @@ func (ps *PriorSync) SetupNetworkHandlers(node host.Host, debug bool) error {
 	RemoveStreams = func() {
 		ps.node.RemoveStreamHandler(constants.PriorSyncProtocol)
 		ps.node.RemoveStreamHandler(constants.MerkleProtocol)
+		ps.node.RemoveStreamHandler(constants.HeaderSyncProtocol)
 	}
 
 	if ps.cancel != nil {
@@ -126,5 +127,6 @@ func (ps *PriorSync) Close() {
 	if node != nil {
 		node.RemoveStreamHandler(constants.PriorSyncProtocol)
 		node.RemoveStreamHandler(constants.MerkleProtocol) // Also remove Merkle handler
+		node.RemoveStreamHandler(constants.HeaderSyncProtocol)
 	}
 }
