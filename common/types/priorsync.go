@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/JupiterMetaLabs/JMDN_Merkletree/merkletree"
+	headersyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/headersync"
 )
 
 type Range struct {
@@ -32,9 +33,10 @@ type PriorSyncAck struct {
 }
 
 type PriorSyncMessage struct {
-	Priorsync *PriorSync
-	Ack       *PriorSyncAck
-	Phase     *Phase
+	Priorsync  *PriorSync
+	Ack        *PriorSyncAck
+	Phase      *Phase
+	Headersync *headersyncpb.HeaderSyncRequest
 }
 
 type Syncvars struct {

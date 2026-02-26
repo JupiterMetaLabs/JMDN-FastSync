@@ -8,6 +8,7 @@ package priorsync
 
 import (
 	ack "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/ack"
+	headersync "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/headersync"
 	merkle "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/merkle"
 	nodeinfo "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/nodeinfo"
 	phase "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/phase"
@@ -170,10 +171,11 @@ func (x *Metadata) GetNodeinfo() *nodeinfo.NodeInfo {
 }
 
 type PriorSyncMessage struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Priorsync     *PriorSync             `protobuf:"bytes,1,opt,name=priorsync,proto3" json:"priorsync,omitempty"`
-	Ack           *ack.Ack               `protobuf:"bytes,2,opt,name=ack,proto3" json:"ack,omitempty"`
-	Phase         *phase.Phase           `protobuf:"bytes,3,opt,name=phase,proto3" json:"phase,omitempty"`
+	state         protoimpl.MessageState        `protogen:"open.v1"`
+	Priorsync     *PriorSync                    `protobuf:"bytes,1,opt,name=priorsync,proto3" json:"priorsync,omitempty"`
+	Ack           *ack.Ack                      `protobuf:"bytes,2,opt,name=ack,proto3" json:"ack,omitempty"`
+	Phase         *phase.Phase                  `protobuf:"bytes,3,opt,name=phase,proto3" json:"phase,omitempty"`
+	Headersync    *headersync.HeaderSyncRequest `protobuf:"bytes,4,opt,name=headersync,proto3" json:"headersync,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -229,11 +231,18 @@ func (x *PriorSyncMessage) GetPhase() *phase.Phase {
 	return nil
 }
 
+func (x *PriorSyncMessage) GetHeadersync() *headersync.HeaderSyncRequest {
+	if x != nil {
+		return x.Headersync
+	}
+	return nil
+}
+
 var File_priorsync_priorsync_proto protoreflect.FileDescriptor
 
 const file_priorsync_priorsync_proto_rawDesc = "" +
 	"\n" +
-	"\x19priorsync/priorsync.proto\x12\tpriorsync\x1a\x17nodeinfo/nodeinfo.proto\x1a\rack/ack.proto\x1a\x11phase/phase.proto\x1a\x13merkle/merkle.proto\"\xff\x01\n" +
+	"\x19priorsync/priorsync.proto\x12\tpriorsync\x1a\x17nodeinfo/nodeinfo.proto\x1a\rack/ack.proto\x1a\x11phase/phase.proto\x1a\x13merkle/merkle.proto\x1a\x1bheadersync/headersync.proto\"\xff\x01\n" +
 	"\tPriorSync\x12 \n" +
 	"\vblocknumber\x18\x01 \x01(\x04R\vblocknumber\x12\x1c\n" +
 	"\tstateroot\x18\x02 \x01(\fR\tstateroot\x12\x1c\n" +
@@ -244,11 +253,14 @@ const file_priorsync_priorsync_proto_rawDesc = "" +
 	"\bMetadata\x12\x1a\n" +
 	"\bchecksum\x18\x01 \x01(\fR\bchecksum\x12\x18\n" +
 	"\aversion\x18\x03 \x01(\rR\aversion\x12.\n" +
-	"\bnodeinfo\x18\x04 \x01(\v2\x12.nodeinfo.NodeInfoR\bnodeinfo\"\x86\x01\n" +
+	"\bnodeinfo\x18\x04 \x01(\v2\x12.nodeinfo.NodeInfoR\bnodeinfo\"\xc5\x01\n" +
 	"\x10PriorSyncMessage\x122\n" +
 	"\tpriorsync\x18\x01 \x01(\v2\x14.priorsync.PriorSyncR\tpriorsync\x12\x1a\n" +
 	"\x03ack\x18\x02 \x01(\v2\b.ack.AckR\x03ack\x12\"\n" +
-	"\x05phase\x18\x03 \x01(\v2\f.phase.PhaseR\x05phaseBAZ?github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/priorsyncb\x06proto3"
+	"\x05phase\x18\x03 \x01(\v2\f.phase.PhaseR\x05phase\x12=\n" +
+	"\n" +
+	"headersync\x18\x04 \x01(\v2\x1d.headersync.HeaderSyncRequestR\n" +
+	"headersyncBAZ?github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/priorsyncb\x06proto3"
 
 var (
 	file_priorsync_priorsync_proto_rawDescOnce sync.Once
@@ -264,14 +276,15 @@ func file_priorsync_priorsync_proto_rawDescGZIP() []byte {
 
 var file_priorsync_priorsync_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
 var file_priorsync_priorsync_proto_goTypes = []any{
-	(*PriorSync)(nil),             // 0: priorsync.PriorSync
-	(*Metadata)(nil),              // 1: priorsync.Metadata
-	(*PriorSyncMessage)(nil),      // 2: priorsync.PriorSyncMessage
-	(*merkle.MerkleSnapshot)(nil), // 3: merkle.MerkleSnapshot
-	(*merkle.Range)(nil),          // 4: merkle.range
-	(*nodeinfo.NodeInfo)(nil),     // 5: nodeinfo.NodeInfo
-	(*ack.Ack)(nil),               // 6: ack.Ack
-	(*phase.Phase)(nil),           // 7: phase.Phase
+	(*PriorSync)(nil),                    // 0: priorsync.PriorSync
+	(*Metadata)(nil),                     // 1: priorsync.Metadata
+	(*PriorSyncMessage)(nil),             // 2: priorsync.PriorSyncMessage
+	(*merkle.MerkleSnapshot)(nil),        // 3: merkle.MerkleSnapshot
+	(*merkle.Range)(nil),                 // 4: merkle.range
+	(*nodeinfo.NodeInfo)(nil),            // 5: nodeinfo.NodeInfo
+	(*ack.Ack)(nil),                      // 6: ack.Ack
+	(*phase.Phase)(nil),                  // 7: phase.Phase
+	(*headersync.HeaderSyncRequest)(nil), // 8: headersync.HeaderSyncRequest
 }
 var file_priorsync_priorsync_proto_depIdxs = []int32{
 	1, // 0: priorsync.PriorSync.metadata:type_name -> priorsync.Metadata
@@ -281,11 +294,12 @@ var file_priorsync_priorsync_proto_depIdxs = []int32{
 	0, // 4: priorsync.PriorSyncMessage.priorsync:type_name -> priorsync.PriorSync
 	6, // 5: priorsync.PriorSyncMessage.ack:type_name -> ack.Ack
 	7, // 6: priorsync.PriorSyncMessage.phase:type_name -> phase.Phase
-	7, // [7:7] is the sub-list for method output_type
-	7, // [7:7] is the sub-list for method input_type
-	7, // [7:7] is the sub-list for extension type_name
-	7, // [7:7] is the sub-list for extension extendee
-	0, // [0:7] is the sub-list for field type_name
+	8, // 7: priorsync.PriorSyncMessage.headersync:type_name -> headersync.HeaderSyncRequest
+	8, // [8:8] is the sub-list for method output_type
+	8, // [8:8] is the sub-list for method input_type
+	8, // [8:8] is the sub-list for extension type_name
+	8, // [8:8] is the sub-list for extension extendee
+	0, // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_priorsync_priorsync_proto_init() }
