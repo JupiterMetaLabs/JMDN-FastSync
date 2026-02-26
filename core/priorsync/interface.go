@@ -12,7 +12,7 @@ type Priorsync_router interface {
 	SetSyncVars(ctx context.Context, protocolversion uint16, Nodeinfo types.Nodeinfo) Priorsync_router
 
 	// SetupNetworkHandlers processes an incoming PriorSync request from a peer
-	SetupNetworkHandlers(node host.Host) error
+	SetupNetworkHandlers(node host.Host, debug bool) error
 
 	// Close the connection
 	Close()

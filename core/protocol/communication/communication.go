@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/messaging"
+	headersyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/headersync"
 	merklepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/merkle"
 	phasepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/phase"
 	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/priorsync"
@@ -28,6 +29,9 @@ type Communicator interface {
 
 	// This will be used for the auto sync, nodes will proceed to futher steps without reaching for any confirmations if all the requirements satisfy.
 	SendAutoSyncRequest(ctx context.Context, merkle *merklepb.MerkleSnapshot, peer types.Nodeinfo, data types.PriorSyncMessage) (*types.PriorSyncMessage, error)
+
+	// SendHeaderSyncRequest sends a HeaderSyncRequest to a peer and returns the HeaderSyncResponse.
+	SendHeaderSyncRequest(ctx context.Context, peerNode types.Nodeinfo, req *headersyncpb.HeaderSyncRequest) (*headersyncpb.HeaderSyncResponse, error)
 }
 
 func NewCommunication(host host.Host, protocolVersion uint16) Communicator {
@@ -123,14 +127,16 @@ func (c *communication) SendPriorSync(
 			Blocknumber: resp.Priorsync.Blocknumber,
 			Stateroot:   resp.Priorsync.Stateroot,
 			Blockhash:   resp.Priorsync.Blockhash,
-			Range: &types.Range{
-				Start: resp.Priorsync.Range.Start,
-				End:   resp.Priorsync.Range.End,
-			},
 			Metadata: types.Metadata{
 				Checksum: resp.Priorsync.Metadata.Checksum,
 				Version:  uint16(resp.Priorsync.Metadata.Version),
 			},
+		}
+		if resp.Priorsync.Range != nil {
+			result.Priorsync.Range = &types.Range{
+				Start: resp.Priorsync.Range.Start,
+				End:   resp.Priorsync.Range.End,
+			}
 		}
 		result.Phase = &types.Phase{
 			PresentPhase:    resp.Phase.PresentPhase,
@@ -272,14 +278,16 @@ func (c *communication) SendAutoSyncRequest(
 			Blocknumber: resp.Priorsync.Blocknumber,
 			Stateroot:   resp.Priorsync.Stateroot,
 			Blockhash:   resp.Priorsync.Blockhash,
-			Range: &types.Range{
-				Start: resp.Priorsync.Range.Start,
-				End:   resp.Priorsync.Range.End,
-			},
 			Metadata: types.Metadata{
 				Checksum: resp.Priorsync.Metadata.Checksum,
 				Version:  uint16(resp.Priorsync.Metadata.Version),
 			},
+		}
+		if resp.Priorsync.Range != nil {
+			result.Priorsync.Range = &types.Range{
+				Start: resp.Priorsync.Range.Start,
+				End:   resp.Priorsync.Range.End,
+			}
 		}
 		result.Phase = &types.Phase{
 			PresentPhase:    resp.Phase.PresentPhase,
@@ -299,4 +307,39 @@ func (c *communication) SendAutoSyncRequest(
 	}
 
 	return result, nil
+}
+
+// SendHeaderSyncRequest sends a HeaderSyncRequest to a peer and returns the HeaderSyncResponse.
+func (c *communication) SendHeaderSyncRequest(
+	ctx context.Context,
+	peerNode types.Nodeinfo,
+	req *headersyncpb.HeaderSyncRequest,
+) (*headersyncpb.HeaderSyncResponse, error) {
+	if c.host == nil {
+		return nil, errors.New("host is nil")
+	}
+
+	// Prepare peer.AddrInfo from types.Nodeinfo
+	peerInfo := libp2p_peer.AddrInfo{
+		ID:    peerNode.PeerID,
+		Addrs: peerNode.Multiaddr,
+	}
+
+	// Prepare response container
+	resp := &headersyncpb.HeaderSyncResponse{}
+
+	// Send using SendProtoDelimited with HeaderSyncProtocol
+	if err := messaging.SendProtoDelimited(
+		ctx,
+		c.protocolVersion,
+		c.host,
+		peerInfo,
+		constants.HeaderSyncProtocol,
+		req,
+		resp,
+	); err != nil {
+		return nil, errors.New("failed to send header sync request: " + err.Error())
+	}
+
+	return resp, nil
 }

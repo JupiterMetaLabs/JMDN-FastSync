@@ -16,6 +16,7 @@ import (
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/checksum/checksum_priorsync"
 	ackpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/ack"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/block"
+	headerpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/headersync"
 	headersyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/headersync"
 	merklepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/merkle"
 	phasepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/phase"
@@ -167,6 +168,41 @@ func (router *Datarouter) HandleMerkle(ctx context.Context, merkleReq *merklepb.
 	// Pass the requester's config so we build the tree with the same BlockMerge.
 	// If nil, REQUEST_MERKLE falls back to a default calculation.
 	return router.REQUEST_MERKLE(ctx, merkleRange, merkleReq.Request.Config, remote)
+}
+
+func (router *Datarouter) HandleHeaderSync(ctx context.Context, headerSyncReq *headerpb.HeaderSyncRequest) *headerpb.HeaderSyncResponse {
+	switch headerSyncReq.Phase.PresentPhase {
+	case constants.HEADER_SYNC_REQUEST:
+		if headerSyncReq == nil || headerSyncReq.Tag == nil {
+			return &headerpb.HeaderSyncResponse{
+				Ack: &ackpb.Ack{
+					Ok:    false,
+					Error: "Header sync request or range is nil",
+				},
+				Phase: &phasepb.Phase{
+					PresentPhase:    constants.HEADER_SYNC_REQUEST,
+					SuccessivePhase: constants.FAILURE,
+					Success:         false,
+					Error:           "Header sync request or range is nil",
+				},
+			}
+		}
+		return router.HeaderSync(ctx, headerSyncReq)
+
+	default:
+		return &headerpb.HeaderSyncResponse{
+			Ack: &ackpb.Ack{
+				Ok:    false,
+				Error: "unknown state: " + headerSyncReq.Phase.PresentPhase,
+			},
+			Phase: &phasepb.Phase{
+				PresentPhase:    headerSyncReq.Phase.PresentPhase,
+				SuccessivePhase: constants.FAILURE,
+				Success:         false,
+				Error:           "unknown state: " + headerSyncReq.Phase.PresentPhase,
+			},
+		}
+	}
 }
 
 func (router *Datarouter) SYNC_REQUEST_V2(ctx context.Context, req *priorsyncpb.PriorSync) *priorsyncpb.PriorSyncMessage {
@@ -477,7 +513,13 @@ func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.Pri
 		}
 	}
 
-	if req.Range.End == math.MaxUint64 || req.Range.End > blockNumber {
+	// Guard against nil Range — default to full block span when not provided.
+	if req.Range == nil {
+		req.Range = &merklepb.Range{
+			Start: 0,
+			End:   blockNumber,
+		}
+	} else if req.Range.End == math.MaxUint64 || req.Range.End > blockNumber {
 		req.Range.End = blockNumber
 	}
 
@@ -746,7 +788,7 @@ func (router *Datarouter) SYNC_FULL_AUTO(ctx context.Context, req *priorsyncpb.P
 }
 
 // This is the Phase2 function that will take the tagged blocks and send to the server node to get the block headers sync.
-func (router *Datarouter) HeaderSync(ctx context.Context, req *headersyncpb.HeaderSyncRequest, remote *types.Nodeinfo) *headersyncpb.HeaderSyncResponse {
+func (router *Datarouter) HeaderSync(ctx context.Context, req *headersyncpb.HeaderSyncRequest) *headersyncpb.HeaderSyncResponse {
 	/*
 		- This is the header sync.
 		- After bisecting the tree in phase 1 with recursion. we get the tagged blocks per cycle.

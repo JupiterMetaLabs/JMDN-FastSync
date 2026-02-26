@@ -27,6 +27,7 @@ type BlockInfo interface {
 	GetBlockDetails() PriorSync
 	NewBlockIterator(start, end uint64, batchsize int) BlockIterator
 	NewBlockHeaderIterator() BlockHeader
+	NewHeadersWriter() WriteHeaders
 }
 
 type BlockIterator interface {
@@ -38,4 +39,8 @@ type BlockIterator interface {
 type BlockHeader interface{
 	GetBlockHeaders(blocknumbers []uint64) ([]*block.Header, error)
 	GetBlockHeadersRange(start, end uint64) ([]*block.Header, error)
+}
+
+type WriteHeaders interface {
+	WriteHeaders(headers []*block.Header) error
 }
