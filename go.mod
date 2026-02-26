@@ -110,7 +110,7 @@ require (
 require (
 	github.com/JupiterMetaLabs/JMDN_Merkletree v0.0.0-20260213044906-5629a60edea4
 	github.com/JupiterMetaLabs/goroutine-orchestrator v0.1.5
-	github.com/JupiterMetaLabs/ion v0.3.3
+	github.com/JupiterMetaLabs/ion v0.3.5
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0 // indirect
 	github.com/ipfs/go-cid v0.5.0 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.10 // indirect

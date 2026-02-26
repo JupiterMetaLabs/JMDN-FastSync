@@ -49,7 +49,7 @@ func (ps *PriorSync) SetSyncVars(ctx context.Context, protocolVersion uint16, no
 	return ps
 }
 
-func (ps *PriorSync) SetupNetworkHandlers(node host.Host) error {
+func (ps *PriorSync) SetupNetworkHandlers(node host.Host, debug bool) error {
 	if node == nil {
 		return errors.New("host is nil")
 	}
@@ -64,7 +64,7 @@ func (ps *PriorSync) SetupNetworkHandlers(node host.Host) error {
 	comm := communication.NewCommunication(node, ps.SyncVars.Version)
 
 	// Initialize Sync Handler (Builder Pattern)
-	syncHandler := sync_proto.NewSyncHandler(&ps.SyncVars.NodeInfo, comm)
+	syncHandler := sync_proto.NewSyncHandler(&ps.SyncVars.NodeInfo, comm, debug)
 
 	ps.mu.Lock()
 
@@ -92,6 +92,10 @@ func (ps *PriorSync) SetupNetworkHandlers(node host.Host) error {
 	}
 
 	if err := syncHandler.HandleMerkle(ctx, node); err != nil {
+		return err
+	}
+
+	if err := syncHandler.HandleHeaderSync(ctx, node); err != nil {
 		return err
 	}
 
