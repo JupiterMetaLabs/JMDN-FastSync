@@ -586,21 +586,21 @@ func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.Pri
 
 	// >> Log tagged ranges and blocks - just for verbose logging
 
-	// for i, r := range header_sync_req.Tag.Range {
-	// 	Log.Logger(namedlogger).Info(ctx, "Tagged range",
-	// 		ion.Int("index", i),
-	// 		ion.Int64("start", int64(r.Start)),
-	// 		ion.Int64("end", int64(r.End)),
-	// 		ion.Int64("count", int64(r.End-r.Start+1)),
-	// 		ion.String("function", "SYNC_REQUEST"))
-	// }
+	for i, r := range header_sync_req.Tag.Range {
+		Log.Logger(namedlogger).Info(ctx, "Tagged range",
+			ion.Int("index", i),
+			ion.Int64("start", int64(r.Start)),
+			ion.Int64("end", int64(r.End)),
+			ion.Int64("count", int64(r.End-r.Start+1)),
+			ion.String("function", "SYNC_REQUEST"))
+	}
 
-	// for i, bn := range header_sync_req.Tag.BlockNumber {
-	// 	Log.Logger(namedlogger).Info(ctx, "Tagged block",
-	// 		ion.Int("index", i),
-	// 		ion.Int64("block_number", int64(bn)),
-	// 		ion.String("function", "SYNC_REQUEST"))
-	// }
+	for i, bn := range header_sync_req.Tag.BlockNumber {
+		Log.Logger(namedlogger).Info(ctx, "Tagged block",
+			ion.Int("index", i),
+			ion.Int64("block_number", int64(bn)),
+			ion.String("function", "SYNC_REQUEST"))
+	}
 
 	// Headersync request
 	header_sync_req_msg := &headersyncpb.HeaderSyncRequest{
