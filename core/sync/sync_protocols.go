@@ -160,8 +160,8 @@ func (s *Sync) HandleHeaderSync(ctx context.Context, node host.Host) error {
 
 func (s *Sync) Debug(ctx context.Context, protocol protocol.ID, node host.Host, remote *types.Nodeinfo) {
 	if s.debug {
-		logging.Logger(logging.Sync).Info(ctx, "Debugging", 
-		ion.String("protocol", protocol.String()), 
+		logging.Logger(logging.Sync).Info(ctx, "Sync Protocols Debug", 
+		ion.String("protocol",  string(protocol)), 
 		ion.String("peerID", remote.PeerID.String()), 
 		ion.String("multiaddr", remote.Multiaddr[0].String()))
 	}
