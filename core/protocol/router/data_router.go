@@ -733,7 +733,7 @@ func (router *Datarouter) REQUEST_MERKLE(ctx context.Context, Range *merklepb.Ra
 	}
 }
 
-func (router *Datarouter) SYNC_FULL_AUTO(ctx context.Context, req *priorsyncpb.PriorSync, peerNode types.Nodeinfo, remote *types.Nodeinfo){
+func (router *Datarouter) SYNC_FULL_AUTO(ctx context.Context, req *priorsyncpb.PriorSync, peerNode types.Nodeinfo, remote *types.Nodeinfo) *priorsyncpb.PriorSyncMessage {
 	/*
 		1. First do the SYNC_REQUEST
 		- We can get the priorsyncmessage, take headersync request from the req.Headersync
@@ -742,10 +742,8 @@ func (router *Datarouter) SYNC_FULL_AUTO(ctx context.Context, req *priorsyncpb.P
 		3. Then do the SYNC_RESPONSE
 	*/
 
-	
+	return nil
 }
-	
-
 
 // This is the Phase2 function that will take the tagged blocks and send to the server node to get the block headers sync.
 func (router *Datarouter) HeaderSync(ctx context.Context, req *headersyncpb.HeaderSyncRequest, remote *types.Nodeinfo) *headersyncpb.HeaderSyncResponse {
