@@ -23,3 +23,7 @@ const (
 const (
 	PriorSyncVersion = 1
 )
+
+const (
+	MAX_HEADERS_PER_REQUEST = 1500
+)
