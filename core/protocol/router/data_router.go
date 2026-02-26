@@ -16,10 +16,10 @@ import (
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/checksum/checksum_priorsync"
 	ackpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/ack"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/block"
+	headerpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/headersync"
 	headersyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/headersync"
 	merklepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/merkle"
 	phasepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/phase"
-	headerpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/headersync"
 	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/priorsync"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/constants"
@@ -173,7 +173,7 @@ func (router *Datarouter) HandleMerkle(ctx context.Context, merkleReq *merklepb.
 func (router *Datarouter) HandleHeaderSync(ctx context.Context, headerSyncReq *headerpb.HeaderSyncRequest) *headerpb.HeaderSyncResponse {
 	switch headerSyncReq.Phase.PresentPhase {
 	case constants.HEADER_SYNC_REQUEST:
-		if headerSyncReq == nil || headerSyncReq.Tag == nil{
+		if headerSyncReq == nil || headerSyncReq.Tag == nil {
 			return &headerpb.HeaderSyncResponse{
 				Ack: &ackpb.Ack{
 					Ok:    false,
@@ -513,7 +513,13 @@ func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.Pri
 		}
 	}
 
-	if req.Range.End == math.MaxUint64 || req.Range.End > blockNumber {
+	// Guard against nil Range — default to full block span when not provided.
+	if req.Range == nil {
+		req.Range = &merklepb.Range{
+			Start: 0,
+			End:   blockNumber,
+		}
+	} else if req.Range.End == math.MaxUint64 || req.Range.End > blockNumber {
 		req.Range.End = blockNumber
 	}
 

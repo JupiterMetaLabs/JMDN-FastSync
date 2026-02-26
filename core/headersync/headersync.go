@@ -61,7 +61,7 @@ func (hs *HeaderSync) SetSyncVars(ctx context.Context, protocolVersion uint16, n
 	7. atlast we have to execute PRIORSYNC with the server to get to know are we fully synced or not.
 */
 func (hs *HeaderSync) HeaderSync(headersyncrequest *headersyncpb.HeaderSyncRequest, remotes []*types.Nodeinfo) error {
-	if headersyncrequest == nil || headersyncrequest.Tag == nil {
+	if headersyncrequest == nil{
 		return fmt.Errorf("headersync request or tag is nil")
 	}
 	if len(remotes) == 0 {
@@ -69,6 +69,9 @@ func (hs *HeaderSync) HeaderSync(headersyncrequest *headersyncpb.HeaderSyncReque
 	}
 	if hs.Comm == nil {
 		return fmt.Errorf("communicator not set")
+	}
+	if headersyncrequest.Tag == nil {
+		return nil
 	}
 
 	ctx := hs.SyncVars.Ctx

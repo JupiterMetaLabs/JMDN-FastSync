@@ -127,14 +127,16 @@ func (c *communication) SendPriorSync(
 			Blocknumber: resp.Priorsync.Blocknumber,
 			Stateroot:   resp.Priorsync.Stateroot,
 			Blockhash:   resp.Priorsync.Blockhash,
-			Range: &types.Range{
-				Start: resp.Priorsync.Range.Start,
-				End:   resp.Priorsync.Range.End,
-			},
 			Metadata: types.Metadata{
 				Checksum: resp.Priorsync.Metadata.Checksum,
 				Version:  uint16(resp.Priorsync.Metadata.Version),
 			},
+		}
+		if resp.Priorsync.Range != nil {
+			result.Priorsync.Range = &types.Range{
+				Start: resp.Priorsync.Range.Start,
+				End:   resp.Priorsync.Range.End,
+			}
 		}
 		result.Phase = &types.Phase{
 			PresentPhase:    resp.Phase.PresentPhase,
@@ -276,14 +278,16 @@ func (c *communication) SendAutoSyncRequest(
 			Blocknumber: resp.Priorsync.Blocknumber,
 			Stateroot:   resp.Priorsync.Stateroot,
 			Blockhash:   resp.Priorsync.Blockhash,
-			Range: &types.Range{
-				Start: resp.Priorsync.Range.Start,
-				End:   resp.Priorsync.Range.End,
-			},
 			Metadata: types.Metadata{
 				Checksum: resp.Priorsync.Metadata.Checksum,
 				Version:  uint16(resp.Priorsync.Metadata.Version),
 			},
+		}
+		if resp.Priorsync.Range != nil {
+			result.Priorsync.Range = &types.Range{
+				Start: resp.Priorsync.Range.Start,
+				End:   resp.Priorsync.Range.End,
+			}
 		}
 		result.Phase = &types.Phase{
 			PresentPhase:    resp.Phase.PresentPhase,
