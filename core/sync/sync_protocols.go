@@ -4,15 +4,16 @@ import (
 	"context"
 	"time"
 
-	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/communication"
-	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/router"
-	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/pbstream"
 	merklepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/merkle"
 	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/priorsync"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/constants"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/communication"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/router"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/pbstream"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
+	"github.com/multiformats/go-multiaddr"
 )
 
 type Sync struct {
@@ -51,8 +52,14 @@ func (s *Sync) HandlePriorSync(ctx context.Context, node host.Host) error {
 			return
 		}
 
+		// Requested remote peer
+		remoteNodeInfo := &types.Nodeinfo{
+			PeerID:    str.Conn().RemotePeer(),
+			Multiaddr: []multiaddr.Multiaddr{str.Conn().RemoteMultiaddr()},
+		}
+
 		// Route to Datarouter
-		resp := s.Datarouter.HandlePriorSync(ctx, req)
+		resp := s.Datarouter.HandlePriorSync(ctx, req, remoteNodeInfo)
 
 		// Send response
 		_ = str.SetWriteDeadline(time.Now().Add(10 * time.Second))
@@ -82,8 +89,14 @@ func (s *Sync) HandleMerkle(ctx context.Context, node host.Host) error {
 			return
 		}
 
+		// Requested remote peer
+		remoteNodeInfo := &types.Nodeinfo{
+			PeerID:    str.Conn().RemotePeer(),
+			Multiaddr: []multiaddr.Multiaddr{str.Conn().RemoteMultiaddr()},
+		}
+
 		// Route to Datarouter
-		resp := s.Datarouter.HandleMerkle(ctx, req)
+		resp := s.Datarouter.HandleMerkle(ctx, req, remoteNodeInfo)
 
 		// Send response
 		_ = str.SetWriteDeadline(time.Now().Add(10 * time.Second))

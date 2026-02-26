@@ -63,7 +63,7 @@ func (router *Datarouter) dataBisect(
 	ctx context.Context,
 	local_tree *merkletree.Builder,
 	target_tree *merkletree.Builder,
-	peerNode types.Nodeinfo,
+	remote *types.Nodeinfo,
 ) (*headersyncpb.HeaderSyncRequest, error) {
 
 	Log.Logger(namedlogger).Info(ctx, "Starting data bisection",
@@ -202,7 +202,7 @@ func (router *Datarouter) dataBisect(
 			ion.String("function", "dataBisect"))
 
 		// Parallel network calls: request sub-range merkle trees from the peer.
-		batchResponses, err := router.requestSubTreesBatch(ctx, batchRequests, peerNode)
+		batchResponses, err := router.requestSubTreesBatch(ctx, batchRequests, *remote)
 		if err != nil {
 			Log.Logger(namedlogger).Error(ctx, "Batch request failed", err,
 				ion.String("function", "dataBisect"))
