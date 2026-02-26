@@ -11,8 +11,8 @@ import (
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/merkle"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/phase"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/priorsync"
-	wal_types "github.com/JupiterMetaLabs/JMDN-FastSync/internal/types/wal"
-	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/WAL"
+	wal_types "github.com/JupiterMetaLabs/JMDN-FastSync/common/types/wal"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/common/WAL"
 )
 
 // Example usage demonstrating the event sourcing architecture with adapter pattern

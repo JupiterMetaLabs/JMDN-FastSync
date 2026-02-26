@@ -8,7 +8,7 @@ import (
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/headersync"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/merkle"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/priorsync"
-	wal_types "github.com/JupiterMetaLabs/JMDN-FastSync/internal/types/wal"
+	wal_types "github.com/JupiterMetaLabs/JMDN-FastSync/common/types/wal"
 	"google.golang.org/protobuf/proto"
 )
 

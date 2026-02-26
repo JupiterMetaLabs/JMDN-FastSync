@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"time"
 
-	wal_types "github.com/JupiterMetaLabs/JMDN-FastSync/internal/types/wal"
+	wal_types "github.com/JupiterMetaLabs/JMDN-FastSync/common/types/wal"
 	"github.com/tidwall/wal"
 )
 
@@ -254,6 +254,35 @@ func (w *WAL) ReplayEventsByType(walType wal_types.WALType, handler func(entry W
 		}
 		return nil
 	})
+}
+
+// GetEvent retrieves a single WALEntry by its LSN.
+// It first checks the in-memory buffer (for unflushed entries),
+// then falls back to reading from the on-disk WAL.
+func (w *WAL) GetEvent(lsn uint64) (*WALEntry, error) {
+	w.Mu.RLock()
+	defer w.Mu.RUnlock()
+
+	// 1. Check the in-memory buffer first (unflushed entries)
+	for i := range w.Buffer {
+		if w.Buffer[i].LSN == lsn {
+			entry := w.Buffer[i] // copy
+			return &entry, nil
+		}
+	}
+
+	// 2. Read from disk — LSN is used as the index in tidwall/wal
+	data, err := w.Log.Read(lsn)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read WAL entry at LSN %d: %w", lsn, err)
+	}
+
+	var entry WALEntry
+	if err := json.Unmarshal(data, &entry); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal WAL entry at LSN %d: %w", lsn, err)
+	}
+
+	return &entry, nil
 }
 
 // GetLastLSN returns the most recently assigned LSN (may not be on disk yet).
