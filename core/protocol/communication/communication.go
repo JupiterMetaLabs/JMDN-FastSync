@@ -145,6 +145,10 @@ func (c *communication) SendPriorSync(
 		}
 	}
 
+	if resp.Headersync != nil {
+		result.Headersync = resp.Headersync
+	}
+
 	return result, nil
 }
 
@@ -288,6 +292,10 @@ func (c *communication) SendAutoSyncRequest(
 			Ok:    resp.Ack.Ok,
 			Error: resp.Ack.Error,
 		}
+	}
+
+	if resp.Headersync != nil {
+		result.Headersync = resp.Headersync
 	}
 
 	return result, nil

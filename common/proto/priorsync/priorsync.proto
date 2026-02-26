@@ -7,6 +7,7 @@ import "nodeinfo/nodeinfo.proto";
 import "ack/ack.proto";
 import "phase/phase.proto";
 import "merkle/merkle.proto";
+import "headersync/headersync.proto";
 
 message PriorSync {
     uint64 blocknumber = 1;
@@ -27,4 +28,5 @@ message PriorSyncMessage{
     PriorSync priorsync = 1;
     ack.Ack ack = 2;
     phase.Phase phase = 3;
+    headersync.HeaderSyncRequest headersync = 4;
 }

@@ -5,7 +5,7 @@ import (
 	"os"
 	"os/exec"
 
-	wal_types "github.com/JupiterMetaLabs/JMDN-FastSync/internal/types/wal"
+	wal_types "github.com/JupiterMetaLabs/JMDN-FastSync/common/types/wal"
 )
 
 func main() {

@@ -7,9 +7,9 @@ import (
 	"path/filepath"
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/block"
-	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/WAL"
-	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/types/wal"
-	wal_types "github.com/JupiterMetaLabs/JMDN-FastSync/internal/types/wal"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/common/WAL"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/wal"
+	wal_types "github.com/JupiterMetaLabs/JMDN-FastSync/common/types/wal"
 )
 
 func demo_checkpoint() {

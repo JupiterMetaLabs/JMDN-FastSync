@@ -43,7 +43,7 @@ func NewDatarouter(nodeinfo *types.Nodeinfo, comm communication.Communicator) *D
 	}
 }
 
-func (router *Datarouter) HandlePriorSync(ctx context.Context, req *priorsyncpb.PriorSyncMessage) *priorsyncpb.PriorSyncMessage {
+func (router *Datarouter) HandlePriorSync(ctx context.Context, req *priorsyncpb.PriorSyncMessage, remote *types.Nodeinfo) *priorsyncpb.PriorSyncMessage {
 	// Extract state from metadata
 	if req.Priorsync.Metadata == nil || req.Phase == nil {
 		return &priorsyncpb.PriorSyncMessage{
@@ -92,7 +92,7 @@ func (router *Datarouter) HandlePriorSync(ctx context.Context, req *priorsyncpb.
 			}
 		}
 
-		return router.SYNC_REQUEST(ctx, req.Priorsync, peerInfo, false)
+		return router.SYNC_REQUEST(ctx, req.Priorsync, peerInfo, remote)
 
 	case constants.SYNC_REQUEST_AUTOPROCEED:
 		Log.Logger(namedlogger).Debug(ctx, "Sync Request Auto Proceed - LOG",
@@ -121,7 +121,7 @@ func (router *Datarouter) HandlePriorSync(ctx context.Context, req *priorsyncpb.
 			}
 		}
 
-		return router.SYNC_REQUEST(ctx, req.Priorsync, peerInfo, true)
+		return router.SYNC_FULL_AUTO(ctx, req.Priorsync, peerInfo, remote)
 
 	default:
 		Log.Logger(namedlogger).Debug(ctx, "Unknown State - LOG",
@@ -143,7 +143,7 @@ func (router *Datarouter) HandlePriorSync(ctx context.Context, req *priorsyncpb.
 	}
 }
 
-func (router *Datarouter) HandleMerkle(ctx context.Context, merkleReq *merklepb.MerkleRequestMessage) *merklepb.MerkleMessage {
+func (router *Datarouter) HandleMerkle(ctx context.Context, merkleReq *merklepb.MerkleRequestMessage, remote *types.Nodeinfo) *merklepb.MerkleMessage {
 	if merkleReq == nil || merkleReq.Request == nil {
 		return &merklepb.MerkleMessage{
 			Ack: &ackpb.Ack{
@@ -166,7 +166,7 @@ func (router *Datarouter) HandleMerkle(ctx context.Context, merkleReq *merklepb.
 
 	// Pass the requester's config so we build the tree with the same BlockMerge.
 	// If nil, REQUEST_MERKLE falls back to a default calculation.
-	return router.REQUEST_MERKLE(ctx, merkleRange, merkleReq.Request.Config)
+	return router.REQUEST_MERKLE(ctx, merkleRange, merkleReq.Request.Config, remote)
 }
 
 func (router *Datarouter) SYNC_REQUEST_V2(ctx context.Context, req *priorsyncpb.PriorSync) *priorsyncpb.PriorSyncMessage {
@@ -368,7 +368,7 @@ func (router *Datarouter) SYNC_REQUEST_V2(ctx context.Context, req *priorsyncpb.
 	}
 }
 
-func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.PriorSync, peerNode types.Nodeinfo, autoproceed bool) *priorsyncpb.PriorSyncMessage {
+func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.PriorSync, peerNode types.Nodeinfo, remote *types.Nodeinfo) *priorsyncpb.PriorSyncMessage {
 
 	/*
 		- Check the checksum to make sure there is no data loss and message sent and received are same.
@@ -557,7 +557,7 @@ func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.Pri
 		}
 	}
 
-	header_sync_req, err := router.dataBisect(ctx, local_merkletree_pointer, target_merkletree_pointer, peerNode)
+	header_sync_req, err := router.dataBisect(ctx, local_merkletree_pointer, target_merkletree_pointer, remote)
 	if err != nil {
 		Log.Logger(namedlogger).Error(ctx, "Bisect Failed - LOG",
 			err,
@@ -586,30 +586,35 @@ func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.Pri
 
 	// >> Log tagged ranges and blocks - just for verbose logging
 
-	// for i, r := range header_sync_req.Tag.Range {
-	// 	Log.Logger(namedlogger).Info(ctx, "Tagged range",
-	// 		ion.Int("index", i),
-	// 		ion.Int64("start", int64(r.Start)),
-	// 		ion.Int64("end", int64(r.End)),
-	// 		ion.Int64("count", int64(r.End-r.Start+1)),
-	// 		ion.String("function", "SYNC_REQUEST"))
-	// }
-
-	// for i, bn := range header_sync_req.Tag.BlockNumber {
-	// 	Log.Logger(namedlogger).Info(ctx, "Tagged block",
-	// 		ion.Int("index", i),
-	// 		ion.Int64("block_number", int64(bn)),
-	// 		ion.String("function", "SYNC_REQUEST"))
-	// }
-
-	if autoproceed {
-		// TODO: Implement auto-proceed logic:
-		// 1. Send header_sync_req to the peer via HeaderSync protocol
-		// 2. Apply received headers to local state
-		// 3. Recompute merkle trees and verify roots match
-		// 4. If roots still differ, repeat the bisection cycle
-		Log.Logger(namedlogger).Info(ctx, "Auto-proceed requested but not yet implemented",
+	for i, r := range header_sync_req.Tag.Range {
+		Log.Logger(namedlogger).Info(ctx, "Tagged range",
+			ion.Int("index", i),
+			ion.Int64("start", int64(r.Start)),
+			ion.Int64("end", int64(r.End)),
+			ion.Int64("count", int64(r.End-r.Start+1)),
 			ion.String("function", "SYNC_REQUEST"))
+	}
+
+	for i, bn := range header_sync_req.Tag.BlockNumber {
+		Log.Logger(namedlogger).Info(ctx, "Tagged block",
+			ion.Int("index", i),
+			ion.Int64("block_number", int64(bn)),
+			ion.String("function", "SYNC_REQUEST"))
+	}
+
+	// Headersync request
+	header_sync_req_msg := &headersyncpb.HeaderSyncRequest{
+		Tag: header_sync_req.Tag,
+		Ack: &ackpb.Ack{
+			Ok:    true,
+			Error: "",
+		},
+		Phase: &phasepb.Phase{
+			PresentPhase:    constants.HEADER_SYNC_REQUEST,
+			SuccessivePhase: constants.HEADER_SYNC_RESPONSE,
+			Success:         true,
+			Error:           "",
+		},
 	}
 
 	// The bisection identified all blocks that need syncing (stored in header_sync_req.Tag).
@@ -631,13 +636,14 @@ func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.Pri
 			Success:         true,
 			Error:           "",
 		},
+		Headersync: header_sync_req_msg,
 	}
 }
 
 // REQUEST_MERKLE constructs a merkle tree for the given range and returns it as a snapshot.
 // If reqConfig is provided (non-nil with BlockMerge > 0), it is used for tree construction.
 // Otherwise a default config is calculated (5% of range as BlockMerge).
-func (router *Datarouter) REQUEST_MERKLE(ctx context.Context, Range *merklepb.Range, reqConfig *merklepb.SnapshotConfig) *merklepb.MerkleMessage {
+func (router *Datarouter) REQUEST_MERKLE(ctx context.Context, Range *merklepb.Range, reqConfig *merklepb.SnapshotConfig, remote *types.Nodeinfo) *merklepb.MerkleMessage {
 
 	var cfg merkletree.SnapshotConfig
 	if reqConfig != nil && reqConfig.BlockMerge > 0 {
@@ -727,8 +733,20 @@ func (router *Datarouter) REQUEST_MERKLE(ctx context.Context, Range *merklepb.Ra
 	}
 }
 
+func (router *Datarouter) SYNC_FULL_AUTO(ctx context.Context, req *priorsyncpb.PriorSync, peerNode types.Nodeinfo, remote *types.Nodeinfo) *priorsyncpb.PriorSyncMessage {
+	/*
+		1. First do the SYNC_REQUEST
+		- We can get the priorsyncmessage, take headersync request from the req.Headersync
+		2. Then do the HEADER_SYNC, with the range and everything.
+		- We can get the headersync response from the req.Headersync
+		3. Then do the SYNC_RESPONSE
+	*/
+
+	return nil
+}
+
 // This is the Phase2 function that will take the tagged blocks and send to the server node to get the block headers sync.
-func (router *Datarouter) HeaderSync(ctx context.Context, req *headersyncpb.HeaderSyncRequest) *headersyncpb.HeaderSyncResponse {
+func (router *Datarouter) HeaderSync(ctx context.Context, req *headersyncpb.HeaderSyncRequest, remote *types.Nodeinfo) *headersyncpb.HeaderSyncResponse {
 	/*
 		- This is the header sync.
 		- After bisecting the tree in phase 1 with recursion. we get the tagged blocks per cycle.
