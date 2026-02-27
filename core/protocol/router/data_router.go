@@ -18,6 +18,7 @@ import (
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/block"
 	headerpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/headersync"
 	headersyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/headersync"
+	datasyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/datasync"
 	merklepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/merkle"
 	phasepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/phase"
 	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/priorsync"
@@ -168,6 +169,11 @@ func (router *Datarouter) HandleMerkle(ctx context.Context, merkleReq *merklepb.
 	// Pass the requester's config so we build the tree with the same BlockMerge.
 	// If nil, REQUEST_MERKLE falls back to a default calculation.
 	return router.REQUEST_MERKLE(ctx, merkleRange, merkleReq.Request.Config, remote)
+}
+
+func (router *Datarouter) HandleDataSync(ctx context.Context, req *datasyncpb.DataSyncRequest, remote *types.Nodeinfo) *datasyncpb.DataSyncResponse {
+	// TODO: Implement DataSync
+	return nil
 }
 
 func (router *Datarouter) HandleHeaderSync(ctx context.Context, headerSyncReq *headerpb.HeaderSyncRequest) *headerpb.HeaderSyncResponse {

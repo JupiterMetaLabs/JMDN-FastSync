@@ -2,6 +2,7 @@ package types
 
 import (
 	"math/big"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 )
@@ -9,9 +10,9 @@ import (
 // ZKBlock represents a block processed by the ZKVM with proof
 type Header struct {
 	// ZK-Stark proof data
-	ProofHash  string   `json:"proof_hash"`
-	Status     string   `json:"status"`
-	TxnsRoot   string   `json:"txnsroot"`
+	ProofHash string `json:"proof_hash"`
+	Status    string `json:"status"`
+	TxnsRoot  string `json:"txnsroot"`
 
 	// Block data
 	Timestamp    int64           `json:"timestamp"`
@@ -84,3 +85,48 @@ type AccessTuple struct {
 
 // AccessList is an EIP-2930 access list.
 type AccessList []AccessTuple
+
+// SnapshotRecord maps to the snapshots table (append-only, Create Read).
+// FK -> blocks.block_number (one-to-one).
+type SnapshotRecord struct {
+	BlockHash common.Hash `json:"block_hash"`
+	CreatedAt time.Time   `json:"created_at"`
+}
+
+// ZKProof maps to the zk_proofs table (append-only, Create Read).
+// FK -> blocks.block_number (one-proof-per-block).
+type ZKProof struct {
+	ProofHash  string    `json:"proof_hash"`
+	StarkProof []byte    `json:"stark_proof"`
+	Commitment []byte    `json:"commitment"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
+// DBTransaction maps to the transactions table (append-only, Create Read).
+// FK -> snapshots.block_number (snapshot owns the tx set).
+// Embeds Transaction for all core tx fields; adds only the DB-specific extras.
+type DBTransaction struct {
+	Transaction           // all core fields (Hash, From, To, Value, Gas, Sig, etc.)
+	TxIndex     uint16    `json:"tx_index"`   // SMALLINT position within the block
+	CreatedAt   time.Time `json:"created_at"` // TIMESTAMPTZ insert time
+}
+
+// L1Finality maps to the l1_finality table (append-only, Create Read).
+// Confirmation is the L1 anchor address (e.g. settlement tx hash / contract addr).
+type L1Finality struct {
+	Confirmation common.Address         `json:"confirmation"`
+	BlockNumbers []uint64               `json:"block_numbers"`
+	Metadata     map[string]interface{} `json:"metadata,omitempty"`
+	CreatedAt    time.Time              `json:"created_at"`
+}
+
+// NonHeaders aggregates all data owned by a block except the blocks table
+// header fields (state_root, parent_hash, gas, timestamps, etc.).
+// BlockNumber is the shared primary key / foreign key across all sub-tables.
+type NonHeaders struct {
+	BlockNumber  uint64          `json:"block_number"`
+	Snapshot     SnapshotRecord  `json:"snapshot"`
+	Transactions []DBTransaction `json:"transactions"`
+	ZKProof      ZKProof         `json:"zk_proof"`
+	L1Finality   *L1Finality     `json:"l1_finality,omitempty"` // nil until finalised on L1
+}

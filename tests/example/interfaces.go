@@ -3,6 +3,7 @@ package example
 import (
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/block"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
+	datasyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/datasync"
 )
 
 type example_blockinfo struct{}
@@ -58,6 +59,16 @@ func (e example_blockinfo) NewHeadersWriter() types.WriteHeaders {
 func (e example_writeheaders) WriteHeaders(headers []*block.Header) error {
 	return nil
 }
+
+type example_writedata struct{}
+
+func (e example_blockinfo) NewDataWriter() types.WriteData {
+	return example_writedata{}
+}
+
+func (e example_writedata) WriteData(data []*datasyncpb.NonHeaders) error {
+	return nil
+}	
 
 func GetBlockDetailsDummy() types.PriorSync {
 	data := types.PriorSync{
