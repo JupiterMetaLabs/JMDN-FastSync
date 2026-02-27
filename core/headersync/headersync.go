@@ -46,22 +46,23 @@ func (hs *HeaderSync) SetSyncVars(ctx context.Context, protocolVersion uint16, n
 	return hs
 }
 
-
 /*
-	- reason behind the remotes is that we can option to have multiple peers to sync headers from.
-	1. After getting the header request from the caller function, we have to iterate through the ranges.
-	2. Atmost import should be constants.MAX_HEADERS_PER_REQUEST.
-	3. we should select by ranges in the Tag. 
-		- if the selected ranges combined have more than 1500 headers then process it upto that chosen range but dont take new range.
-		- if the selected ranges combined have less than 1500 headers then take new range.
-	4. On failure of a remote, we should try the next remote.
-	5. On failure of a range, we should retry the same range with the same remote for 3 times. 
-		- more than 3 times, then retry the same range with another remote.
-	6. Add the headers to the local database after successful receival. using nodeinfo.WriteHeaders.WriteHeaders(headers []*block.Header).
-	7. atlast we have to execute PRIORSYNC with the server to get to know are we fully synced or not.
+- reason behind the remotes is that we can option to have multiple peers to sync headers from.
+1. After getting the header request from the caller function, we have to iterate through the ranges.
+2. Atmost import should be constants.MAX_HEADERS_PER_REQUEST.
+3. we should select by ranges in the Tag.
+  - if the selected ranges combined have more than 1500 headers then process it upto that chosen range but dont take new range.
+  - if the selected ranges combined have less than 1500 headers then take new range.
+
+4. On failure of a remote, we should try the next remote.
+5. On failure of a range, we should retry the same range with the same remote for 3 times.
+  - more than 3 times, then retry the same range with another remote.
+
+6. Add the headers to the local database after successful receival. using nodeinfo.WriteHeaders.WriteHeaders(headers []*block.Header).
+7. atlast we have to execute PRIORSYNC with the server to get to know are we fully synced or not.
 */
 func (hs *HeaderSync) HeaderSync(headersyncrequest *headersyncpb.HeaderSyncRequest, remotes []*types.Nodeinfo) error {
-	if headersyncrequest == nil{
+	if headersyncrequest == nil {
 		return fmt.Errorf("headersync request or tag is nil")
 	}
 	if len(remotes) == 0 {
@@ -71,6 +72,13 @@ func (hs *HeaderSync) HeaderSync(headersyncrequest *headersyncpb.HeaderSyncReque
 		return fmt.Errorf("communicator not set")
 	}
 	if headersyncrequest.Tag == nil {
+		// No differences found — headers are already in sync.
+		// When the successive phase is DATA_SYNC_REQUEST, it confirms
+		// that the server verified both Merkle trees match.
+		if headersyncrequest.Phase != nil && headersyncrequest.Phase.SuccessivePhase == constants.DATA_SYNC_REQUEST {
+			Log.Logger(namedlogger).Info(hs.SyncVars.Ctx, "Headers already in sync — proceeding to data sync",
+				ion.String("successive_phase", headersyncrequest.Phase.SuccessivePhase))
+		}
 		return nil
 	}
 
@@ -257,8 +265,14 @@ func (hs *HeaderSync) SyncConfirmation(ctx context.Context, remotes []*types.Nod
 
 		// Check the response phase for success
 		if resp.Phase != nil && resp.Phase.Success {
-			// Trees match — no headersync tag returned
-			if resp.Headersync == nil || resp.Headersync.Tag == nil {
+			if resp.Headersync == nil {
+				return nil, false, fmt.Errorf("sync confirmation failed: headersync is nil")
+			}
+			// Trees match — nil tag with successive phase DATA_SYNC_REQUEST
+			// confirms headers are in sync.
+			if resp.Headersync.Tag == nil && resp.Phase.SuccessivePhase == constants.DATA_SYNC_REQUEST {
+				Log.Logger(namedlogger).Info(ctx, "Sync confirmation: headers in sync, ready for data sync",
+					ion.String("successive_phase", resp.Phase.SuccessivePhase))
 				return nil, true, nil
 			}
 		}

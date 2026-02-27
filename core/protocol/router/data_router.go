@@ -592,9 +592,22 @@ func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.Pri
 				Error: ""},
 			Phase: &phasepb.Phase{
 				PresentPhase:    constants.SYNC_REQUEST_RESPONSE,
-				SuccessivePhase: constants.HEADER_SYNC_REQUEST,
+				SuccessivePhase: constants.DATA_SYNC_REQUEST,
 				Success:         true,
 				Error:           "",
+			},
+			Headersync: &headersyncpb.HeaderSyncRequest{
+				Tag: nil,
+				Ack: &ackpb.Ack{
+					Ok:    true,
+					Error: "",
+				},
+				Phase: &phasepb.Phase{
+					PresentPhase:    constants.HEADER_SYNC_REQUEST,
+					SuccessivePhase: constants.DATA_SYNC_REQUEST,
+					Success:         true,
+					Error:           "",
+				},	
 			},
 		}
 	}
@@ -658,14 +671,7 @@ func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.Pri
 			Error:           "",
 		},
 	}
-
-	// The bisection identified all blocks that need syncing (stored in header_sync_req.Tag).
-	// The next phase (HEADER_SYNC_REQUEST) should use these tags to fetch the actual
-	// block headers from the peer. For now we return success with the successive phase
-	// set so the caller knows to proceed with header sync.
-	// TODO: Pass header_sync_req.Tag to the caller or persist it for the header sync phase.
-	// _ = header_sync_req // Tags are logged above; will be used when header sync flow is wired.
-
+	
 	return &priorsyncpb.PriorSyncMessage{
 		Priorsync: req,
 		Ack: &ackpb.Ack{
