@@ -1,0 +1,78 @@
+syntax = "proto3";
+
+package datasync;
+
+option go_package = "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/datasync";
+
+import "ack/ack.proto";
+import "phase/phase.proto";
+import "block/block.proto";
+
+// ================================================================
+// Sub-messages — one per ThebeDB table (excluding blocks headers)
+// ================================================================
+
+// SnapshotRecord maps to the snapshots table (append-only, Create Read).
+// FK -> blocks.block_number (one-to-one).
+message SnapshotRecord {
+    bytes  block_hash  = 1; // CHAR(66) stored as raw bytes
+    int64  created_at  = 2; // Unix nanoseconds (maps to TIMESTAMPTZ)
+}
+
+// ZKProof maps to the zk_proofs table (append-only, Create Read).
+// FK -> blocks.block_number (one-proof-per-block).
+message ZKProof {
+    string proof_hash  = 1; // CHAR(66) unique
+    bytes  stark_proof = 2; // BYTEA NOT NULL
+    bytes  commitment  = 3; // BYTEA nullable
+    int64  created_at  = 4; // Unix nanoseconds
+}
+
+// DBTransaction maps to the transactions table (append-only, Create Read).
+// FK -> snapshots.block_number (snapshot owns the tx set).
+// Uses block.Transaction for all core tx fields; adds only DB-specific extras.
+message DBTransaction {
+    block.Transaction  tx         = 1; // all core fields (hash, from, to, value, gas, sig, …)
+    uint32             tx_index   = 2; // SMALLINT — position within the block
+    int64              created_at = 3; // TIMESTAMPTZ — Unix nanoseconds
+}
+
+// L1Finality maps to the l1_finality table (append-only, Create Read).
+// Confirmation is the L1 anchor (e.g. settlement contract / tx hash).
+message L1Finality {
+    bytes             confirmation  = 1; // CHAR(42) PK
+    repeated uint64   block_numbers = 2; // BIGINT[] NOT NULL
+    bytes             metadata      = 3; // JSONB (serialized JSON bytes)
+    int64             created_at    = 4; // Unix nanoseconds
+}
+
+// ================================================================
+// NonHeaders — full block payload without blocks-table header fields
+// (state_root, parent_hash, gas, timestamps are in the blocks table)
+// BlockNumber is the shared PK/FK across all sub-tables.
+// ================================================================
+message NonHeaders {
+    uint64                    block_number  = 1;
+    SnapshotRecord            snapshot      = 2;
+    repeated DBTransaction    transactions  = 3;
+    ZKProof                   zk_proof      = 4;
+    L1Finality                l1_finality   = 5; // empty/unset until finalised on L1
+}
+
+// ================================================================
+// Request / Response envelopes (mirror headersync pattern)
+// ================================================================
+
+message DataSyncRequest {
+    uint64       block_number = 1; // block being requested
+    uint32       version      = 2;
+    ack.Ack      ack          = 3;
+    phase.Phase  phase        = 4;
+}
+
+message DataSyncResponse {
+    NonHeaders   data    = 1;
+    uint32       version = 2;
+    ack.Ack      ack     = 3;
+    phase.Phase  phase   = 4;
+}
