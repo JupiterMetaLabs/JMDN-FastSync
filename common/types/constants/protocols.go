@@ -7,4 +7,5 @@ const (
 	PriorSyncProtocol      protocol.ID = "/priorsync/v1"
 	MerkleProtocol         protocol.ID = "/priorsync/v1/merkle"
 	HeaderSyncProtocol     protocol.ID = "/priorsync/v1/headersync"
+	DataSyncProtocol       protocol.ID = "/priorsync/v1/datasync"
 )

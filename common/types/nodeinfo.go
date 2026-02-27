@@ -5,6 +5,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/multiformats/go-multiaddr"
+	datasyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/datasync"
 )
 
 /*
@@ -28,6 +29,7 @@ type BlockInfo interface {
 	NewBlockIterator(start, end uint64, batchsize int) BlockIterator
 	NewBlockHeaderIterator() BlockHeader
 	NewHeadersWriter() WriteHeaders
+	NewDataWriter() WriteData
 }
 
 type BlockIterator interface {
@@ -43,4 +45,8 @@ type BlockHeader interface{
 
 type WriteHeaders interface {
 	WriteHeaders(headers []*block.Header) error
+}
+
+type WriteData interface {
+	WriteData(data []*datasyncpb.NonHeaders) error
 }

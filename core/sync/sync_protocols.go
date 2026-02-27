@@ -10,6 +10,7 @@ import (
 	headerpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/headersync"
 	merklepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/merkle"
 	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/priorsync"
+	datasyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/datasync"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/constants"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/communication"
@@ -31,6 +32,7 @@ type sync_interface interface {
 	HandlePriorSync(ctx context.Context, node host.Host) error
 	HandleMerkle(ctx context.Context, node host.Host) error
 	HandleHeaderSync(ctx context.Context, node host.Host) error
+	HandleDataSync(ctx context.Context, node host.Host) error
 	Debug(ctx context.Context, protocol protocol.ID, node host.Host, remote *types.Nodeinfo)
 }
 
@@ -148,6 +150,43 @@ func (s *Sync) HandleHeaderSync(ctx context.Context, node host.Host) error {
 		// Route to Datarouter
 		resp := s.Datarouter.HandleHeaderSync(ctx, req)
 		s.Debug(ctx, constants.HeaderSyncProtocol, node, remoteNodeInfo)
+
+		// Send response
+		_ = str.SetWriteDeadline(time.Now().Add(10 * time.Second))
+		defer str.SetWriteDeadline(time.Time{})
+
+		_ = pbstream.WriteDelimited(str, resp)
+	})
+	return nil
+}
+
+func (s *Sync) HandleDataSync(ctx context.Context, node host.Host) error {
+	node.SetStreamHandler(constants.DataSyncProtocol, func(str network.Stream) {
+		defer str.Close()
+
+		// refuse work if shutting down
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		_ = str.SetReadDeadline(time.Now().Add(10 * time.Second))
+		defer str.SetReadDeadline(time.Time{})
+
+		req := &datasyncpb.DataSyncRequest{}
+		if err := pbstream.ReadDelimited(str, req); err != nil {
+			return
+		}
+
+		remoteNodeInfo := &types.Nodeinfo{
+			PeerID:    str.Conn().RemotePeer(),
+			Multiaddr: []multiaddr.Multiaddr{str.Conn().RemoteMultiaddr()},
+		}
+
+		// Route to Datarouter
+		resp := s.Datarouter.HandleDataSync(ctx, req, remoteNodeInfo)
+		s.Debug(ctx, constants.DataSyncProtocol, node, remoteNodeInfo)
 
 		// Send response
 		_ = str.SetWriteDeadline(time.Now().Add(10 * time.Second))
