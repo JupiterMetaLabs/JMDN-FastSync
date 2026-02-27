@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"sync"
 
 	ackpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/ack"
+	blockpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/block"
 	headersyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/headersync"
 	phasepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/phase"
 	taggingpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/tagging"
@@ -22,7 +24,21 @@ const (
 	namedlogger   = Log.HeaderSync
 	maxRetries    = 2
 	maxSyncRounds = 4 // Max confirmation rounds to prevent infinite loops
+	maxWorkers    = 3 // concurrent fetch workers
 )
+
+// batchJob is a unit of work sent to a fetch worker.
+type batchJob struct {
+	BatchID int
+	Request *headersyncpb.HeaderSyncRequest
+}
+
+// batchResult is the outcome of a single batch fetch, sent from a worker to the writer.
+type batchResult struct {
+	BatchID int
+	Headers []*blockpb.Header // nil on permanent failure
+	Err     error             // non-nil when all remotes exhausted
+}
 
 type HeaderSync struct {
 	SyncVars *types.Syncvars
@@ -104,7 +120,7 @@ func (hs *HeaderSync) HeaderSync(headersyncrequest *headersyncpb.HeaderSyncReque
 			ion.Int("round", round),
 			ion.Int("queue_size", len(queue)))
 
-		// Drain all batches in the current queue
+		// Drain all batches in the current queue (concurrently)
 		if err := processQueue(ctx, hs, queue, remotes, headerWriter); err != nil {
 			return fmt.Errorf("round %d: %w", round, err)
 		}
@@ -135,7 +151,8 @@ func (hs *HeaderSync) HeaderSync(headersyncrequest *headersyncpb.HeaderSyncReque
 	return fmt.Errorf("header sync did not converge after %d rounds", maxSyncRounds)
 }
 
-// processQueue drains a batch queue, sending each batch to a remote with retry + failover.
+// processQueue concurrently fetches header batches using a worker pool and
+// writes the results to the DB via a single writer to preserve ordering.
 func processQueue(
 	ctx context.Context,
 	hs *HeaderSync,
@@ -143,9 +160,103 @@ func processQueue(
 	remotes []*types.Nodeinfo,
 	headerWriter types.WriteHeaders,
 ) error {
-	for batchIdx := 0; batchIdx < len(queue); batchIdx++ {
-		batch := queue[batchIdx]
+	if len(queue) == 0 {
+		return nil
+	}
+
+	// Size the worker pool: min(maxWorkers, num remotes, num batches)
+	numWorkers := maxWorkers
+	if len(remotes) < numWorkers {
+		numWorkers = len(remotes)
+	}
+	if len(queue) < numWorkers {
+		numWorkers = len(queue)
+	}
+
+	Log.Logger(namedlogger).Info(ctx, "Worker pool starting",
+		ion.Int("workers", numWorkers),
+		ion.Int("batches", len(queue)))
+
+	workCh := make(chan batchJob, len(queue))
+	resultCh := make(chan batchResult, len(queue))
+
+	// ---- Dispatcher: push all jobs into the work channel ----
+	for i, req := range queue {
+		workCh <- batchJob{BatchID: i + 1, Request: req}
+	}
+	close(workCh)
+
+	// ---- Launch fetch workers ----
+	var workerWg sync.WaitGroup
+	for w := 0; w < numWorkers; w++ {
+		workerWg.Add(1)
+		go func(workerID int) {
+			defer workerWg.Done()
+			fetchWorker(ctx, workerID, hs, remotes, workCh, resultCh)
+		}(w + 1)
+	}
+
+	// Close resultCh once all workers finish
+	go func() {
+		workerWg.Wait()
+		close(resultCh)
+	}()
+
+	// ---- Collect results ----
+	var results []batchResult
+	for r := range resultCh {
+		results = append(results, r)
+	}
+
+	// ---- Check for errors ----
+	for _, r := range results {
+		if r.Err != nil {
+			return fmt.Errorf("batch %d failed: %w", r.BatchID, r.Err)
+		}
+	}
+
+	// ---- Sort by first block number and write sequentially ----
+	sort.Slice(results, func(i, j int) bool {
+		if len(results[i].Headers) == 0 {
+			return true
+		}
+		if len(results[j].Headers) == 0 {
+			return false
+		}
+		return results[i].Headers[0].BlockNumber < results[j].Headers[0].BlockNumber
+	})
+
+	for _, r := range results {
+		if len(r.Headers) == 0 {
+			continue
+		}
+		if err := headerWriter.WriteHeaders(r.Headers); err != nil {
+			return fmt.Errorf("batch %d: failed to write headers to DB: %w", r.BatchID, err)
+		}
+
+		Log.Logger(namedlogger).Info(ctx, "Batch written to DB",
+			ion.Int("batch", r.BatchID),
+			ion.Int("headers_written", len(r.Headers)),
+			ion.Int64("first_block", int64(r.Headers[0].BlockNumber)),
+			ion.Int64("last_block", int64(r.Headers[len(r.Headers)-1].BlockNumber)))
+	}
+
+	return nil
+}
+
+// fetchWorker pulls jobs from workCh, tries each remote with retries, and
+// sends results to resultCh. Implements retry-per-remote with failover.
+func fetchWorker(
+	ctx context.Context,
+	workerID int,
+	hs *HeaderSync,
+	remotes []*types.Nodeinfo,
+	workCh <-chan batchJob,
+	resultCh chan<- batchResult,
+) {
+	for job := range workCh {
 		var lastErr error
+		var headers []*blockpb.Header
 		success := false
 
 		for remoteIdx := 0; remoteIdx < len(remotes) && !success; remoteIdx++ {
@@ -153,71 +264,70 @@ func processQueue(
 			childctx, cancel := context.WithCancel(ctx)
 
 			for attempt := 1; attempt <= maxRetries; attempt++ {
-				Log.Logger(namedlogger).Debug(childctx, "Sending header sync batch",
-					ion.Int("batch", batchIdx+1),
+				Log.Logger(namedlogger).Debug(childctx, "Worker sending header sync batch",
+					ion.Int("worker", workerID),
+					ion.Int("batch", job.BatchID),
 					ion.Int("attempt", attempt),
 					ion.String("peer", remote.PeerID.String()))
 
-				resp, err := hs.Comm.SendHeaderSyncRequest(childctx, *remote, batch)
+				resp, err := hs.Comm.SendHeaderSyncRequest(childctx, *remote, job.Request)
 				if err != nil {
-					lastErr = fmt.Errorf("batch %d, remote %s, attempt %d: %w",
-						batchIdx+1, remote.PeerID.String(), attempt, err)
+					lastErr = fmt.Errorf("worker %d, batch %d, remote %s, attempt %d: %w",
+						workerID, job.BatchID, remote.PeerID.String(), attempt, err)
 					Log.Logger(namedlogger).Warn(childctx, "Header sync request failed",
 						ion.Err(lastErr),
+						ion.Int("worker", workerID),
 						ion.Int("attempt", attempt))
 					continue
 				}
 
 				// Validate response
 				if resp.Ack != nil && !resp.Ack.Ok {
-					lastErr = fmt.Errorf("batch %d: server returned error: %s", batchIdx+1, resp.Ack.Error)
+					lastErr = fmt.Errorf("worker %d, batch %d: server returned error: %s",
+						workerID, job.BatchID, resp.Ack.Error)
 					Log.Logger(namedlogger).Warn(childctx, "Header sync response error",
 						ion.Err(lastErr),
+						ion.Int("worker", workerID),
 						ion.Int("attempt", attempt))
 					continue
 				}
 
 				if len(resp.Header) == 0 {
-					lastErr = fmt.Errorf("batch %d: server returned 0 headers", batchIdx+1)
+					lastErr = fmt.Errorf("worker %d, batch %d: server returned 0 headers",
+						workerID, job.BatchID)
 					Log.Logger(namedlogger).Warn(childctx, "Empty header response",
 						ion.Err(lastErr),
+						ion.Int("worker", workerID),
 						ion.Int("attempt", attempt))
 					continue
 				}
 
-				// Sort headers by block number before writing
+				// Sort headers by block number
 				sort.Slice(resp.Header, func(i, j int) bool {
 					return resp.Header[i].BlockNumber < resp.Header[j].BlockNumber
 				})
 
-				// Write to DB
-				if err := headerWriter.WriteHeaders(resp.Header); err != nil {
-					lastErr = fmt.Errorf("batch %d: failed to write headers to DB: %w", batchIdx+1, err)
-					Log.Logger(namedlogger).Warn(childctx, "Header DB write failed",
-						ion.Err(lastErr),
-						ion.Int("attempt", attempt))
-					continue
-				}
-
-				Log.Logger(namedlogger).Info(childctx, "Batch synced successfully",
-					ion.Int("batch", batchIdx+1),
-					ion.Int("headers_received", len(resp.Header)),
-					ion.Int64("first_block", int64(resp.Header[0].BlockNumber)),
-					ion.Int64("last_block", int64(resp.Header[len(resp.Header)-1].BlockNumber)))
-
+				headers = resp.Header
 				success = true
+
+				Log.Logger(namedlogger).Info(childctx, "Batch fetched successfully",
+					ion.Int("worker", workerID),
+					ion.Int("batch", job.BatchID),
+					ion.Int("headers_received", len(headers)),
+					ion.Int64("first_block", int64(headers[0].BlockNumber)),
+					ion.Int64("last_block", int64(headers[len(headers)-1].BlockNumber)))
 				break
 			}
 
 			cancel()
 		}
 
-		if !success {
-			return fmt.Errorf("header sync failed after exhausting all remotes: %w", lastErr)
+		if success {
+			resultCh <- batchResult{BatchID: job.BatchID, Headers: headers}
+		} else {
+			resultCh <- batchResult{BatchID: job.BatchID, Err: lastErr}
 		}
 	}
-
-	return nil
 }
 
 // syncConfirmation sends a PriorSync (SYNC_REQUEST) to a remote to compare

@@ -671,7 +671,7 @@ func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.Pri
 			Error:           "",
 		},
 	}
-	
+
 	return &priorsyncpb.PriorSyncMessage{
 		Priorsync: req,
 		Ack: &ackpb.Ack{
@@ -888,3 +888,6 @@ func (router *Datarouter) HeaderSync(ctx context.Context, req *headersyncpb.Head
 		},
 	}
 }
+
+// func (router *Datarouter) DataSync(ctx context.Context, req *datasyncpb.DataSyncRequest) *datasyncpb.DataSyncResponse {
+// }
