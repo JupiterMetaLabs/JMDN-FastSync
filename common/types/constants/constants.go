@@ -2,6 +2,7 @@ package constants
 
 const (
 	FAILURE = "failure"
+	SUCCESS = "success"
 	UNKNOWN = "unknown"
 )
 
@@ -17,7 +18,10 @@ const (
 	MERGE_RESPONSE = "state:merge:mergeresponse"
 
 	REQUEST_MERKLE = "state:merkle:merklerequest"
-	RESPONSE_MERKLE = "state:merkle:merkleresponse"	
+	RESPONSE_MERKLE = "state:merkle:merkleresponse"
+
+	DATA_SYNC_REQUEST = "state:datasync:datasyncrequest"
+	DATA_SYNC_RESPONSE = "state:datasync:datasyncresponse"
 )
 
 const (
