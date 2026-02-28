@@ -490,6 +490,13 @@ func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.Pri
 		}
 	}
 
+	// if the number of blocks in the client is less than MIN_BLOCKS then do the full sync.
+	if req.Blocknumber < constants.MIN_BLOCKS {
+		Log.Logger(namedlogger).Debug(ctx, "Block number is less than MIN_BLOCKS, doing full sync",
+			ion.String("function", "SYNC_REQUEST"))
+		return router.FullSync(ctx, req, peerNode, remote)
+	}
+
 	blockNumber := blockInfo.GetBlockNumber()
 	blockDetails := blockInfo.GetBlockDetails()
 
@@ -647,21 +654,21 @@ func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.Pri
 
 	// >> Log tagged ranges and blocks - just for verbose logging
 
-	for i, r := range header_sync_req.Tag.Range {
-		Log.Logger(namedlogger).Info(ctx, "Tagged range",
-			ion.Int("index", i),
-			ion.Int64("start", int64(r.Start)),
-			ion.Int64("end", int64(r.End)),
-			ion.Int64("count", int64(r.End-r.Start+1)),
-			ion.String("function", "SYNC_REQUEST"))
-	}
+	// for i, r := range header_sync_req.Tag.Range {
+	// 	Log.Logger(namedlogger).Info(ctx, "Tagged range",
+	// 		ion.Int("index", i),
+	// 		ion.Int64("start", int64(r.Start)),
+	// 		ion.Int64("end", int64(r.End)),
+	// 		ion.Int64("count", int64(r.End-r.Start+1)),
+	// 		ion.String("function", "SYNC_REQUEST"))
+	// }
 
-	for i, bn := range header_sync_req.Tag.BlockNumber {
-		Log.Logger(namedlogger).Info(ctx, "Tagged block",
-			ion.Int("index", i),
-			ion.Int64("block_number", int64(bn)),
-			ion.String("function", "SYNC_REQUEST"))
-	}
+	// for i, bn := range header_sync_req.Tag.BlockNumber {
+	// 	Log.Logger(namedlogger).Info(ctx, "Tagged block",
+	// 		ion.Int("index", i),
+	// 		ion.Int64("block_number", int64(bn)),
+	// 		ion.String("function", "SYNC_REQUEST"))
+	// }
 
 	// Headersync request
 	header_sync_req_msg := &headersyncpb.HeaderSyncRequest{
@@ -895,5 +902,12 @@ func (router *Datarouter) HeaderSync(ctx context.Context, req *headersyncpb.Head
 	}
 }
 
-// func (router *Datarouter) DataSync(ctx context.Context, req *datasyncpb.DataSyncRequest) *datasyncpb.DataSyncResponse {
-// }
+func (router *Datarouter) DataSync(ctx context.Context, req *datasyncpb.DataSyncRequest) *datasyncpb.DataSyncResponse {
+	return nil
+}
+
+func (router *Datarouter) FullSync(ctx context.Context, req *priorsyncpb.PriorSync, peerNode types.Nodeinfo, remote *types.Nodeinfo) *priorsyncpb.PriorSyncMessage {
+	// you have to tag the blocks numbers range
+	// blocknumber := router.Nodeinfo.BlockInfo.GetBlockNumber()
+	return nil
+}

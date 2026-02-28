@@ -30,4 +30,5 @@ const (
 
 const (
 	MAX_HEADERS_PER_REQUEST = 1500
+	MIN_BLOCKS              = 500 // if number of blocks in the client is less than 500 then do the full sync.
 )
