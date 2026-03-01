@@ -926,7 +926,7 @@ func (router *Datarouter) FullSync(ctx context.Context, req *priorsyncpb.PriorSy
 			Error: "",
 		},
 		Phase: &phasepb.Phase{
-			PresentPhase:    constants.SYNC_REQUEST_RESPONSE,
+			PresentPhase:    constants.FULL_SYNC_REQUEST,
 			SuccessivePhase: constants.HEADER_SYNC_REQUEST,
 			Success:         true,
 			Error:           "",
