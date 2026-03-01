@@ -489,16 +489,18 @@ func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.Pri
 			},
 		}
 	}
+	
+	blockNumber := blockInfo.GetBlockNumber()
+	blockDetails := blockInfo.GetBlockDetails()
 
 	// if the number of blocks in the client is less than MIN_BLOCKS then do the full sync.
-	if req.Blocknumber < constants.MIN_BLOCKS {
+	// if number of blocks is above MIN_BLOCKS and Server blocks - MINBLOCKS >= MINBLOCKS then we are doing the full sync.
+	// if MIN_BLOCKS is 1000 then we are doing full sync only if client have less than 1000 blocks and server have more than 2000 blocks.
+	if req.Blocknumber <= constants.MIN_BLOCKS && blockNumber - req.Blocknumber >= constants.MIN_BLOCKS {
 		Log.Logger(namedlogger).Debug(ctx, "Block number is less than MIN_BLOCKS, doing full sync",
 			ion.String("function", "SYNC_REQUEST"))
 		return router.FullSync(ctx, req, peerNode, remote)
 	}
-
-	blockNumber := blockInfo.GetBlockNumber()
-	blockDetails := blockInfo.GetBlockDetails()
 
 	msg := fmt.Sprintf("Block Details of Block %d: %+v (StateRoot: %s, BlockHash: %s)", blockNumber, blockDetails, string(blockDetails.Stateroot), string(blockDetails.Blockhash))
 	Log.Logger(namedlogger).Debug(ctx, msg,
