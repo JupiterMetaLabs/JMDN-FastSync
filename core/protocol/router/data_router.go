@@ -8,6 +8,7 @@ import (
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/communication"
 	merkle "github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/merkle"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/router/helper"
 	merkle_types "github.com/JupiterMetaLabs/JMDN-FastSync/helper/merkle"
 	Log "github.com/JupiterMetaLabs/JMDN-FastSync/logging"
 	"github.com/JupiterMetaLabs/JMDN_Merkletree/merkletree"
@@ -16,15 +17,16 @@ import (
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/checksum/checksum_priorsync"
 	ackpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/ack"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/block"
+	datasyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/datasync"
 	headerpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/headersync"
 	headersyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/headersync"
-	datasyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/datasync"
 	merklepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/merkle"
 	phasepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/phase"
 	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/priorsync"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/constants"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/errors"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/core/headersync"
 	libp2p_peer "github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
 )
@@ -499,7 +501,7 @@ func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.Pri
 	if req.Blocknumber <= constants.MIN_BLOCKS && blockNumber - req.Blocknumber >= constants.MIN_BLOCKS {
 		Log.Logger(namedlogger).Debug(ctx, "Block number is less than MIN_BLOCKS, doing full sync",
 			ion.String("function", "SYNC_REQUEST"))
-		return router.FullSync(ctx, req, peerNode, remote)
+		return router.FullSync(ctx, req, peerNode, blockNumber, remote)
 	}
 
 	msg := fmt.Sprintf("Block Details of Block %d: %+v (StateRoot: %s, BlockHash: %s)", blockNumber, blockDetails, string(blockDetails.Stateroot), string(blockDetails.Blockhash))
@@ -908,8 +910,14 @@ func (router *Datarouter) DataSync(ctx context.Context, req *datasyncpb.DataSync
 	return nil
 }
 
-func (router *Datarouter) FullSync(ctx context.Context, req *priorsyncpb.PriorSync, peerNode types.Nodeinfo, remote *types.Nodeinfo) *priorsyncpb.PriorSyncMessage {
+func (router *Datarouter) FullSync(ctx context.Context, req *priorsyncpb.PriorSync, peerNode types.Nodeinfo, blocknumber uint64, remote *types.Nodeinfo) *priorsyncpb.PriorSyncMessage {
 	// you have to tag the blocks numbers range
-	// blocknumber := router.Nodeinfo.BlockInfo.GetBlockNumber()
+	tags := helper.DivideTags(req.Blocknumber, blocknumber)
+	Log.Logger(namedlogger).Debug(ctx, "Tagged Blocks - LOG",
+		ion.String("function", "FullSync"),
+		ion.Int64("blocknumber", int64(blocknumber)),
+		ion.Int64("req.Blocknumber", int64(req.Blocknumber)))
+
+	
 	return nil
 }

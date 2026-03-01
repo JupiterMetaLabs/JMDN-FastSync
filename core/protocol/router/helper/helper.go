@@ -4,6 +4,7 @@ import (
 	"errors"
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/tagging"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/constants"
 	"github.com/JupiterMetaLabs/JMDN_Merkletree/merkletree"
 )
 
@@ -32,7 +33,7 @@ func DivideTags(start uint64, end uint64) []*tagging.Tag {
 	// Input is blocknumber range, output is tagging.Tag
 	// Divide the range into chunks of 1500 blocks
 	var tags []*tagging.Tag
-	chunkSize := uint64(1500)
+	chunkSize := uint64(constants.MAX_HEADERS_PER_REQUEST)
 
 	for i := start; i <= end; i += chunkSize {
 		chunkEnd := i + chunkSize - 1
