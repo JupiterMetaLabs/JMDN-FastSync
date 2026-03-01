@@ -29,10 +29,10 @@ func GetLatestBlockNumber(b *merkletree.Builder) (uint64, error) {
 	return latestBlockNumber, nil
 }
 
-func DivideTags(start uint64, end uint64) []*tagging.Tag {
+func DivideTags(start uint64, end uint64) *tagging.Tag {
 	// Input is blocknumber range, output is tagging.Tag
-	// Divide the range into chunks of 1500 blocks
-	var tags []*tagging.Tag
+	// Divide the range into chunks
+	var ranges []*tagging.RangeTag
 	chunkSize := uint64(constants.MAX_HEADERS_PER_REQUEST)
 
 	for i := start; i <= end; i += chunkSize {
@@ -41,14 +41,13 @@ func DivideTags(start uint64, end uint64) []*tagging.Tag {
 			chunkEnd = end
 		}
 
-		tags = append(tags, &tagging.Tag{
-			Range: []*tagging.RangeTag{
-				{
-					Start: i,
-					End:   chunkEnd,
-				},
-			},
+		ranges = append(ranges, &tagging.RangeTag{
+			Start: i,
+			End:   chunkEnd,
 		})
 	}
-	return tags
+
+	return &tagging.Tag{
+		Range: ranges,
+	}
 }

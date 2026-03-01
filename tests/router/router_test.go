@@ -9,7 +9,7 @@ import (
 
 func TestDivideTags(t *testing.T) {
 	tags := router_helper.DivideTags(1, 10000)
-	for i := range tags {
-		fmt.Println(tags[i])
+	for i := range tags.Range {
+		fmt.Println(tags.Range[i])
 	}
 }

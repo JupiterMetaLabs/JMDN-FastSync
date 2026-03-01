@@ -26,7 +26,6 @@ import (
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/constants"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/errors"
-	"github.com/JupiterMetaLabs/JMDN-FastSync/core/headersync"
 	libp2p_peer "github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
 )
@@ -495,9 +494,11 @@ func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.Pri
 	blockNumber := blockInfo.GetBlockNumber()
 	blockDetails := blockInfo.GetBlockDetails()
 
-	// if the number of blocks in the client is less than MIN_BLOCKS then do the full sync.
-	// if number of blocks is above MIN_BLOCKS and Server blocks - MINBLOCKS >= MINBLOCKS then we are doing the full sync.
-	// if MIN_BLOCKS is 1000 then we are doing full sync only if client have less than 1000 blocks and server have more than 2000 blocks.
+	/* 
+	   if the number of blocks in the client is less than MIN_BLOCKS then do the full sync.
+	   if number of blocks is above MIN_BLOCKS and Server blocks - MINBLOCKS >= MINBLOCKS then we are doing the full sync.
+	   if MIN_BLOCKS is 1000 then we are doing full sync only if client have less than 1000 blocks and server have more than 2000 blocks. 
+	*/
 	if req.Blocknumber <= constants.MIN_BLOCKS && blockNumber - req.Blocknumber >= constants.MIN_BLOCKS {
 		Log.Logger(namedlogger).Debug(ctx, "Block number is less than MIN_BLOCKS, doing full sync",
 			ion.String("function", "SYNC_REQUEST"))
@@ -918,6 +919,30 @@ func (router *Datarouter) FullSync(ctx context.Context, req *priorsyncpb.PriorSy
 		ion.Int64("blocknumber", int64(blocknumber)),
 		ion.Int64("req.Blocknumber", int64(req.Blocknumber)))
 
-	
-	return nil
+	return &priorsyncpb.PriorSyncMessage{
+		Priorsync: req,
+		Ack: &ackpb.Ack{
+			Ok:    true,
+			Error: "",
+		},
+		Phase: &phasepb.Phase{
+			PresentPhase:    constants.SYNC_REQUEST_RESPONSE,
+			SuccessivePhase: constants.HEADER_SYNC_REQUEST,
+			Success:         true,
+			Error:           "",
+		},
+		Headersync: &headersyncpb.HeaderSyncRequest{
+			Tag: tags,
+			Ack: &ackpb.Ack{
+				Ok:    true,
+				Error: "",
+			},
+			Phase: &phasepb.Phase{
+				PresentPhase:    constants.HEADER_SYNC_REQUEST,
+				SuccessivePhase: constants.HEADER_SYNC_RESPONSE,
+				Success:         true,
+				Error:           "",
+			},
+		},
+	}
 }
