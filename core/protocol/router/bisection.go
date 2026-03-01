@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	merkle "github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/merkle"
+	router_helper "github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/router/helper"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/tagging"
 	merkle_types "github.com/JupiterMetaLabs/JMDN-FastSync/helper/merkle"
 	Log "github.com/JupiterMetaLabs/JMDN-FastSync/logging"
@@ -126,7 +127,7 @@ func (router *Datarouter) dataBisect(
 	// Derive the peer's highest block number from the target tree's rightmost leaf.
 	// Any diff range starting beyond this point means the peer doesn't have those blocks,
 	// so there's no point requesting a sub-tree from them — tag immediately for sync.
-	peerBlockHeight, err := GetLatestBlockNumber(target_tree)
+	peerBlockHeight, err := router_helper.GetLatestBlockNumber(target_tree)
 	if err != nil {
 		Log.Logger(namedlogger).Warn(ctx, "Could not determine peer block height from target tree, skipping peer height check",
 			ion.Err(err),

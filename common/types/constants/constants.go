@@ -10,6 +10,7 @@ const (
 	SYNC_REQUEST          = "state:priorsync:syncrequest"
 	SYNC_REQUEST_AUTOPROCEED = "state:priorsync:syncrequest:auto"
 	SYNC_REQUEST_RESPONSE = "state:priorsync:syncrequestresponse"
+	FULL_SYNC_REQUEST = "state:priorsync:fullsyncrequest"
 
 	HEADER_SYNC_REQUEST  = "state:headersync:headersyncrequest"
 	HEADER_SYNC_RESPONSE = "state:headersync:headersyncresponse"
@@ -30,4 +31,5 @@ const (
 
 const (
 	MAX_HEADERS_PER_REQUEST = 1500
+	MIN_BLOCKS              = 500 // if number of blocks in the client is less than 500 then do the full sync.
 )

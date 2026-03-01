@@ -8,6 +8,7 @@ import (
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/communication"
 	merkle "github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/merkle"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/router/helper"
 	merkle_types "github.com/JupiterMetaLabs/JMDN-FastSync/helper/merkle"
 	Log "github.com/JupiterMetaLabs/JMDN-FastSync/logging"
 	"github.com/JupiterMetaLabs/JMDN_Merkletree/merkletree"
@@ -16,9 +17,9 @@ import (
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/checksum/checksum_priorsync"
 	ackpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/ack"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/block"
+	datasyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/datasync"
 	headerpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/headersync"
 	headersyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/headersync"
-	datasyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/datasync"
 	merklepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/merkle"
 	phasepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/phase"
 	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/priorsync"
@@ -489,9 +490,20 @@ func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.Pri
 			},
 		}
 	}
-
+	
 	blockNumber := blockInfo.GetBlockNumber()
 	blockDetails := blockInfo.GetBlockDetails()
+
+	/* 
+	   if the number of blocks in the client is less than MIN_BLOCKS then do the full sync.
+	   if number of blocks is above MIN_BLOCKS and Server blocks - MINBLOCKS >= MINBLOCKS then we are doing the full sync.
+	   if MIN_BLOCKS is 1000 then we are doing full sync only if client have less than 1000 blocks and server have more than 2000 blocks. 
+	*/
+	if req.Blocknumber <= constants.MIN_BLOCKS && blockNumber - req.Blocknumber >= constants.MIN_BLOCKS {
+		Log.Logger(namedlogger).Debug(ctx, "Block number is less than MIN_BLOCKS, doing full sync",
+			ion.String("function", "SYNC_REQUEST"))
+		return router.FullSync(ctx, req, peerNode, blockNumber, remote)
+	}
 
 	msg := fmt.Sprintf("Block Details of Block %d: %+v (StateRoot: %s, BlockHash: %s)", blockNumber, blockDetails, string(blockDetails.Stateroot), string(blockDetails.Blockhash))
 	Log.Logger(namedlogger).Debug(ctx, msg,
@@ -647,21 +659,21 @@ func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.Pri
 
 	// >> Log tagged ranges and blocks - just for verbose logging
 
-	for i, r := range header_sync_req.Tag.Range {
-		Log.Logger(namedlogger).Info(ctx, "Tagged range",
-			ion.Int("index", i),
-			ion.Int64("start", int64(r.Start)),
-			ion.Int64("end", int64(r.End)),
-			ion.Int64("count", int64(r.End-r.Start+1)),
-			ion.String("function", "SYNC_REQUEST"))
-	}
+	// for i, r := range header_sync_req.Tag.Range {
+	// 	Log.Logger(namedlogger).Info(ctx, "Tagged range",
+	// 		ion.Int("index", i),
+	// 		ion.Int64("start", int64(r.Start)),
+	// 		ion.Int64("end", int64(r.End)),
+	// 		ion.Int64("count", int64(r.End-r.Start+1)),
+	// 		ion.String("function", "SYNC_REQUEST"))
+	// }
 
-	for i, bn := range header_sync_req.Tag.BlockNumber {
-		Log.Logger(namedlogger).Info(ctx, "Tagged block",
-			ion.Int("index", i),
-			ion.Int64("block_number", int64(bn)),
-			ion.String("function", "SYNC_REQUEST"))
-	}
+	// for i, bn := range header_sync_req.Tag.BlockNumber {
+	// 	Log.Logger(namedlogger).Info(ctx, "Tagged block",
+	// 		ion.Int("index", i),
+	// 		ion.Int64("block_number", int64(bn)),
+	// 		ion.String("function", "SYNC_REQUEST"))
+	// }
 
 	// Headersync request
 	header_sync_req_msg := &headersyncpb.HeaderSyncRequest{
@@ -895,5 +907,42 @@ func (router *Datarouter) HeaderSync(ctx context.Context, req *headersyncpb.Head
 	}
 }
 
-// func (router *Datarouter) DataSync(ctx context.Context, req *datasyncpb.DataSyncRequest) *datasyncpb.DataSyncResponse {
-// }
+func (router *Datarouter) DataSync(ctx context.Context, req *datasyncpb.DataSyncRequest) *datasyncpb.DataSyncResponse {
+	return nil
+}
+
+func (router *Datarouter) FullSync(ctx context.Context, req *priorsyncpb.PriorSync, peerNode types.Nodeinfo, blocknumber uint64, remote *types.Nodeinfo) *priorsyncpb.PriorSyncMessage {
+	// you have to tag the blocks numbers range
+	tags := helper.DivideTags(req.Blocknumber, blocknumber)
+	Log.Logger(namedlogger).Debug(ctx, "Tagged Blocks - LOG",
+		ion.String("function", "FullSync"),
+		ion.Int64("blocknumber", int64(blocknumber)),
+		ion.Int64("req.Blocknumber", int64(req.Blocknumber)))
+
+	return &priorsyncpb.PriorSyncMessage{
+		Priorsync: req,
+		Ack: &ackpb.Ack{
+			Ok:    true,
+			Error: "",
+		},
+		Phase: &phasepb.Phase{
+			PresentPhase:    constants.FULL_SYNC_REQUEST,
+			SuccessivePhase: constants.HEADER_SYNC_REQUEST,
+			Success:         true,
+			Error:           "",
+		},
+		Headersync: &headersyncpb.HeaderSyncRequest{
+			Tag: tags,
+			Ack: &ackpb.Ack{
+				Ok:    true,
+				Error: "",
+			},
+			Phase: &phasepb.Phase{
+				PresentPhase:    constants.HEADER_SYNC_REQUEST,
+				SuccessivePhase: constants.HEADER_SYNC_RESPONSE,
+				Success:         true,
+				Error:           "",
+			},
+		},
+	}
+}
