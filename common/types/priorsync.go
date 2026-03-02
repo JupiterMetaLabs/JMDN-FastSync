@@ -3,8 +3,9 @@ package types
 import (
 	"context"
 
-	"github.com/JupiterMetaLabs/JMDN_Merkletree/merkletree"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/common/WAL"
 	headersyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/headersync"
+	"github.com/JupiterMetaLabs/JMDN_Merkletree/merkletree"
 )
 
 type Range struct {
@@ -43,6 +44,7 @@ type Syncvars struct {
 	Ctx      context.Context
 	Version  uint16
 	NodeInfo Nodeinfo
+	WAL      *WAL.WAL
 }
 
 type Phase struct {

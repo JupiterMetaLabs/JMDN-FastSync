@@ -38,11 +38,11 @@ func StartListening(ctx context.Context, port string, version uint16) (*Node, er
 
 	// Create PriorSync protocol handler from core
 	ps := priorsync.NewPriorSyncRouter()
-	ps.SetSyncVars(node.GetContext(), version, nodeInfo)
+	ps.SetSyncVars(node.GetContext(), version, nodeInfo, node.GetHost(), nil)
 
 	// Start handling in background - core handler manages its own stream handler registration
 	go func() {
-		if err := ps.SetupNetworkHandlers(node.GetHost(), true); err != nil {
+		if err := ps.SetupNetworkHandlers(true); err != nil {
 			// Context cancellation is normal during shutdown
 			if ctx.Err() == nil {
 				fmt.Printf("PriorSync handler error: %v\n", err)

@@ -6,6 +6,7 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/JupiterMetaLabs/JMDN-FastSync/common/WAL"
 	ackpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/ack"
 	blockpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/block"
 	headersyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/headersync"
@@ -13,6 +14,7 @@ import (
 	taggingpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/tagging"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/constants"
+	wal_types "github.com/JupiterMetaLabs/JMDN-FastSync/common/types/wal"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/communication"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/merkle"
 	Log "github.com/JupiterMetaLabs/JMDN-FastSync/logging"
@@ -51,7 +53,7 @@ func NewHeaderSync() *HeaderSync {
 	}
 }
 
-func (hs *HeaderSync) SetSyncVars(ctx context.Context, protocolVersion uint16, nodeInfo types.Nodeinfo, node host.Host) Headersync_router {
+func (hs *HeaderSync) SetSyncVars(ctx context.Context, protocolVersion uint16, nodeInfo types.Nodeinfo, node host.Host, wal *WAL.WAL) Headersync_router {
 	if hs.SyncVars == nil {
 		hs.SyncVars = &types.Syncvars{}
 	}
@@ -59,6 +61,7 @@ func (hs *HeaderSync) SetSyncVars(ctx context.Context, protocolVersion uint16, n
 	hs.SyncVars.Version = protocolVersion
 	hs.SyncVars.NodeInfo = nodeInfo
 	hs.SyncVars.Ctx = ctx
+	hs.SyncVars.WAL = wal
 	return hs
 }
 
@@ -230,6 +233,21 @@ func processQueue(
 		if len(r.Headers) == 0 {
 			continue
 		}
+
+		// Write to WAL before DB — ensures crash recoverability
+		if hs.SyncVars.WAL != nil {
+			event := &WAL.HeaderSyncEvent{
+				BaseEvent: wal_types.BaseEvent{Operation: wal_types.OpAppend},
+				Response:  &headersyncpb.HeaderSyncResponse{Header: r.Headers},
+			}
+			if _, err := hs.SyncVars.WAL.WriteEvent(event); err != nil {
+				return fmt.Errorf("batch %d: WAL write failed: %w", r.BatchID, err)
+			}
+			if err := hs.SyncVars.WAL.Flush(); err != nil {
+				return fmt.Errorf("batch %d: WAL flush failed: %w", r.BatchID, err)
+			}
+		}
+
 		if err := headerWriter.WriteHeaders(r.Headers); err != nil {
 			return fmt.Errorf("batch %d: failed to write headers to DB: %w", r.BatchID, err)
 		}
