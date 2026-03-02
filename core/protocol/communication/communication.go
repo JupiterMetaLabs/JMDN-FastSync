@@ -93,8 +93,8 @@ func (c *communication) SendPriorSync(
 	// Prepare response container
 	resp := &priorsyncpb.PriorSyncMessage{}
 
-	// Send using SendProtoDelimited with full peer info for transport selection
-	if err := messaging.SendProtoDelimited(
+	// Send using SendProtoDelimitedWithHeartbeat for heartbeat-aware read loop
+	if err := messaging.SendProtoDelimitedWithHeartbeat(
 		ctx,
 		c.protocolVersion,
 		c.host,
@@ -243,8 +243,8 @@ func (c *communication) SendAutoSyncRequest(
 	// Prepare response container
 	resp := &priorsyncpb.PriorSyncMessage{}
 
-	// Send using SendProtoDelimited with full peer info for transport selection
-	if err := messaging.SendProtoDelimited(
+	// Send using SendProtoDelimitedWithHeartbeat for heartbeat-aware read loop
+	if err := messaging.SendProtoDelimitedWithHeartbeat(
 		ctx,
 		c.protocolVersion,
 		c.host,

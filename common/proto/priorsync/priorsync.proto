@@ -30,3 +30,17 @@ message PriorSyncMessage{
     phase.Phase phase = 3;
     headersync.HeaderSyncRequest headersync = 4;
 }
+
+// Heartbeat is sent periodically by Node 1 during computation to keep the stream alive.
+message Heartbeat {
+    int64 timestamp = 1; // Unix nanoseconds — for observability only
+}
+
+// StreamMessage is the wire envelope for the PriorSync stream.
+// Node 1 sends N heartbeats followed by exactly one final response.
+message StreamMessage {
+    oneof payload {
+        Heartbeat         heartbeat = 1;
+        PriorSyncMessage  response  = 2;
+    }
+}

@@ -2,15 +2,16 @@ package sync
 
 import (
 	"context"
+	gosync "sync"
 	"time"
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/logging"
 	"github.com/JupiterMetaLabs/ion"
 
+	datasyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/datasync"
 	headerpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/headersync"
 	merklepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/merkle"
 	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/priorsync"
-	datasyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/datasync"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/constants"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/communication"
@@ -23,7 +24,7 @@ import (
 )
 
 type Sync struct {
-	debug bool
+	debug      bool
 	nodeinfo   *types.Nodeinfo
 	Datarouter *router.Datarouter
 }
@@ -55,7 +56,8 @@ func (s *Sync) HandlePriorSync(ctx context.Context, node host.Host) error {
 		default:
 		}
 
-		_ = str.SetReadDeadline(time.Now().Add(10 * time.Second))
+		// ── 1. Read the incoming request ──────────────────────────────────
+		_ = str.SetReadDeadline(time.Now().Add(constants.StreamDeadline))
 		defer str.SetReadDeadline(time.Time{})
 
 		req := &priorsyncpb.PriorSyncMessage{}
@@ -69,15 +71,52 @@ func (s *Sync) HandlePriorSync(ctx context.Context, node host.Host) error {
 			Multiaddr: []multiaddr.Multiaddr{str.Conn().RemoteMultiaddr()},
 		}
 
-		// Route to Datarouter
+		// ── 2. Start heartbeat goroutine ──────────────────────────────────
+		// Sends StreamMessage{Heartbeat} every HeartbeatInterval to keep the
+		// requester's read deadline alive while computation proceeds.
+		done := make(chan struct{})
+		var mu gosync.Mutex
+
+		go func() {
+			ticker := time.NewTicker(constants.HeartbeatInterval)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-done:
+					return
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					hb := &priorsyncpb.StreamMessage{
+						Payload: &priorsyncpb.StreamMessage_Heartbeat{
+							Heartbeat: &priorsyncpb.Heartbeat{
+								Timestamp: time.Now().UnixNano(),
+							},
+						},
+					}
+					mu.Lock()
+					_ = str.SetWriteDeadline(time.Now().Add(constants.StreamDeadline))
+					_ = pbstream.WriteDelimited(str, hb)
+					mu.Unlock()
+				}
+			}
+		}()
+
+		// ── 3. Run the (potentially long) computation ────────────────────
 		resp := s.Datarouter.HandlePriorSync(ctx, req, remoteNodeInfo)
 		s.Debug(ctx, constants.PriorSyncProtocol, node, remoteNodeInfo)
 
-		// Send response
-		_ = str.SetWriteDeadline(time.Now().Add(10 * time.Second))
-		defer str.SetWriteDeadline(time.Time{})
+		// ── 4. Stop heartbeats and send final response ───────────────────
+		close(done)
 
-		_ = pbstream.WriteDelimited(str, resp)
+		final := &priorsyncpb.StreamMessage{
+			Payload: &priorsyncpb.StreamMessage_Response{Response: resp},
+		}
+
+		mu.Lock()
+		_ = str.SetWriteDeadline(time.Now().Add(constants.StreamDeadline))
+		_ = pbstream.WriteDelimited(str, final)
+		mu.Unlock()
 	})
 	return nil
 }
@@ -199,9 +238,9 @@ func (s *Sync) HandleDataSync(ctx context.Context, node host.Host) error {
 
 func (s *Sync) Debug(ctx context.Context, protocol protocol.ID, node host.Host, remote *types.Nodeinfo) {
 	if s.debug {
-		logging.Logger(logging.Sync).Info(ctx, "Sync Protocols Debug", 
-		ion.String("protocol",  string(protocol)), 
-		ion.String("peerID", remote.PeerID.String()), 
-		ion.String("multiaddr", remote.Multiaddr[0].String()))
+		logging.Logger(logging.Sync).Info(ctx, "Sync Protocols Debug",
+			ion.String("protocol", string(protocol)),
+			ion.String("peerID", remote.PeerID.String()),
+			ion.String("multiaddr", remote.Multiaddr[0].String()))
 	}
 }
