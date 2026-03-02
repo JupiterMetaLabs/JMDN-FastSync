@@ -74,6 +74,13 @@ func (s *Sync) HandlePriorSync(ctx context.Context, node host.Host) error {
 		// ── 2. Start heartbeat goroutine ──────────────────────────────────
 		// Sends StreamMessage{Heartbeat} every HeartbeatInterval to keep the
 		// requester's read deadline alive while computation proceeds.
+		//
+		// If a heartbeat write fails (Node 2 disconnected / broken pipe), we
+		// cancel the computation context so the handler tears down promptly
+		// instead of spinning on a dead stream.
+		computeCtx, computeCancel := context.WithCancel(ctx)
+		defer computeCancel()
+
 		done := make(chan struct{})
 		var mu gosync.Mutex
 
@@ -84,7 +91,7 @@ func (s *Sync) HandlePriorSync(ctx context.Context, node host.Host) error {
 				select {
 				case <-done:
 					return
-				case <-ctx.Done():
+				case <-computeCtx.Done():
 					return
 				case <-ticker.C:
 					hb := &priorsyncpb.StreamMessage{
@@ -96,14 +103,22 @@ func (s *Sync) HandlePriorSync(ctx context.Context, node host.Host) error {
 					}
 					mu.Lock()
 					_ = str.SetWriteDeadline(time.Now().Add(constants.StreamDeadline))
-					_ = pbstream.WriteDelimited(str, hb)
+					err := pbstream.WriteDelimited(str, hb)
 					mu.Unlock()
+
+					if err != nil {
+						// Node 2 is gone — cancel computation to avoid starvation.
+						logging.Logger(logging.Sync).Warn(computeCtx, "heartbeat write failed, cancelling computation",
+							ion.Err(err))
+						computeCancel()
+						return
+					}
 				}
 			}
 		}()
 
 		// ── 3. Run the (potentially long) computation ────────────────────
-		resp := s.Datarouter.HandlePriorSync(ctx, req, remoteNodeInfo)
+		resp := s.Datarouter.HandlePriorSync(computeCtx, req, remoteNodeInfo)
 		s.Debug(ctx, constants.PriorSyncProtocol, node, remoteNodeInfo)
 
 		// ── 4. Stop heartbeats and send final response ───────────────────

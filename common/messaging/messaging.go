@@ -200,7 +200,7 @@ func SendProtoDelimited(
 	// Attempt connection with primary transport
 	// Create a context with 15-second timeout for the connection attempt
 	// We do not retry here; if this fails, we return the error immediately with details.
-	connectCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	connectCtx, cancel := context.WithTimeout(ctx, constants.StreamDeadline)
 	defer cancel()
 
 	connectErr := host.Connect(connectCtx, targetPeer)
@@ -210,7 +210,7 @@ func SendProtoDelimited(
 		fmt.Printf("Primary transport failed (err=%v), attempting TCP fallback...\n", connectErr)
 		targetPeer.Addrs = []multiaddr.Multiaddr{fallbackAddr}
 		// Reset timeout for fallback attempt
-		fallbackCtx, fallbackCancel := context.WithTimeout(ctx, 15*time.Second)
+		fallbackCtx, fallbackCancel := context.WithTimeout(ctx, constants.StreamDeadline)
 		defer fallbackCancel()
 		connectErr = host.Connect(fallbackCtx, targetPeer)
 		if connectErr != nil {
@@ -228,7 +228,7 @@ func SendProtoDelimited(
 	defer stream.Close()
 
 	// Set write deadline
-	if err := stream.SetWriteDeadline(time.Now().Add(10 * time.Second)); err != nil {
+	if err := stream.SetWriteDeadline(time.Now().Add(constants.StreamDeadline)); err != nil {
 		return fmt.Errorf("failed to set write deadline: %w", err)
 	}
 	defer stream.SetWriteDeadline(time.Time{})
@@ -295,7 +295,7 @@ func SendProtoDelimitedWithHeartbeat(
 	}
 
 	// Attempt connection with primary transport
-	connectCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	connectCtx, cancel := context.WithTimeout(ctx, constants.StreamDeadline)
 	defer cancel()
 
 	connectErr := host.Connect(connectCtx, targetPeer)
@@ -304,7 +304,7 @@ func SendProtoDelimitedWithHeartbeat(
 	if connectErr != nil && version >= 2 && fallbackAddr != nil {
 		fmt.Printf("Primary transport failed (err=%v), attempting TCP fallback...\n", connectErr)
 		targetPeer.Addrs = []multiaddr.Multiaddr{fallbackAddr}
-		fallbackCtx, fallbackCancel := context.WithTimeout(ctx, 15*time.Second)
+		fallbackCtx, fallbackCancel := context.WithTimeout(ctx, constants.StreamDeadline)
 		defer fallbackCancel()
 		connectErr = host.Connect(fallbackCtx, targetPeer)
 		if connectErr != nil {
