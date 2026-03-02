@@ -238,6 +238,135 @@ func (x *PriorSyncMessage) GetHeadersync() *headersync.HeaderSyncRequest {
 	return nil
 }
 
+// Heartbeat is sent periodically by Node 1 during computation to keep the stream alive.
+type Heartbeat struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Timestamp     int64                  `protobuf:"varint,1,opt,name=timestamp,proto3" json:"timestamp,omitempty"` // Unix nanoseconds — for observability only
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Heartbeat) Reset() {
+	*x = Heartbeat{}
+	mi := &file_priorsync_priorsync_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Heartbeat) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Heartbeat) ProtoMessage() {}
+
+func (x *Heartbeat) ProtoReflect() protoreflect.Message {
+	mi := &file_priorsync_priorsync_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Heartbeat.ProtoReflect.Descriptor instead.
+func (*Heartbeat) Descriptor() ([]byte, []int) {
+	return file_priorsync_priorsync_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *Heartbeat) GetTimestamp() int64 {
+	if x != nil {
+		return x.Timestamp
+	}
+	return 0
+}
+
+// StreamMessage is the wire envelope for the PriorSync stream.
+// Node 1 sends N heartbeats followed by exactly one final response.
+type StreamMessage struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Payload:
+	//
+	//	*StreamMessage_Heartbeat
+	//	*StreamMessage_Response
+	Payload       isStreamMessage_Payload `protobuf_oneof:"payload"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StreamMessage) Reset() {
+	*x = StreamMessage{}
+	mi := &file_priorsync_priorsync_proto_msgTypes[4]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StreamMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StreamMessage) ProtoMessage() {}
+
+func (x *StreamMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_priorsync_priorsync_proto_msgTypes[4]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StreamMessage.ProtoReflect.Descriptor instead.
+func (*StreamMessage) Descriptor() ([]byte, []int) {
+	return file_priorsync_priorsync_proto_rawDescGZIP(), []int{4}
+}
+
+func (x *StreamMessage) GetPayload() isStreamMessage_Payload {
+	if x != nil {
+		return x.Payload
+	}
+	return nil
+}
+
+func (x *StreamMessage) GetHeartbeat() *Heartbeat {
+	if x != nil {
+		if x, ok := x.Payload.(*StreamMessage_Heartbeat); ok {
+			return x.Heartbeat
+		}
+	}
+	return nil
+}
+
+func (x *StreamMessage) GetResponse() *PriorSyncMessage {
+	if x != nil {
+		if x, ok := x.Payload.(*StreamMessage_Response); ok {
+			return x.Response
+		}
+	}
+	return nil
+}
+
+type isStreamMessage_Payload interface {
+	isStreamMessage_Payload()
+}
+
+type StreamMessage_Heartbeat struct {
+	Heartbeat *Heartbeat `protobuf:"bytes,1,opt,name=heartbeat,proto3,oneof"`
+}
+
+type StreamMessage_Response struct {
+	Response *PriorSyncMessage `protobuf:"bytes,2,opt,name=response,proto3,oneof"`
+}
+
+func (*StreamMessage_Heartbeat) isStreamMessage_Payload() {}
+
+func (*StreamMessage_Response) isStreamMessage_Payload() {}
+
 var File_priorsync_priorsync_proto protoreflect.FileDescriptor
 
 const file_priorsync_priorsync_proto_rawDesc = "" +
@@ -260,7 +389,13 @@ const file_priorsync_priorsync_proto_rawDesc = "" +
 	"\x05phase\x18\x03 \x01(\v2\f.phase.PhaseR\x05phase\x12=\n" +
 	"\n" +
 	"headersync\x18\x04 \x01(\v2\x1d.headersync.HeaderSyncRequestR\n" +
-	"headersyncBAZ?github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/priorsyncb\x06proto3"
+	"headersync\")\n" +
+	"\tHeartbeat\x12\x1c\n" +
+	"\ttimestamp\x18\x01 \x01(\x03R\ttimestamp\"\x8b\x01\n" +
+	"\rStreamMessage\x124\n" +
+	"\theartbeat\x18\x01 \x01(\v2\x14.priorsync.HeartbeatH\x00R\theartbeat\x129\n" +
+	"\bresponse\x18\x02 \x01(\v2\x1b.priorsync.PriorSyncMessageH\x00R\bresponseB\t\n" +
+	"\apayloadBAZ?github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/priorsyncb\x06proto3"
 
 var (
 	file_priorsync_priorsync_proto_rawDescOnce sync.Once
@@ -274,32 +409,36 @@ func file_priorsync_priorsync_proto_rawDescGZIP() []byte {
 	return file_priorsync_priorsync_proto_rawDescData
 }
 
-var file_priorsync_priorsync_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_priorsync_priorsync_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
 var file_priorsync_priorsync_proto_goTypes = []any{
 	(*PriorSync)(nil),                    // 0: priorsync.PriorSync
 	(*Metadata)(nil),                     // 1: priorsync.Metadata
 	(*PriorSyncMessage)(nil),             // 2: priorsync.PriorSyncMessage
-	(*merkle.MerkleSnapshot)(nil),        // 3: merkle.MerkleSnapshot
-	(*merkle.Range)(nil),                 // 4: merkle.range
-	(*nodeinfo.NodeInfo)(nil),            // 5: nodeinfo.NodeInfo
-	(*ack.Ack)(nil),                      // 6: ack.Ack
-	(*phase.Phase)(nil),                  // 7: phase.Phase
-	(*headersync.HeaderSyncRequest)(nil), // 8: headersync.HeaderSyncRequest
+	(*Heartbeat)(nil),                    // 3: priorsync.Heartbeat
+	(*StreamMessage)(nil),                // 4: priorsync.StreamMessage
+	(*merkle.MerkleSnapshot)(nil),        // 5: merkle.MerkleSnapshot
+	(*merkle.Range)(nil),                 // 6: merkle.range
+	(*nodeinfo.NodeInfo)(nil),            // 7: nodeinfo.NodeInfo
+	(*ack.Ack)(nil),                      // 8: ack.Ack
+	(*phase.Phase)(nil),                  // 9: phase.Phase
+	(*headersync.HeaderSyncRequest)(nil), // 10: headersync.HeaderSyncRequest
 }
 var file_priorsync_priorsync_proto_depIdxs = []int32{
-	1, // 0: priorsync.PriorSync.metadata:type_name -> priorsync.Metadata
-	3, // 1: priorsync.PriorSync.merklesnapshot:type_name -> merkle.MerkleSnapshot
-	4, // 2: priorsync.PriorSync.range:type_name -> merkle.range
-	5, // 3: priorsync.Metadata.nodeinfo:type_name -> nodeinfo.NodeInfo
-	0, // 4: priorsync.PriorSyncMessage.priorsync:type_name -> priorsync.PriorSync
-	6, // 5: priorsync.PriorSyncMessage.ack:type_name -> ack.Ack
-	7, // 6: priorsync.PriorSyncMessage.phase:type_name -> phase.Phase
-	8, // 7: priorsync.PriorSyncMessage.headersync:type_name -> headersync.HeaderSyncRequest
-	8, // [8:8] is the sub-list for method output_type
-	8, // [8:8] is the sub-list for method input_type
-	8, // [8:8] is the sub-list for extension type_name
-	8, // [8:8] is the sub-list for extension extendee
-	0, // [0:8] is the sub-list for field type_name
+	1,  // 0: priorsync.PriorSync.metadata:type_name -> priorsync.Metadata
+	5,  // 1: priorsync.PriorSync.merklesnapshot:type_name -> merkle.MerkleSnapshot
+	6,  // 2: priorsync.PriorSync.range:type_name -> merkle.range
+	7,  // 3: priorsync.Metadata.nodeinfo:type_name -> nodeinfo.NodeInfo
+	0,  // 4: priorsync.PriorSyncMessage.priorsync:type_name -> priorsync.PriorSync
+	8,  // 5: priorsync.PriorSyncMessage.ack:type_name -> ack.Ack
+	9,  // 6: priorsync.PriorSyncMessage.phase:type_name -> phase.Phase
+	10, // 7: priorsync.PriorSyncMessage.headersync:type_name -> headersync.HeaderSyncRequest
+	3,  // 8: priorsync.StreamMessage.heartbeat:type_name -> priorsync.Heartbeat
+	2,  // 9: priorsync.StreamMessage.response:type_name -> priorsync.PriorSyncMessage
+	10, // [10:10] is the sub-list for method output_type
+	10, // [10:10] is the sub-list for method input_type
+	10, // [10:10] is the sub-list for extension type_name
+	10, // [10:10] is the sub-list for extension extendee
+	0,  // [0:10] is the sub-list for field type_name
 }
 
 func init() { file_priorsync_priorsync_proto_init() }
@@ -307,13 +446,17 @@ func file_priorsync_priorsync_proto_init() {
 	if File_priorsync_priorsync_proto != nil {
 		return
 	}
+	file_priorsync_priorsync_proto_msgTypes[4].OneofWrappers = []any{
+		(*StreamMessage_Heartbeat)(nil),
+		(*StreamMessage_Response)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_priorsync_priorsync_proto_rawDesc), len(file_priorsync_priorsync_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   3,
+			NumMessages:   5,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
