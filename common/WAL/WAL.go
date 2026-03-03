@@ -4,8 +4,8 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/tidwall/wal"
 	wal_types "github.com/JupiterMetaLabs/JMDN-FastSync/common/types/wal"
+	"github.com/tidwall/wal"
 )
 
 // WAL represents the Write-Ahead Log for event sourcing

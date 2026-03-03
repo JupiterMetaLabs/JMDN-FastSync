@@ -240,12 +240,24 @@ func processQueue(
 				BaseEvent: wal_types.BaseEvent{Operation: wal_types.OpAppend},
 				Response:  &headersyncpb.HeaderSyncResponse{Header: r.Headers},
 			}
-			if _, err := hs.SyncVars.WAL.WriteEvent(event); err != nil {
+			lsn, err := hs.SyncVars.WAL.WriteEvent(event)
+			if err != nil {
 				return fmt.Errorf("batch %d: WAL write failed: %w", r.BatchID, err)
 			}
+			Log.Logger(namedlogger).Info(ctx, "WAL event written",
+				ion.Int("batch", r.BatchID),
+				ion.Int64("lsn", int64(lsn)),
+				ion.Int("headers", len(r.Headers)))
+
 			if err := hs.SyncVars.WAL.Flush(); err != nil {
 				return fmt.Errorf("batch %d: WAL flush failed: %w", r.BatchID, err)
 			}
+			Log.Logger(namedlogger).Info(ctx, "WAL flushed",
+				ion.Int("batch", r.BatchID),
+				ion.Int64("last_flushed_lsn", int64(hs.SyncVars.WAL.GetLastFlushedLSN())))
+		} else {
+			Log.Logger(namedlogger).Warn(ctx, "WAL is nil — skipping WAL write",
+				ion.Int("batch", r.BatchID))
 		}
 
 		if err := headerWriter.WriteHeaders(r.Headers); err != nil {

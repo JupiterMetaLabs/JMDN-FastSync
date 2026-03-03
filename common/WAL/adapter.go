@@ -59,10 +59,9 @@ func (e *HeaderSyncEvent) Deserialize(data []byte) error {
 	return nil
 }
 
-
 // MerkleSyncEvent represents a Merkle tree synchronization event
 type MerkleSyncEvent struct {
-	wal_types.BaseEvent	
+	wal_types.BaseEvent
 	Message   *merkle.MerkleMessage `json:"-"` // Proto message
 	ProtoData []byte                `json:"proto_data"`
 }
@@ -104,10 +103,9 @@ func (e *MerkleSyncEvent) Deserialize(data []byte) error {
 	return nil
 }
 
-
 // PriorSyncEvent represents a prior synchronization event
 type PriorSyncEvent struct {
-wal_types.BaseEvent	
+	wal_types.BaseEvent
 	Message   *priorsync.PriorSyncMessage `json:"-"` // Proto message
 	ProtoData []byte                      `json:"proto_data"`
 }
@@ -149,10 +147,9 @@ func (e *PriorSyncEvent) Deserialize(data []byte) error {
 	return nil
 }
 
-
 // DataSyncEvent represents a data synchronization event (full ZKBlock)
 type DataSyncEvent struct {
-wal_types.BaseEvent	
+	wal_types.BaseEvent
 	Block     *block.ZKBlock `json:"-"` // Proto message
 	ProtoData []byte         `json:"proto_data"`
 }
@@ -193,7 +190,6 @@ func (e *DataSyncEvent) Deserialize(data []byte) error {
 
 	return nil
 }
-
 
 // EventFactory creates the appropriate event adapter based on WAL type
 func EventFactory(walType wal_types.WALType) (wal_types.EventAdapter, error) {
