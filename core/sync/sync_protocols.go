@@ -241,15 +241,60 @@ func (s *Sync) HandleDataSync(ctx context.Context, node host.Host) error {
 			}
 		}
 
-		// Route to Datarouter
-		resp := s.Datarouter.HandleDataSync(ctx, req)
+		// ── Start heartbeat goroutine ──────────────────────────────────
+		computeCtx, computeCancel := context.WithCancel(ctx)
+		defer computeCancel()
+
+		done := make(chan struct{})
+		var mu gosync.Mutex
+
+		go func() {
+			ticker := time.NewTicker(constants.HeartbeatInterval)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-done:
+					return
+				case <-computeCtx.Done():
+					return
+				case <-ticker.C:
+					hb := &datasyncpb.DataSyncStreamMessage{
+						Payload: &datasyncpb.DataSyncStreamMessage_Heartbeat{
+							Heartbeat: &datasyncpb.DataSyncHeartbeat{
+								Timestamp: time.Now().UnixNano(),
+							},
+						},
+					}
+					mu.Lock()
+					_ = str.SetWriteDeadline(time.Now().Add(constants.StreamDeadline))
+					err := pbstream.WriteDelimited(str, hb)
+					mu.Unlock()
+
+					if err != nil {
+						logging.Logger(logging.Sync).Warn(computeCtx, "datasync heartbeat write failed, cancelling computation",
+							ion.Err(err))
+						computeCancel()
+						return
+					}
+				}
+			}
+		}()
+
+		// ── Run the (potentially long) computation ────────────────────
+		resp := s.Datarouter.HandleDataSync(computeCtx, req)
 		s.Debug(ctx, constants.DataSyncProtocol, node, remoteNodeInfo)
 
-		// Send response
-		_ = str.SetWriteDeadline(time.Now().Add(10 * time.Second))
-		defer str.SetWriteDeadline(time.Time{})
+		// ── Stop heartbeats and send final response ───────────────────
+		close(done)
 
-		_ = pbstream.WriteDelimited(str, resp)
+		final := &datasyncpb.DataSyncStreamMessage{
+			Payload: &datasyncpb.DataSyncStreamMessage_Response{Response: resp},
+		}
+
+		mu.Lock()
+		_ = str.SetWriteDeadline(time.Now().Add(constants.StreamDeadline))
+		_ = pbstream.WriteDelimited(str, final)
+		mu.Unlock()
 	})
 	return nil
 }

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	datasyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/datasync"
 	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/priorsync"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/constants"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/pbstream"
@@ -351,6 +352,100 @@ func SendProtoDelimitedWithHeartbeat(
 
 		case *priorsyncpb.StreamMessage_Response:
 			// Final response — copy into caller's response proto.
+			if p.Response != nil {
+				proto.Merge(response, p.Response)
+			}
+			return nil
+
+		default:
+			return fmt.Errorf("unexpected StreamMessage payload type: %T", envelope.Payload)
+		}
+	}
+}
+
+// SendDataSyncProtoDelimitedWithHeartbeat is a heartbeat-aware variant of SendProtoDelimited,
+// designed for the DataSync protocol where Node 1 sends periodic heartbeats while
+// doing heavy DB lookups and a final DataSyncStreamMessage{Response} when done.
+func SendDataSyncProtoDelimitedWithHeartbeat(
+	ctx context.Context,
+	version uint16,
+	host host.Host,
+	peerInfo peer.AddrInfo,
+	protocolID protocol.ID,
+	request proto.Message,
+	response *datasyncpb.DataSyncResponse,
+) error {
+	if host == nil {
+		return errors.New("host is nil")
+	}
+	if request == nil {
+		return errors.New("request message is nil")
+	}
+	if response == nil {
+		return errors.New("response message is nil")
+	}
+	if len(peerInfo.Addrs) == 0 {
+		return errors.New("peer has no addresses")
+	}
+
+	primaryAddr, fallbackAddr, err := SelectTransportAddrWithFallback(peerInfo.Addrs, version)
+	if err != nil {
+		return fmt.Errorf("transport selection failed: %w", err)
+	}
+
+	targetPeer := peer.AddrInfo{
+		ID:    peerInfo.ID,
+		Addrs: []multiaddr.Multiaddr{primaryAddr},
+	}
+
+	connectCtx, cancel := context.WithTimeout(ctx, constants.StreamDeadline)
+	defer cancel()
+
+	connectErr := host.Connect(connectCtx, targetPeer)
+
+	if connectErr != nil && version >= 2 && fallbackAddr != nil {
+		fmt.Printf("Primary transport failed (err=%v), attempting TCP fallback...\n", connectErr)
+		targetPeer.Addrs = []multiaddr.Multiaddr{fallbackAddr}
+		fallbackCtx, fallbackCancel := context.WithTimeout(ctx, constants.StreamDeadline)
+		defer fallbackCancel()
+		connectErr = host.Connect(fallbackCtx, targetPeer)
+		if connectErr != nil {
+			return fmt.Errorf("failed to connect (QUIC and TCP fallback) to peer %s: %w", peerInfo.ID, connectErr)
+		}
+	} else if connectErr != nil {
+		return fmt.Errorf("failed to connect to peer %s at %v: %w", peerInfo.ID, targetPeer.Addrs, connectErr)
+	}
+
+	stream, err := host.NewStream(ctx, peerInfo.ID, protocolID)
+	if err != nil {
+		return fmt.Errorf("failed to create stream: %w", err)
+	}
+	defer stream.Close()
+
+	if err := stream.SetWriteDeadline(time.Now().Add(constants.StreamDeadline)); err != nil {
+		return fmt.Errorf("failed to set write deadline: %w", err)
+	}
+	defer stream.SetWriteDeadline(time.Time{})
+
+	if err := pbstream.WriteDelimited(stream, request); err != nil {
+		return fmt.Errorf("failed to write request: %w", err)
+	}
+
+	for {
+		if err := stream.SetReadDeadline(time.Now().Add(constants.StreamDeadline)); err != nil {
+			return fmt.Errorf("failed to set read deadline: %w", err)
+		}
+
+		envelope := &datasyncpb.DataSyncStreamMessage{}
+		if err := pbstream.ReadDelimited(stream, envelope); err != nil {
+			return fmt.Errorf("failed to read stream message: %w", err)
+		}
+
+		switch p := envelope.Payload.(type) {
+		case *datasyncpb.DataSyncStreamMessage_Heartbeat:
+			continue
+
+		case *datasyncpb.DataSyncStreamMessage_Response:
 			if p.Response != nil {
 				proto.Merge(response, p.Response)
 			}

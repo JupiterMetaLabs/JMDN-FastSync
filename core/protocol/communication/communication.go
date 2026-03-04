@@ -248,8 +248,8 @@ func (c *communication) SendDataSyncRequest(
 	// Prepare response container
 	resp := &datasyncpb.DataSyncResponse{}
 
-	// Send using SendProtoDelimited with DataSyncProtocol
-	if err := messaging.SendProtoDelimited(
+	// Send using SendDataSyncProtoDelimitedWithHeartbeat to keep stream alive during long SQL queries
+	if err := messaging.SendDataSyncProtoDelimitedWithHeartbeat(
 		ctx,
 		c.protocolVersion,
 		c.host,
