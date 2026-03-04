@@ -7,6 +7,7 @@ option go_package = "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/datas
 import "ack/ack.proto";
 import "phase/phase.proto";
 import "block/block.proto";
+import "tagging/tag.proto";
 
 // ================================================================
 // Sub-messages — one per ThebeDB table (excluding blocks headers)
@@ -64,15 +65,15 @@ message NonHeaders {
 // ================================================================
 
 message DataSyncRequest {
-    uint64       block_number = 1; // block being requested
-    uint32       version      = 2;
-    ack.Ack      ack          = 3;
-    phase.Phase  phase        = 4;
-}
-
-message DataSyncResponse {
-    NonHeaders   data    = 1;
+    tagging.Tag  tag     = 1; // blocks being requested (ranges or individual)
     uint32       version = 2;
     ack.Ack      ack     = 3;
     phase.Phase  phase   = 4;
+}
+
+message DataSyncResponse {
+    repeated NonHeaders data    = 1;
+    uint32              version = 2;
+    ack.Ack             ack     = 3;
+    phase.Phase         phase   = 4;
 }

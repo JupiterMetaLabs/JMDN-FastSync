@@ -9,6 +9,7 @@ import (
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/WAL"
 	ackpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/ack"
 	blockpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/block"
+	datasyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/datasync"
 	headersyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/headersync"
 	phasepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/phase"
 	taggingpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/tagging"
@@ -80,17 +81,21 @@ func (hs *HeaderSync) SetSyncVars(ctx context.Context, protocolVersion uint16, n
 6. Add the headers to the local database after successful receival. using nodeinfo.WriteHeaders.WriteHeaders(headers []*block.Header).
 7. atlast we have to execute PRIORSYNC with the server to get to know are we fully synced or not.
 */
-func (hs *HeaderSync) HeaderSync(headersyncrequest *headersyncpb.HeaderSyncRequest, remotes []*types.Nodeinfo) error {
+func (hs *HeaderSync) HeaderSync(headersyncrequest *headersyncpb.HeaderSyncRequest, remotes []*types.Nodeinfo) (*datasyncpb.DataSyncRequest, error) {
 	if headersyncrequest == nil {
-		return fmt.Errorf("headersync request or tag is nil")
+		return nil, fmt.Errorf("headersync request or tag is nil")
 	}
 	if len(remotes) == 0 {
-		return fmt.Errorf("no remotes provided")
+		return nil, fmt.Errorf("no remotes provided")
 	}
 	if hs.Comm == nil {
-		return fmt.Errorf("communicator not set")
+		return nil, fmt.Errorf("communicator not set")
 	}
-	if headersyncrequest.Tag == nil {
+
+	// Capture the original tag for later DataSyncRequest construction.
+	originalTag := headersyncrequest.Tag
+
+	if originalTag == nil {
 		// No differences found — headers are already in sync.
 		// When the successive phase is DATA_SYNC_REQUEST, it confirms
 		// that the server verified both Merkle trees match.
@@ -98,7 +103,7 @@ func (hs *HeaderSync) HeaderSync(headersyncrequest *headersyncpb.HeaderSyncReque
 			Log.Logger(namedlogger).Info(hs.SyncVars.Ctx, "Headers already in sync — proceeding to data sync",
 				ion.String("successive_phase", headersyncrequest.Phase.SuccessivePhase))
 		}
-		return nil
+		return nil, nil
 	}
 
 	ctx := hs.SyncVars.Ctx
@@ -107,7 +112,7 @@ func (hs *HeaderSync) HeaderSync(headersyncrequest *headersyncpb.HeaderSyncReque
 	// ---------------------------------------------------------------
 	// Initialize the queue with the first set of batches
 	// ---------------------------------------------------------------
-	queue := buildBatches(headersyncrequest.Tag)
+	queue := buildBatches(originalTag)
 
 	Log.Logger(namedlogger).Info(ctx, "HeaderSync starting",
 		ion.Int("initial_batches", len(queue)),
@@ -125,7 +130,7 @@ func (hs *HeaderSync) HeaderSync(headersyncrequest *headersyncpb.HeaderSyncReque
 
 		// Drain all batches in the current queue (concurrently)
 		if err := processQueue(ctx, hs, queue, remotes, headerWriter); err != nil {
-			return fmt.Errorf("round %d: %w", round, err)
+			return nil, fmt.Errorf("round %d: %w", round, err)
 		}
 
 		// -------------------------------------------------------
@@ -136,13 +141,28 @@ func (hs *HeaderSync) HeaderSync(headersyncrequest *headersyncpb.HeaderSyncReque
 
 		newTag, synced, err := hs.SyncConfirmation(ctx, remotes)
 		if err != nil {
-			return fmt.Errorf("round %d sync confirmation failed: %w", round, err)
+			return nil, fmt.Errorf("round %d sync confirmation failed: %w", round, err)
 		}
 
 		if synced {
 			Log.Logger(namedlogger).Info(ctx, "HeaderSync completed — trees match",
 				ion.Int("rounds_taken", round))
-			return nil
+
+			// Construct DataSyncRequest using the original identified tags.
+			return &datasyncpb.DataSyncRequest{
+				Tag:     originalTag,
+				Version: uint32(hs.SyncVars.Version),
+				Ack: &ackpb.Ack{
+					Ok:    true,
+					Error: "",
+				},
+				Phase: &phasepb.Phase{
+					PresentPhase:    constants.HEADER_SYNC_RESPONSE,
+					SuccessivePhase: constants.DATA_SYNC_REQUEST,
+					Success:         true,
+					Error:           "",
+				},
+			}, nil
 		}
 
 		// Trees still differ — enqueue the new batches for the next round
@@ -151,7 +171,7 @@ func (hs *HeaderSync) HeaderSync(headersyncrequest *headersyncpb.HeaderSyncReque
 			ion.Int("new_batches", len(queue)))
 	}
 
-	return fmt.Errorf("header sync did not converge after %d rounds", maxSyncRounds)
+	return nil, fmt.Errorf("header sync did not converge after %d rounds", maxSyncRounds)
 }
 
 // processQueue concurrently fetches header batches using a worker pool and

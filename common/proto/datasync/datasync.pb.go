@@ -10,6 +10,7 @@ import (
 	ack "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/ack"
 	block "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/block"
 	phase "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/phase"
+	tagging "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/tagging"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -364,7 +365,7 @@ func (x *NonHeaders) GetL1Finality() *L1Finality {
 
 type DataSyncRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	BlockNumber   uint64                 `protobuf:"varint,1,opt,name=block_number,json=blockNumber,proto3" json:"block_number,omitempty"` // block being requested
+	Tag           *tagging.Tag           `protobuf:"bytes,1,opt,name=tag,proto3" json:"tag,omitempty"` // blocks being requested (ranges or individual)
 	Version       uint32                 `protobuf:"varint,2,opt,name=version,proto3" json:"version,omitempty"`
 	Ack           *ack.Ack               `protobuf:"bytes,3,opt,name=ack,proto3" json:"ack,omitempty"`
 	Phase         *phase.Phase           `protobuf:"bytes,4,opt,name=phase,proto3" json:"phase,omitempty"`
@@ -402,11 +403,11 @@ func (*DataSyncRequest) Descriptor() ([]byte, []int) {
 	return file_datasync_datasync_proto_rawDescGZIP(), []int{5}
 }
 
-func (x *DataSyncRequest) GetBlockNumber() uint64 {
+func (x *DataSyncRequest) GetTag() *tagging.Tag {
 	if x != nil {
-		return x.BlockNumber
+		return x.Tag
 	}
-	return 0
+	return nil
 }
 
 func (x *DataSyncRequest) GetVersion() uint32 {
@@ -432,7 +433,7 @@ func (x *DataSyncRequest) GetPhase() *phase.Phase {
 
 type DataSyncResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Data          *NonHeaders            `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
+	Data          []*NonHeaders          `protobuf:"bytes,1,rep,name=data,proto3" json:"data,omitempty"`
 	Version       uint32                 `protobuf:"varint,2,opt,name=version,proto3" json:"version,omitempty"`
 	Ack           *ack.Ack               `protobuf:"bytes,3,opt,name=ack,proto3" json:"ack,omitempty"`
 	Phase         *phase.Phase           `protobuf:"bytes,4,opt,name=phase,proto3" json:"phase,omitempty"`
@@ -470,7 +471,7 @@ func (*DataSyncResponse) Descriptor() ([]byte, []int) {
 	return file_datasync_datasync_proto_rawDescGZIP(), []int{6}
 }
 
-func (x *DataSyncResponse) GetData() *NonHeaders {
+func (x *DataSyncResponse) GetData() []*NonHeaders {
 	if x != nil {
 		return x.Data
 	}
@@ -502,7 +503,7 @@ var File_datasync_datasync_proto protoreflect.FileDescriptor
 
 const file_datasync_datasync_proto_rawDesc = "" +
 	"\n" +
-	"\x17datasync/datasync.proto\x12\bdatasync\x1a\rack/ack.proto\x1a\x11phase/phase.proto\x1a\x11block/block.proto\"N\n" +
+	"\x17datasync/datasync.proto\x12\bdatasync\x1a\rack/ack.proto\x1a\x11phase/phase.proto\x1a\x11block/block.proto\x1a\x11tagging/tag.proto\"N\n" +
 	"\x0eSnapshotRecord\x12\x1d\n" +
 	"\n" +
 	"block_hash\x18\x01 \x01(\fR\tblockHash\x12\x1d\n" +
@@ -537,14 +538,14 @@ const file_datasync_datasync_proto_rawDesc = "" +
 	"\ftransactions\x18\x03 \x03(\v2\x17.datasync.DBTransactionR\ftransactions\x12,\n" +
 	"\bzk_proof\x18\x04 \x01(\v2\x11.datasync.ZKProofR\azkProof\x125\n" +
 	"\vl1_finality\x18\x05 \x01(\v2\x14.datasync.L1FinalityR\n" +
-	"l1Finality\"\x8e\x01\n" +
-	"\x0fDataSyncRequest\x12!\n" +
-	"\fblock_number\x18\x01 \x01(\x04R\vblockNumber\x12\x18\n" +
+	"l1Finality\"\x8b\x01\n" +
+	"\x0fDataSyncRequest\x12\x1e\n" +
+	"\x03tag\x18\x01 \x01(\v2\f.tagging.TagR\x03tag\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\rR\aversion\x12\x1a\n" +
 	"\x03ack\x18\x03 \x01(\v2\b.ack.AckR\x03ack\x12\"\n" +
 	"\x05phase\x18\x04 \x01(\v2\f.phase.PhaseR\x05phase\"\x96\x01\n" +
 	"\x10DataSyncResponse\x12(\n" +
-	"\x04data\x18\x01 \x01(\v2\x14.datasync.NonHeadersR\x04data\x12\x18\n" +
+	"\x04data\x18\x01 \x03(\v2\x14.datasync.NonHeadersR\x04data\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\rR\aversion\x12\x1a\n" +
 	"\x03ack\x18\x03 \x01(\v2\b.ack.AckR\x03ack\x12\"\n" +
 	"\x05phase\x18\x04 \x01(\v2\f.phase.PhaseR\x05phaseB@Z>github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/datasyncb\x06proto3"
@@ -571,8 +572,9 @@ var file_datasync_datasync_proto_goTypes = []any{
 	(*DataSyncRequest)(nil),   // 5: datasync.DataSyncRequest
 	(*DataSyncResponse)(nil),  // 6: datasync.DataSyncResponse
 	(*block.Transaction)(nil), // 7: block.Transaction
-	(*ack.Ack)(nil),           // 8: ack.Ack
-	(*phase.Phase)(nil),       // 9: phase.Phase
+	(*tagging.Tag)(nil),       // 8: tagging.Tag
+	(*ack.Ack)(nil),           // 9: ack.Ack
+	(*phase.Phase)(nil),       // 10: phase.Phase
 }
 var file_datasync_datasync_proto_depIdxs = []int32{
 	7,  // 0: datasync.DBTransaction.tx:type_name -> block.Transaction
@@ -580,16 +582,17 @@ var file_datasync_datasync_proto_depIdxs = []int32{
 	2,  // 2: datasync.NonHeaders.transactions:type_name -> datasync.DBTransaction
 	1,  // 3: datasync.NonHeaders.zk_proof:type_name -> datasync.ZKProof
 	3,  // 4: datasync.NonHeaders.l1_finality:type_name -> datasync.L1Finality
-	8,  // 5: datasync.DataSyncRequest.ack:type_name -> ack.Ack
-	9,  // 6: datasync.DataSyncRequest.phase:type_name -> phase.Phase
-	4,  // 7: datasync.DataSyncResponse.data:type_name -> datasync.NonHeaders
-	8,  // 8: datasync.DataSyncResponse.ack:type_name -> ack.Ack
-	9,  // 9: datasync.DataSyncResponse.phase:type_name -> phase.Phase
-	10, // [10:10] is the sub-list for method output_type
-	10, // [10:10] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	8,  // 5: datasync.DataSyncRequest.tag:type_name -> tagging.Tag
+	9,  // 6: datasync.DataSyncRequest.ack:type_name -> ack.Ack
+	10, // 7: datasync.DataSyncRequest.phase:type_name -> phase.Phase
+	4,  // 8: datasync.DataSyncResponse.data:type_name -> datasync.NonHeaders
+	9,  // 9: datasync.DataSyncResponse.ack:type_name -> ack.Ack
+	10, // 10: datasync.DataSyncResponse.phase:type_name -> phase.Phase
+	11, // [11:11] is the sub-list for method output_type
+	11, // [11:11] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_datasync_datasync_proto_init() }

@@ -97,35 +97,6 @@ func (router *Datarouter) HandlePriorSync(ctx context.Context, req *priorsyncpb.
 
 		return router.SYNC_REQUEST(ctx, req.Priorsync, peerInfo, remote)
 
-	case constants.SYNC_REQUEST_AUTOPROCEED:
-		Log.Logger(namedlogger).Debug(ctx, "Sync Request Auto Proceed - LOG",
-			ion.String("state", state),
-			ion.String("function", "HandlePriorSync"))
-
-		// Extract peer info from metadata if available
-		var peerInfo types.Nodeinfo
-		if req.Priorsync.Metadata != nil && req.Priorsync.Metadata.Nodeinfo != nil {
-			pbNodeInfo := req.Priorsync.Metadata.Nodeinfo
-			var maddrs []multiaddr.Multiaddr
-			for _, maBytes := range pbNodeInfo.Multiaddrs {
-				ma, err := multiaddr.NewMultiaddrBytes(maBytes)
-				if err == nil {
-					maddrs = append(maddrs, ma)
-				}
-			}
-
-			pid, _ := libp2p_peer.IDFromBytes(pbNodeInfo.PeerId)
-
-			peerInfo = types.Nodeinfo{
-				PeerID:       pid,
-				Multiaddr:    maddrs,
-				Capabilities: pbNodeInfo.Capabilities,
-				Version:      uint16(pbNodeInfo.Version),
-			}
-		}
-
-		return router.SYNC_FULL_AUTO(ctx, req.Priorsync, peerInfo, remote)
-
 	default:
 		Log.Logger(namedlogger).Debug(ctx, "Unknown State - LOG",
 			ion.String("state", state),
@@ -797,18 +768,6 @@ func (router *Datarouter) REQUEST_MERKLE(ctx context.Context, Range *merklepb.Ra
 			Error:           "",
 		},
 	}
-}
-
-func (router *Datarouter) SYNC_FULL_AUTO(ctx context.Context, req *priorsyncpb.PriorSync, peerNode types.Nodeinfo, remote *types.Nodeinfo) *priorsyncpb.PriorSyncMessage {
-	/*
-		1. First do the SYNC_REQUEST
-		- We can get the priorsyncmessage, take headersync request from the req.Headersync
-		2. Then do the HEADER_SYNC, with the range and everything.
-		- We can get the headersync response from the req.Headersync
-		3. Then do the SYNC_RESPONSE
-	*/
-
-	return nil
 }
 
 // This is the Phase2 function that will take the tagged blocks and send to the server node to get the block headers sync.
