@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/block"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/datasync"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/headersync"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/merkle"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/priorsync"
@@ -147,11 +147,11 @@ func (e *PriorSyncEvent) Deserialize(data []byte) error {
 	return nil
 }
 
-// DataSyncEvent represents a data synchronization event (full ZKBlock)
+// DataSyncEvent represents a data synchronization event (non-header block data)
 type DataSyncEvent struct {
 	wal_types.BaseEvent
-	Block     *block.ZKBlock `json:"-"` // Proto message
-	ProtoData []byte         `json:"proto_data"`
+	Response  *datasync.DataSyncResponse `json:"-"` // Proto message
+	ProtoData []byte                     `json:"proto_data"`
 }
 
 func (e *DataSyncEvent) GetType() wal_types.WALType {
@@ -165,8 +165,8 @@ func (e *DataSyncEvent) GetOperation() wal_types.EventOperation {
 func (e *DataSyncEvent) Serialize() ([]byte, error) {
 	e.Type = wal_types.DataSync
 
-	if e.Block != nil {
-		protoBytes, err := proto.Marshal(e.Block)
+	if e.Response != nil {
+		protoBytes, err := proto.Marshal(e.Response)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal proto: %w", err)
 		}
@@ -182,8 +182,8 @@ func (e *DataSyncEvent) Deserialize(data []byte) error {
 	}
 
 	if len(e.ProtoData) > 0 {
-		e.Block = &block.ZKBlock{}
-		if err := proto.Unmarshal(e.ProtoData, e.Block); err != nil {
+		e.Response = &datasync.DataSyncResponse{}
+		if err := proto.Unmarshal(e.ProtoData, e.Response); err != nil {
 			return fmt.Errorf("failed to unmarshal proto: %w", err)
 		}
 	}

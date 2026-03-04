@@ -161,6 +161,135 @@ func (x *DataSyncResponse) GetPhase() *phase.Phase {
 	return nil
 }
 
+// Heartbeat is sent periodically by Node 1 during computation to keep the stream alive.
+type DataSyncHeartbeat struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Timestamp     int64                  `protobuf:"varint,1,opt,name=timestamp,proto3" json:"timestamp,omitempty"` // Unix nanoseconds — for observability only
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DataSyncHeartbeat) Reset() {
+	*x = DataSyncHeartbeat{}
+	mi := &file_datasync_datasync_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DataSyncHeartbeat) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DataSyncHeartbeat) ProtoMessage() {}
+
+func (x *DataSyncHeartbeat) ProtoReflect() protoreflect.Message {
+	mi := &file_datasync_datasync_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DataSyncHeartbeat.ProtoReflect.Descriptor instead.
+func (*DataSyncHeartbeat) Descriptor() ([]byte, []int) {
+	return file_datasync_datasync_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *DataSyncHeartbeat) GetTimestamp() int64 {
+	if x != nil {
+		return x.Timestamp
+	}
+	return 0
+}
+
+// StreamMessage is the wire envelope for the DataSync stream.
+// Node 1 sends N heartbeats followed by exactly one final response.
+type DataSyncStreamMessage struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Payload:
+	//
+	//	*DataSyncStreamMessage_Heartbeat
+	//	*DataSyncStreamMessage_Response
+	Payload       isDataSyncStreamMessage_Payload `protobuf_oneof:"payload"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DataSyncStreamMessage) Reset() {
+	*x = DataSyncStreamMessage{}
+	mi := &file_datasync_datasync_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DataSyncStreamMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DataSyncStreamMessage) ProtoMessage() {}
+
+func (x *DataSyncStreamMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_datasync_datasync_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DataSyncStreamMessage.ProtoReflect.Descriptor instead.
+func (*DataSyncStreamMessage) Descriptor() ([]byte, []int) {
+	return file_datasync_datasync_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *DataSyncStreamMessage) GetPayload() isDataSyncStreamMessage_Payload {
+	if x != nil {
+		return x.Payload
+	}
+	return nil
+}
+
+func (x *DataSyncStreamMessage) GetHeartbeat() *DataSyncHeartbeat {
+	if x != nil {
+		if x, ok := x.Payload.(*DataSyncStreamMessage_Heartbeat); ok {
+			return x.Heartbeat
+		}
+	}
+	return nil
+}
+
+func (x *DataSyncStreamMessage) GetResponse() *DataSyncResponse {
+	if x != nil {
+		if x, ok := x.Payload.(*DataSyncStreamMessage_Response); ok {
+			return x.Response
+		}
+	}
+	return nil
+}
+
+type isDataSyncStreamMessage_Payload interface {
+	isDataSyncStreamMessage_Payload()
+}
+
+type DataSyncStreamMessage_Heartbeat struct {
+	Heartbeat *DataSyncHeartbeat `protobuf:"bytes,1,opt,name=heartbeat,proto3,oneof"`
+}
+
+type DataSyncStreamMessage_Response struct {
+	Response *DataSyncResponse `protobuf:"bytes,2,opt,name=response,proto3,oneof"`
+}
+
+func (*DataSyncStreamMessage_Heartbeat) isDataSyncStreamMessage_Payload() {}
+
+func (*DataSyncStreamMessage_Response) isDataSyncStreamMessage_Payload() {}
+
 var File_datasync_datasync_proto protoreflect.FileDescriptor
 
 const file_datasync_datasync_proto_rawDesc = "" +
@@ -175,7 +304,13 @@ const file_datasync_datasync_proto_rawDesc = "" +
 	"\x04data\x18\x01 \x03(\v2\x11.block.NonHeadersR\x04data\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\rR\aversion\x12\x1a\n" +
 	"\x03ack\x18\x03 \x01(\v2\b.ack.AckR\x03ack\x12\"\n" +
-	"\x05phase\x18\x04 \x01(\v2\f.phase.PhaseR\x05phaseB@Z>github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/datasyncb\x06proto3"
+	"\x05phase\x18\x04 \x01(\v2\f.phase.PhaseR\x05phase\"1\n" +
+	"\x11DataSyncHeartbeat\x12\x1c\n" +
+	"\ttimestamp\x18\x01 \x01(\x03R\ttimestamp\"\x99\x01\n" +
+	"\x15DataSyncStreamMessage\x12;\n" +
+	"\theartbeat\x18\x01 \x01(\v2\x1b.datasync.DataSyncHeartbeatH\x00R\theartbeat\x128\n" +
+	"\bresponse\x18\x02 \x01(\v2\x1a.datasync.DataSyncResponseH\x00R\bresponseB\t\n" +
+	"\apayloadB@Z>github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/datasyncb\x06proto3"
 
 var (
 	file_datasync_datasync_proto_rawDescOnce sync.Once
@@ -189,27 +324,31 @@ func file_datasync_datasync_proto_rawDescGZIP() []byte {
 	return file_datasync_datasync_proto_rawDescData
 }
 
-var file_datasync_datasync_proto_msgTypes = make([]protoimpl.MessageInfo, 2)
+var file_datasync_datasync_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_datasync_datasync_proto_goTypes = []any{
-	(*DataSyncRequest)(nil),  // 0: datasync.DataSyncRequest
-	(*DataSyncResponse)(nil), // 1: datasync.DataSyncResponse
-	(*tagging.Tag)(nil),      // 2: tagging.Tag
-	(*ack.Ack)(nil),          // 3: ack.Ack
-	(*phase.Phase)(nil),      // 4: phase.Phase
-	(*block.NonHeaders)(nil), // 5: block.NonHeaders
+	(*DataSyncRequest)(nil),       // 0: datasync.DataSyncRequest
+	(*DataSyncResponse)(nil),      // 1: datasync.DataSyncResponse
+	(*DataSyncHeartbeat)(nil),     // 2: datasync.DataSyncHeartbeat
+	(*DataSyncStreamMessage)(nil), // 3: datasync.DataSyncStreamMessage
+	(*tagging.Tag)(nil),           // 4: tagging.Tag
+	(*ack.Ack)(nil),               // 5: ack.Ack
+	(*phase.Phase)(nil),           // 6: phase.Phase
+	(*block.NonHeaders)(nil),      // 7: block.NonHeaders
 }
 var file_datasync_datasync_proto_depIdxs = []int32{
-	2, // 0: datasync.DataSyncRequest.tag:type_name -> tagging.Tag
-	3, // 1: datasync.DataSyncRequest.ack:type_name -> ack.Ack
-	4, // 2: datasync.DataSyncRequest.phase:type_name -> phase.Phase
-	5, // 3: datasync.DataSyncResponse.data:type_name -> block.NonHeaders
-	3, // 4: datasync.DataSyncResponse.ack:type_name -> ack.Ack
-	4, // 5: datasync.DataSyncResponse.phase:type_name -> phase.Phase
-	6, // [6:6] is the sub-list for method output_type
-	6, // [6:6] is the sub-list for method input_type
-	6, // [6:6] is the sub-list for extension type_name
-	6, // [6:6] is the sub-list for extension extendee
-	0, // [0:6] is the sub-list for field type_name
+	4, // 0: datasync.DataSyncRequest.tag:type_name -> tagging.Tag
+	5, // 1: datasync.DataSyncRequest.ack:type_name -> ack.Ack
+	6, // 2: datasync.DataSyncRequest.phase:type_name -> phase.Phase
+	7, // 3: datasync.DataSyncResponse.data:type_name -> block.NonHeaders
+	5, // 4: datasync.DataSyncResponse.ack:type_name -> ack.Ack
+	6, // 5: datasync.DataSyncResponse.phase:type_name -> phase.Phase
+	2, // 6: datasync.DataSyncStreamMessage.heartbeat:type_name -> datasync.DataSyncHeartbeat
+	1, // 7: datasync.DataSyncStreamMessage.response:type_name -> datasync.DataSyncResponse
+	8, // [8:8] is the sub-list for method output_type
+	8, // [8:8] is the sub-list for method input_type
+	8, // [8:8] is the sub-list for extension type_name
+	8, // [8:8] is the sub-list for extension extendee
+	0, // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_datasync_datasync_proto_init() }
@@ -217,13 +356,17 @@ func file_datasync_datasync_proto_init() {
 	if File_datasync_datasync_proto != nil {
 		return
 	}
+	file_datasync_datasync_proto_msgTypes[3].OneofWrappers = []any{
+		(*DataSyncStreamMessage_Heartbeat)(nil),
+		(*DataSyncStreamMessage_Response)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_datasync_datasync_proto_rawDesc), len(file_datasync_datasync_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   2,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
