@@ -21,6 +21,9 @@ type Headersync_router interface {
 	// SyncConfirmation is the function that will be called by the HeaderSync function to confirm the sync
 	SyncConfirmation(ctx context.Context, remotes []*types.Nodeinfo) (*taggingpb.Tag, bool, error)
 
+	// Get the SyncVars - helpful for other modules to get the sync vars
+	GetSyncVars() *types.Syncvars
+
 	// Close the connection
 	Close()
 }

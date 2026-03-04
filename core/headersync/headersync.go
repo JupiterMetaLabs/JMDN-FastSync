@@ -63,7 +63,12 @@ func (hs *HeaderSync) SetSyncVars(ctx context.Context, protocolVersion uint16, n
 	hs.SyncVars.NodeInfo = nodeInfo
 	hs.SyncVars.Ctx = ctx
 	hs.SyncVars.WAL = wal
+	hs.SyncVars.Node = node
 	return hs
+}
+
+func (hs *HeaderSync) GetSyncVars() *types.Syncvars {
+	return hs.SyncVars
 }
 
 /*
