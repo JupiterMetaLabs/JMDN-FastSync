@@ -87,6 +87,7 @@ func (ps *PriorSync) SetupNetworkHandlers(debug bool) error {
 		ps.SyncVars.Node.RemoveStreamHandler(constants.PriorSyncProtocol)
 		ps.SyncVars.Node.RemoveStreamHandler(constants.MerkleProtocol)
 		ps.SyncVars.Node.RemoveStreamHandler(constants.HeaderSyncProtocol)
+		ps.SyncVars.Node.RemoveStreamHandler(constants.DataSyncProtocol)
 	}
 
 	if ps.cancel != nil {
@@ -108,6 +109,10 @@ func (ps *PriorSync) SetupNetworkHandlers(debug bool) error {
 	}
 
 	if err := syncHandler.HandleHeaderSync(ctx, ps.SyncVars.Node); err != nil {
+		return err
+	}
+
+	if err:= syncHandler.HandleDataSync(ctx, ps.SyncVars.Node); err != nil {
 		return err
 	}
 
