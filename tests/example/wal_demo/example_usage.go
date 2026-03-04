@@ -5,14 +5,15 @@ import (
 	"log"
 	"time"
 
+	"github.com/JupiterMetaLabs/JMDN-FastSync/common/WAL"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/ack"
-	"github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/block"
+	blockpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/block"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/datasync"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/headersync"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/merkle"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/phase"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/priorsync"
 	wal_types "github.com/JupiterMetaLabs/JMDN-FastSync/common/types/wal"
-	"github.com/JupiterMetaLabs/JMDN-FastSync/common/WAL"
 )
 
 // Example usage demonstrating the event sourcing architecture with adapter pattern
@@ -31,7 +32,7 @@ func ExampleHeaderSyncUsage() {
 			Operation: wal_types.OpAppend, // This is an APPEND operation
 		},
 		Response: &headersync.HeaderSyncResponse{
-			Header: []*block.Header{
+			Header: []*blockpb.Header{
 				{
 					BlockNumber: 12345,
 					BlockHash:   []byte("block_hash_bytes"),
@@ -150,22 +151,28 @@ func ExampleDataSyncUsage() {
 		BaseEvent: wal_types.BaseEvent{
 			Operation: wal_types.OpAppend,
 		},
-		Block: &block.ZKBlock{
-			BlockNumber: 12345,
-			BlockHash:   []byte("block_hash"),
-			PrevHash:    []byte("prev_hash"),
-			StateRoot:   []byte("state_root"),
-			ProofHash:   "proof_hash",
-			Status:      "confirmed",
-			Timestamp:   time.Now().Unix(),
-			GasLimit:    8000000,
-			GasUsed:     5000000,
-			Transactions: []*block.Transaction{
+		Response: &datasync.DataSyncResponse{
+			Data: []*blockpb.NonHeaders{
 				{
-					Hash:  []byte("tx_hash"),
-					From:  []byte("from_address"),
-					To:    []byte("to_address"),
-					Nonce: 1,
+					BlockNumber: 12345,
+					Snapshot: &blockpb.SnapshotRecord{
+						BlockHash: []byte("block_hash"),
+					},
+					ZkProof: &blockpb.ZKProof{
+						ProofHash:  "proof_hash",
+						StarkProof: []byte("stark_proof"),
+					},
+					Transactions: []*blockpb.DBTransaction{
+						{
+							Tx: &blockpb.Transaction{
+								Hash:  []byte("tx_hash"),
+								From:  []byte("from_address"),
+								To:    []byte("to_address"),
+								Nonce: 1,
+							},
+							TxIndex: 0,
+						},
+					},
 				},
 			},
 		},
@@ -192,7 +199,7 @@ func ExampleMultipleEventTypes() {
 		&WAL.HeaderSyncEvent{
 			BaseEvent: wal_types.BaseEvent{Operation: wal_types.OpAppend},
 			Response: &headersync.HeaderSyncResponse{
-				Header:  []*block.Header{{BlockNumber: 1, Status: "verified"}},
+				Header:  []*blockpb.Header{{BlockNumber: 1, Status: "verified"}},
 				Version: 1,
 			},
 		},
@@ -210,7 +217,9 @@ func ExampleMultipleEventTypes() {
 		},
 		&WAL.DataSyncEvent{
 			BaseEvent: wal_types.BaseEvent{Operation: wal_types.OpAppend},
-			Block:     &block.ZKBlock{BlockNumber: 1, Status: "confirmed"},
+			Response: &datasync.DataSyncResponse{
+				Data: []*blockpb.NonHeaders{{BlockNumber: 1}},
+			},
 		},
 	}
 
@@ -314,8 +323,8 @@ func ExampleHydration() {
 				fmt.Printf("    [Hydration] Loaded Header: Block %d, Status: %s\n", h.BlockNumber, h.Status)
 			}
 		case wal_types.DataSync:
-			if dEvent, ok := event.(*WAL.DataSyncEvent); ok && dEvent.Block != nil {
-				fmt.Printf("    [Hydration] Loaded Data: Block %d, Status: %s\n", dEvent.Block.BlockNumber, dEvent.Block.Status)
+			if dEvent, ok := event.(*WAL.DataSyncEvent); ok && dEvent.Response != nil && len(dEvent.Response.Data) > 0 {
+				fmt.Printf("    [Hydration] Loaded Data: Block %d\n", dEvent.Response.Data[0].BlockNumber)
 			}
 		case wal_types.MerkleSync:
 			fmt.Printf("    [Hydration] Loaded Merkle Sync Event (LSN: %d)\n", entry.LSN)

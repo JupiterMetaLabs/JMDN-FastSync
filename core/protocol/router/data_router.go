@@ -97,35 +97,6 @@ func (router *Datarouter) HandlePriorSync(ctx context.Context, req *priorsyncpb.
 
 		return router.SYNC_REQUEST(ctx, req.Priorsync, peerInfo, remote)
 
-	case constants.SYNC_REQUEST_AUTOPROCEED:
-		Log.Logger(namedlogger).Debug(ctx, "Sync Request Auto Proceed - LOG",
-			ion.String("state", state),
-			ion.String("function", "HandlePriorSync"))
-
-		// Extract peer info from metadata if available
-		var peerInfo types.Nodeinfo
-		if req.Priorsync.Metadata != nil && req.Priorsync.Metadata.Nodeinfo != nil {
-			pbNodeInfo := req.Priorsync.Metadata.Nodeinfo
-			var maddrs []multiaddr.Multiaddr
-			for _, maBytes := range pbNodeInfo.Multiaddrs {
-				ma, err := multiaddr.NewMultiaddrBytes(maBytes)
-				if err == nil {
-					maddrs = append(maddrs, ma)
-				}
-			}
-
-			pid, _ := libp2p_peer.IDFromBytes(pbNodeInfo.PeerId)
-
-			peerInfo = types.Nodeinfo{
-				PeerID:       pid,
-				Multiaddr:    maddrs,
-				Capabilities: pbNodeInfo.Capabilities,
-				Version:      uint16(pbNodeInfo.Version),
-			}
-		}
-
-		return router.SYNC_FULL_AUTO(ctx, req.Priorsync, peerInfo, remote)
-
 	default:
 		Log.Logger(namedlogger).Debug(ctx, "Unknown State - LOG",
 			ion.String("state", state),
@@ -172,11 +143,6 @@ func (router *Datarouter) HandleMerkle(ctx context.Context, merkleReq *merklepb.
 	return router.REQUEST_MERKLE(ctx, merkleRange, merkleReq.Request.Config, remote)
 }
 
-func (router *Datarouter) HandleDataSync(ctx context.Context, req *datasyncpb.DataSyncRequest, remote *types.Nodeinfo) *datasyncpb.DataSyncResponse {
-	// TODO: Implement DataSync
-	return nil
-}
-
 func (router *Datarouter) HandleHeaderSync(ctx context.Context, headerSyncReq *headerpb.HeaderSyncRequest) *headerpb.HeaderSyncResponse {
 	switch headerSyncReq.Phase.PresentPhase {
 	case constants.HEADER_SYNC_REQUEST:
@@ -194,7 +160,7 @@ func (router *Datarouter) HandleHeaderSync(ctx context.Context, headerSyncReq *h
 				},
 			}
 		}
-		return router.HeaderSync(ctx, headerSyncReq)
+		return router.HEADER_SYNC(ctx, headerSyncReq)
 
 	default:
 		return &headerpb.HeaderSyncResponse{
@@ -207,6 +173,41 @@ func (router *Datarouter) HandleHeaderSync(ctx context.Context, headerSyncReq *h
 				SuccessivePhase: constants.FAILURE,
 				Success:         false,
 				Error:           "unknown state: " + headerSyncReq.Phase.PresentPhase,
+			},
+		}
+	}
+}
+
+func (router *Datarouter) HandleDataSync(ctx context.Context, req *datasyncpb.DataSyncRequest) *datasyncpb.DataSyncResponse {
+	switch req.Phase.PresentPhase {
+	case constants.DATA_SYNC_REQUEST:
+		if req == nil || req.Tag == nil {
+			return &datasyncpb.DataSyncResponse{
+				Ack: &ackpb.Ack{
+					Ok:    false,
+					Error: "Data sync request or range is nil",
+				},
+				Phase: &phasepb.Phase{
+					PresentPhase:    constants.DATA_SYNC_REQUEST,
+					SuccessivePhase: constants.FAILURE,
+					Success:         false,
+					Error:           "Data sync request or range is nil",
+				},
+			}
+		}
+		return router.DATA_SYNC(ctx, req)
+
+	default:
+		return &datasyncpb.DataSyncResponse{
+			Ack: &ackpb.Ack{
+				Ok:    false,
+				Error: "unknown state: " + req.Phase.PresentPhase,
+			},
+			Phase: &phasepb.Phase{
+				PresentPhase:    req.Phase.PresentPhase,
+				SuccessivePhase: constants.FAILURE,
+				Success:         false,
+				Error:           "unknown state: " + req.Phase.PresentPhase,
 			},
 		}
 	}
@@ -490,19 +491,19 @@ func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.Pri
 			},
 		}
 	}
-	
+
 	blockNumber := blockInfo.GetBlockNumber()
 	blockDetails := blockInfo.GetBlockDetails()
 
-	/* 
+	/*
 	   if the number of blocks in the client is less than MIN_BLOCKS then do the full sync.
 	   if number of blocks is above MIN_BLOCKS and Server blocks - MINBLOCKS >= MINBLOCKS then we are doing the full sync.
-	   if MIN_BLOCKS is 1000 then we are doing full sync only if client have less than 1000 blocks and server have more than 2000 blocks. 
+	   if MIN_BLOCKS is 1000 then we are doing full sync only if client have less than 1000 blocks and server have more than 2000 blocks.
 	*/
-	if req.Blocknumber <= constants.MIN_BLOCKS && blockNumber - req.Blocknumber >= constants.MIN_BLOCKS {
+	if req.Blocknumber <= constants.MIN_BLOCKS && blockNumber-req.Blocknumber >= constants.MIN_BLOCKS {
 		Log.Logger(namedlogger).Debug(ctx, "Block number is less than MIN_BLOCKS, doing full sync",
 			ion.String("function", "SYNC_REQUEST"))
-		return router.FullSync(ctx, req, peerNode, blockNumber, remote)
+		return router.FULL_SYNC(ctx, req, peerNode, blockNumber, remote)
 	}
 
 	msg := fmt.Sprintf("Block Details of Block %d: %+v (StateRoot: %s, BlockHash: %s)", blockNumber, blockDetails, string(blockDetails.Stateroot), string(blockDetails.Blockhash))
@@ -625,7 +626,7 @@ func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.Pri
 					SuccessivePhase: constants.DATA_SYNC_REQUEST,
 					Success:         true,
 					Error:           "",
-				},	
+				},
 			},
 		}
 	}
@@ -799,20 +800,8 @@ func (router *Datarouter) REQUEST_MERKLE(ctx context.Context, Range *merklepb.Ra
 	}
 }
 
-func (router *Datarouter) SYNC_FULL_AUTO(ctx context.Context, req *priorsyncpb.PriorSync, peerNode types.Nodeinfo, remote *types.Nodeinfo) *priorsyncpb.PriorSyncMessage {
-	/*
-		1. First do the SYNC_REQUEST
-		- We can get the priorsyncmessage, take headersync request from the req.Headersync
-		2. Then do the HEADER_SYNC, with the range and everything.
-		- We can get the headersync response from the req.Headersync
-		3. Then do the SYNC_RESPONSE
-	*/
-
-	return nil
-}
-
 // This is the Phase2 function that will take the tagged blocks and send to the server node to get the block headers sync.
-func (router *Datarouter) HeaderSync(ctx context.Context, req *headersyncpb.HeaderSyncRequest) *headersyncpb.HeaderSyncResponse {
+func (router *Datarouter) HEADER_SYNC(ctx context.Context, req *headersyncpb.HeaderSyncRequest) *headersyncpb.HeaderSyncResponse {
 	/*
 		- This is the header sync.
 		- After bisecting the tree in phase 1 with recursion. we get the tagged blocks per cycle.
@@ -907,11 +896,129 @@ func (router *Datarouter) HeaderSync(ctx context.Context, req *headersyncpb.Head
 	}
 }
 
-func (router *Datarouter) DataSync(ctx context.Context, req *datasyncpb.DataSyncRequest) *datasyncpb.DataSyncResponse {
-	return nil
+func (router *Datarouter) DATA_SYNC(ctx context.Context, req *datasyncpb.DataSyncRequest) *datasyncpb.DataSyncResponse {
+	/*
+		- This is the data sync.
+		- After bisecting the tree in phase 1 with recursion followed by the headersync request. we get the tagged blocks per cycle for non header sync. (headers would be synced at the headersync stage)
+		- This blocks with no headers are transmitted to the requested client node to get the block non headers synced.
+	*/
+
+	// Validate request
+	if req == nil || req.Tag == nil {
+		err := fmt.Errorf("datasync request or tag is nil")
+		Log.Logger(namedlogger).Error(ctx, "DataSync request is nil - LOG",
+			err,
+			ion.String("function", "DATA_SYNC"))
+		return &datasyncpb.DataSyncResponse{
+			Data: []*block.NonHeaders{},
+			Ack: &ackpb.Ack{
+				Ok:    false,
+				Error: err.Error(),
+			},
+			Phase: &phasepb.Phase{
+				PresentPhase:    constants.DATA_SYNC_RESPONSE,
+				SuccessivePhase: constants.FAILURE,
+				Success:         false,
+				Error:           err.Error(),
+			},
+		}
+	}
+
+	// Check for nil BlockInfo to prevent panic
+	if router.Nodeinfo == nil || router.Nodeinfo.BlockInfo == nil {
+		err := fmt.Errorf("nodeinfo or blockinfo is nil")
+		Log.Logger(namedlogger).Error(ctx, "Nodeinfo or BlockInfo is nil - LOG",
+			err,
+			ion.String("function", "DATA_SYNC"))
+		return &datasyncpb.DataSyncResponse{
+			Data: []*block.NonHeaders{},
+			Ack: &ackpb.Ack{
+				Ok:    false,
+				Error: err.Error(),
+			},
+			Phase: &phasepb.Phase{
+				PresentPhase:    constants.DATA_SYNC_RESPONSE,
+				SuccessivePhase: constants.FAILURE,
+				Success:         false,
+				Error:           err.Error(),
+			},
+		}
+	}
+
+	allNonHeaders := []*block.NonHeaders{}
+
+	nonHeaderIterator := router.Nodeinfo.BlockInfo.NewBlockNonHeaderIterator()
+
+	// Fetch non-headers for individual block numbers
+	if len(req.Tag.BlockNumber) > 0 {
+		nonHeaders, err := nonHeaderIterator.GetBlockNonHeaders(req.Tag.BlockNumber)
+		if err != nil {
+			Log.Logger(namedlogger).Error(ctx, "GetBlockNonHeaders failed - LOG",
+				err,
+				ion.String("function", "DATA_SYNC"))
+			return &datasyncpb.DataSyncResponse{
+				Data: []*block.NonHeaders{},
+				Ack: &ackpb.Ack{
+					Ok:    false,
+					Error: err.Error(),
+				},
+				Phase: &phasepb.Phase{
+					PresentPhase:    constants.DATA_SYNC_RESPONSE,
+					SuccessivePhase: constants.FAILURE,
+					Success:         false,
+					Error:           err.Error(),
+				},
+			}
+		}
+		allNonHeaders = append(allNonHeaders, nonHeaders...)
+	}
+
+	// Fetch non-headers for each range
+	for i := range req.Tag.Range {
+		nonHeaders, err := nonHeaderIterator.GetBlockNonHeadersRange(req.Tag.Range[i].Start, req.Tag.Range[i].End)
+		if err != nil {
+			Log.Logger(namedlogger).Error(ctx, "GetBlockNonHeadersRange failed - LOG",
+				err,
+				ion.String("function", "DATA_SYNC"),
+				ion.Uint64("range_start", req.Tag.Range[i].Start),
+				ion.Uint64("range_end", req.Tag.Range[i].End))
+			return &datasyncpb.DataSyncResponse{
+				Data: []*block.NonHeaders{},
+				Ack: &ackpb.Ack{
+					Ok:    false,
+					Error: err.Error(),
+				},
+				Phase: &phasepb.Phase{
+					PresentPhase:    constants.DATA_SYNC_RESPONSE,
+					SuccessivePhase: constants.FAILURE,
+					Success:         false,
+					Error:           err.Error(),
+				},
+			}
+		}
+		allNonHeaders = append(allNonHeaders, nonHeaders...)
+	}
+
+	Log.Logger(namedlogger).Info(ctx, "DataSync completed",
+		ion.String("function", "DATA_SYNC"),
+		ion.Int("total_nonheaders", len(allNonHeaders)))
+
+	return &datasyncpb.DataSyncResponse{
+		Data: allNonHeaders,
+		Ack: &ackpb.Ack{
+			Ok:    true,
+			Error: "",
+		},
+		Phase: &phasepb.Phase{
+			PresentPhase:    constants.DATA_SYNC_RESPONSE,
+			SuccessivePhase: constants.MERGE_REQUEST,
+			Success:         true,
+			Error:           "",
+		},
+	}
 }
 
-func (router *Datarouter) FullSync(ctx context.Context, req *priorsyncpb.PriorSync, peerNode types.Nodeinfo, blocknumber uint64, remote *types.Nodeinfo) *priorsyncpb.PriorSyncMessage {
+func (router *Datarouter) FULL_SYNC(ctx context.Context, req *priorsyncpb.PriorSync, peerNode types.Nodeinfo, blocknumber uint64, remote *types.Nodeinfo) *priorsyncpb.PriorSyncMessage {
 	// you have to tag the blocks numbers range
 	tags := helper.DivideTags(req.Blocknumber, blocknumber)
 	Log.Logger(namedlogger).Debug(ctx, "Tagged Blocks - LOG",

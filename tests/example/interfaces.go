@@ -3,7 +3,6 @@ package example
 import (
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/block"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
-	datasyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/datasync"
 )
 
 type example_blockinfo struct{}
@@ -66,9 +65,24 @@ func (e example_blockinfo) NewDataWriter() types.WriteData {
 	return example_writedata{}
 }
 
-func (e example_writedata) WriteData(data []*datasyncpb.NonHeaders) error {
+func (e example_writedata) WriteData(data []*block.NonHeaders) error {
 	return nil
 }	
+
+type example_blocknonheader struct{}
+
+func (e example_blockinfo) NewBlockNonHeaderIterator() types.BlockNonHeader {
+	return example_blocknonheader{}
+}
+
+func (e example_blocknonheader) GetBlockNonHeaders(blocknumbers []uint64) ([]*block.NonHeaders, error) {
+	return nil, nil
+}
+
+func (e example_blocknonheader) GetBlockNonHeadersRange(start, end uint64) ([]*block.NonHeaders, error) {
+	return nil, nil
+}
+
 
 func GetBlockDetailsDummy() types.PriorSync {
 	data := types.PriorSync{

@@ -6,6 +6,7 @@ import (
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/WAL"
 	headersyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/headersync"
 	"github.com/JupiterMetaLabs/JMDN_Merkletree/merkletree"
+	"github.com/libp2p/go-libp2p/core/host"
 )
 
 type Range struct {
@@ -45,6 +46,7 @@ type Syncvars struct {
 	Version  uint16
 	NodeInfo Nodeinfo
 	WAL      *WAL.WAL
+	Node     host.Host
 }
 
 type Phase struct {

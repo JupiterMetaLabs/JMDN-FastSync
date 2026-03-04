@@ -27,7 +27,6 @@ type PriorSync struct {
 
 	mu     sync.Mutex
 	cancel context.CancelFunc
-	node   host.Host
 }
 
 func NewPriorSyncRouter() Priorsync_router {
@@ -54,12 +53,16 @@ func (ps *PriorSync) SetSyncVars(ctx context.Context, protocolVersion uint16, no
 	ps.SyncVars.NodeInfo = nodeInfo
 	ps.SyncVars.Ctx = ctx
 	ps.SyncVars.WAL = wal
-	ps.node = node
+	ps.SyncVars.Node = node
 	return ps
 }
 
+func (ps *PriorSync) GetSyncVars() *types.Syncvars {
+	return ps.SyncVars
+}
+
 func (ps *PriorSync) SetupNetworkHandlers(debug bool) error {
-	if ps.node == nil {
+	if ps.SyncVars.Node == nil {
 		return errors.New("host is nil")
 	}
 	if ps.SyncVars == nil || ps.SyncVars.Ctx == nil {
@@ -70,7 +73,7 @@ func (ps *PriorSync) SetupNetworkHandlers(debug bool) error {
 	ctx, cancel := context.WithCancel(ps.SyncVars.Ctx)
 
 	// Initialize Communication
-	comm := communication.NewCommunication(ps.node, ps.SyncVars.Version)
+	comm := communication.NewCommunication(ps.SyncVars.Node, ps.SyncVars.Version)
 
 	// Initialize Sync Handler (Builder Pattern)
 	syncHandler := sync_proto.NewSyncHandler(&ps.SyncVars.NodeInfo, comm, debug)
@@ -81,14 +84,15 @@ func (ps *PriorSync) SetupNetworkHandlers(debug bool) error {
 
 	var RemoveStreams func()
 	RemoveStreams = func() {
-		ps.node.RemoveStreamHandler(constants.PriorSyncProtocol)
-		ps.node.RemoveStreamHandler(constants.MerkleProtocol)
-		ps.node.RemoveStreamHandler(constants.HeaderSyncProtocol)
+		ps.SyncVars.Node.RemoveStreamHandler(constants.PriorSyncProtocol)
+		ps.SyncVars.Node.RemoveStreamHandler(constants.MerkleProtocol)
+		ps.SyncVars.Node.RemoveStreamHandler(constants.HeaderSyncProtocol)
+		ps.SyncVars.Node.RemoveStreamHandler(constants.DataSyncProtocol)
 	}
 
 	if ps.cancel != nil {
 		ps.cancel()
-		if ps.node != nil {
+		if ps.SyncVars.Node != nil {
 			RemoveStreams()
 		}
 	}
@@ -96,15 +100,19 @@ func (ps *PriorSync) SetupNetworkHandlers(debug bool) error {
 	ps.mu.Unlock()
 
 	// Register Handlers using Sync Package
-	if err := syncHandler.HandlePriorSync(ctx, ps.node); err != nil {
+	if err := syncHandler.HandlePriorSync(ctx, ps.SyncVars.Node); err != nil {
 		return err
 	}
 
-	if err := syncHandler.HandleMerkle(ctx, ps.node); err != nil {
+	if err := syncHandler.HandleMerkle(ctx, ps.SyncVars.Node); err != nil {
 		return err
 	}
 
-	if err := syncHandler.HandleHeaderSync(ctx, ps.node); err != nil {
+	if err := syncHandler.HandleHeaderSync(ctx, ps.SyncVars.Node); err != nil {
+		return err
+	}
+
+	if err:= syncHandler.HandleDataSync(ctx, ps.SyncVars.Node); err != nil {
 		return err
 	}
 
@@ -117,7 +125,7 @@ func (ps *PriorSync) SetupNetworkHandlers(debug bool) error {
 	// Clear stored cancel/node
 	ps.mu.Lock()
 	ps.cancel = nil
-	ps.node = nil
+	ps.SyncVars.Node = nil
 	ps.mu.Unlock()
 
 	return ctx.Err()
@@ -130,7 +138,7 @@ func (ps *PriorSync) PriorSync(local_start, local_end, remote_start, remote_end 
 	if remote == nil {
 		return nil, errors.New("remote is nil")
 	}
-	if ps.node == nil {
+	if ps.SyncVars.Node == nil {
 		return nil, errors.New("host not set — call SetSyncVars with a valid host first")
 	}
 
@@ -179,7 +187,7 @@ func (ps *PriorSync) PriorSync(local_start, local_end, remote_start, remote_end 
 	reqMsg.Priorsync.Metadata.Version = ps.SyncVars.Version
 
 	// 5. Send the PriorSync request to the remote peer
-	comm := communication.NewCommunication(ps.node, ps.SyncVars.Version)
+	comm := communication.NewCommunication(ps.SyncVars.Node, ps.SyncVars.Version)
 	resp, err := comm.SendPriorSync(ctx, pbSnapshot, *remote, reqMsg)
 	if err != nil {
 		return nil, fmt.Errorf("PriorSync request failed: %w", err)
@@ -209,7 +217,7 @@ func (ps *PriorSync) PriorSync(local_start, local_end, remote_start, remote_end 
 func (ps *PriorSync) Close() {
 	ps.mu.Lock()
 	cancel := ps.cancel
-	node := ps.node
+	node := ps.SyncVars.Node
 	ps.mu.Unlock()
 
 	if cancel != nil {

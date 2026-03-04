@@ -6,8 +6,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/block"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/WAL"
+	blockpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/block"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/datasync"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/wal"
 	wal_types "github.com/JupiterMetaLabs/JMDN-FastSync/common/types/wal"
 )
@@ -31,10 +32,18 @@ func demo_checkpoint() {
 	for i := 0; i < 110; i++ {
 		event := &WAL.DataSyncEvent{
 			BaseEvent: wal.BaseEvent{Operation: wal.OpAppend},
-			Block: &block.ZKBlock{
-				BlockNumber: uint64(i),
-				BlockHash:   []byte(fmt.Sprintf("hash_%d", i)),
-				ProofHash:   string(largeData), // Large payload to force segmentation
+			Response: &datasync.DataSyncResponse{
+				Data: []*blockpb.NonHeaders{
+					{
+						BlockNumber: uint64(i),
+						Snapshot: &blockpb.SnapshotRecord{
+							BlockHash: []byte(fmt.Sprintf("hash_%d", i)),
+						},
+						ZkProof: &blockpb.ZKProof{
+							StarkProof: largeData, // Large payload to force segmentation
+						},
+					},
+				},
 			},
 		}
 		// Directly writing large data to force segmentation
@@ -71,7 +80,9 @@ func demo_checkpoint() {
 		for j := 0; j < 5; j++ {
 			w.WriteEvent(&WAL.DataSyncEvent{
 				BaseEvent: wal.BaseEvent{Operation: wal.OpAppend},
-				Block:     &block.ZKBlock{BlockNumber: uint64(100 + i*10 + j)},
+				Response: &datasync.DataSyncResponse{
+					Data: []*blockpb.NonHeaders{{BlockNumber: uint64(100 + i*10 + j)}},
+				},
 			})
 		}
 

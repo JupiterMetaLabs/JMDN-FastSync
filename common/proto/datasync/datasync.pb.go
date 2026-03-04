@@ -10,6 +10,7 @@ import (
 	ack "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/ack"
 	block "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/block"
 	phase "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/phase"
+	tagging "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/tagging"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -24,347 +25,9 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// SnapshotRecord maps to the snapshots table (append-only, Create Read).
-// FK -> blocks.block_number (one-to-one).
-type SnapshotRecord struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	BlockHash     []byte                 `protobuf:"bytes,1,opt,name=block_hash,json=blockHash,proto3" json:"block_hash,omitempty"`  // CHAR(66) stored as raw bytes
-	CreatedAt     int64                  `protobuf:"varint,2,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"` // Unix nanoseconds (maps to TIMESTAMPTZ)
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *SnapshotRecord) Reset() {
-	*x = SnapshotRecord{}
-	mi := &file_datasync_datasync_proto_msgTypes[0]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *SnapshotRecord) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*SnapshotRecord) ProtoMessage() {}
-
-func (x *SnapshotRecord) ProtoReflect() protoreflect.Message {
-	mi := &file_datasync_datasync_proto_msgTypes[0]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use SnapshotRecord.ProtoReflect.Descriptor instead.
-func (*SnapshotRecord) Descriptor() ([]byte, []int) {
-	return file_datasync_datasync_proto_rawDescGZIP(), []int{0}
-}
-
-func (x *SnapshotRecord) GetBlockHash() []byte {
-	if x != nil {
-		return x.BlockHash
-	}
-	return nil
-}
-
-func (x *SnapshotRecord) GetCreatedAt() int64 {
-	if x != nil {
-		return x.CreatedAt
-	}
-	return 0
-}
-
-// ZKProof maps to the zk_proofs table (append-only, Create Read).
-// FK -> blocks.block_number (one-proof-per-block).
-type ZKProof struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	ProofHash     string                 `protobuf:"bytes,1,opt,name=proof_hash,json=proofHash,proto3" json:"proof_hash,omitempty"`    // CHAR(66) unique
-	StarkProof    []byte                 `protobuf:"bytes,2,opt,name=stark_proof,json=starkProof,proto3" json:"stark_proof,omitempty"` // BYTEA NOT NULL
-	Commitment    []byte                 `protobuf:"bytes,3,opt,name=commitment,proto3" json:"commitment,omitempty"`                   // BYTEA nullable
-	CreatedAt     int64                  `protobuf:"varint,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`   // Unix nanoseconds
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *ZKProof) Reset() {
-	*x = ZKProof{}
-	mi := &file_datasync_datasync_proto_msgTypes[1]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *ZKProof) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*ZKProof) ProtoMessage() {}
-
-func (x *ZKProof) ProtoReflect() protoreflect.Message {
-	mi := &file_datasync_datasync_proto_msgTypes[1]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use ZKProof.ProtoReflect.Descriptor instead.
-func (*ZKProof) Descriptor() ([]byte, []int) {
-	return file_datasync_datasync_proto_rawDescGZIP(), []int{1}
-}
-
-func (x *ZKProof) GetProofHash() string {
-	if x != nil {
-		return x.ProofHash
-	}
-	return ""
-}
-
-func (x *ZKProof) GetStarkProof() []byte {
-	if x != nil {
-		return x.StarkProof
-	}
-	return nil
-}
-
-func (x *ZKProof) GetCommitment() []byte {
-	if x != nil {
-		return x.Commitment
-	}
-	return nil
-}
-
-func (x *ZKProof) GetCreatedAt() int64 {
-	if x != nil {
-		return x.CreatedAt
-	}
-	return 0
-}
-
-// DBTransaction maps to the transactions table (append-only, Create Read).
-// FK -> snapshots.block_number (snapshot owns the tx set).
-// Uses block.Transaction for all core tx fields; adds only DB-specific extras.
-type DBTransaction struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Tx            *block.Transaction     `protobuf:"bytes,1,opt,name=tx,proto3" json:"tx,omitempty"`                                 // all core fields (hash, from, to, value, gas, sig, …)
-	TxIndex       uint32                 `protobuf:"varint,2,opt,name=tx_index,json=txIndex,proto3" json:"tx_index,omitempty"`       // SMALLINT — position within the block
-	CreatedAt     int64                  `protobuf:"varint,3,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"` // TIMESTAMPTZ — Unix nanoseconds
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *DBTransaction) Reset() {
-	*x = DBTransaction{}
-	mi := &file_datasync_datasync_proto_msgTypes[2]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *DBTransaction) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*DBTransaction) ProtoMessage() {}
-
-func (x *DBTransaction) ProtoReflect() protoreflect.Message {
-	mi := &file_datasync_datasync_proto_msgTypes[2]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use DBTransaction.ProtoReflect.Descriptor instead.
-func (*DBTransaction) Descriptor() ([]byte, []int) {
-	return file_datasync_datasync_proto_rawDescGZIP(), []int{2}
-}
-
-func (x *DBTransaction) GetTx() *block.Transaction {
-	if x != nil {
-		return x.Tx
-	}
-	return nil
-}
-
-func (x *DBTransaction) GetTxIndex() uint32 {
-	if x != nil {
-		return x.TxIndex
-	}
-	return 0
-}
-
-func (x *DBTransaction) GetCreatedAt() int64 {
-	if x != nil {
-		return x.CreatedAt
-	}
-	return 0
-}
-
-// L1Finality maps to the l1_finality table (append-only, Create Read).
-// Confirmation is the L1 anchor (e.g. settlement contract / tx hash).
-type L1Finality struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Confirmation  []byte                 `protobuf:"bytes,1,opt,name=confirmation,proto3" json:"confirmation,omitempty"`                             // CHAR(42) PK
-	BlockNumbers  []uint64               `protobuf:"varint,2,rep,packed,name=block_numbers,json=blockNumbers,proto3" json:"block_numbers,omitempty"` // BIGINT[] NOT NULL
-	Metadata      []byte                 `protobuf:"bytes,3,opt,name=metadata,proto3" json:"metadata,omitempty"`                                     // JSONB (serialized JSON bytes)
-	CreatedAt     int64                  `protobuf:"varint,4,opt,name=created_at,json=createdAt,proto3" json:"created_at,omitempty"`                 // Unix nanoseconds
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *L1Finality) Reset() {
-	*x = L1Finality{}
-	mi := &file_datasync_datasync_proto_msgTypes[3]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *L1Finality) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*L1Finality) ProtoMessage() {}
-
-func (x *L1Finality) ProtoReflect() protoreflect.Message {
-	mi := &file_datasync_datasync_proto_msgTypes[3]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use L1Finality.ProtoReflect.Descriptor instead.
-func (*L1Finality) Descriptor() ([]byte, []int) {
-	return file_datasync_datasync_proto_rawDescGZIP(), []int{3}
-}
-
-func (x *L1Finality) GetConfirmation() []byte {
-	if x != nil {
-		return x.Confirmation
-	}
-	return nil
-}
-
-func (x *L1Finality) GetBlockNumbers() []uint64 {
-	if x != nil {
-		return x.BlockNumbers
-	}
-	return nil
-}
-
-func (x *L1Finality) GetMetadata() []byte {
-	if x != nil {
-		return x.Metadata
-	}
-	return nil
-}
-
-func (x *L1Finality) GetCreatedAt() int64 {
-	if x != nil {
-		return x.CreatedAt
-	}
-	return 0
-}
-
-// ================================================================
-// NonHeaders — full block payload without blocks-table header fields
-// (state_root, parent_hash, gas, timestamps are in the blocks table)
-// BlockNumber is the shared PK/FK across all sub-tables.
-// ================================================================
-type NonHeaders struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	BlockNumber   uint64                 `protobuf:"varint,1,opt,name=block_number,json=blockNumber,proto3" json:"block_number,omitempty"`
-	Snapshot      *SnapshotRecord        `protobuf:"bytes,2,opt,name=snapshot,proto3" json:"snapshot,omitempty"`
-	Transactions  []*DBTransaction       `protobuf:"bytes,3,rep,name=transactions,proto3" json:"transactions,omitempty"`
-	ZkProof       *ZKProof               `protobuf:"bytes,4,opt,name=zk_proof,json=zkProof,proto3" json:"zk_proof,omitempty"`
-	L1Finality    *L1Finality            `protobuf:"bytes,5,opt,name=l1_finality,json=l1Finality,proto3" json:"l1_finality,omitempty"` // empty/unset until finalised on L1
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
-
-func (x *NonHeaders) Reset() {
-	*x = NonHeaders{}
-	mi := &file_datasync_datasync_proto_msgTypes[4]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *NonHeaders) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*NonHeaders) ProtoMessage() {}
-
-func (x *NonHeaders) ProtoReflect() protoreflect.Message {
-	mi := &file_datasync_datasync_proto_msgTypes[4]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use NonHeaders.ProtoReflect.Descriptor instead.
-func (*NonHeaders) Descriptor() ([]byte, []int) {
-	return file_datasync_datasync_proto_rawDescGZIP(), []int{4}
-}
-
-func (x *NonHeaders) GetBlockNumber() uint64 {
-	if x != nil {
-		return x.BlockNumber
-	}
-	return 0
-}
-
-func (x *NonHeaders) GetSnapshot() *SnapshotRecord {
-	if x != nil {
-		return x.Snapshot
-	}
-	return nil
-}
-
-func (x *NonHeaders) GetTransactions() []*DBTransaction {
-	if x != nil {
-		return x.Transactions
-	}
-	return nil
-}
-
-func (x *NonHeaders) GetZkProof() *ZKProof {
-	if x != nil {
-		return x.ZkProof
-	}
-	return nil
-}
-
-func (x *NonHeaders) GetL1Finality() *L1Finality {
-	if x != nil {
-		return x.L1Finality
-	}
-	return nil
-}
-
 type DataSyncRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	BlockNumber   uint64                 `protobuf:"varint,1,opt,name=block_number,json=blockNumber,proto3" json:"block_number,omitempty"` // block being requested
+	Tag           *tagging.Tag           `protobuf:"bytes,1,opt,name=tag,proto3" json:"tag,omitempty"` // blocks being requested (ranges or individual)
 	Version       uint32                 `protobuf:"varint,2,opt,name=version,proto3" json:"version,omitempty"`
 	Ack           *ack.Ack               `protobuf:"bytes,3,opt,name=ack,proto3" json:"ack,omitempty"`
 	Phase         *phase.Phase           `protobuf:"bytes,4,opt,name=phase,proto3" json:"phase,omitempty"`
@@ -374,7 +37,7 @@ type DataSyncRequest struct {
 
 func (x *DataSyncRequest) Reset() {
 	*x = DataSyncRequest{}
-	mi := &file_datasync_datasync_proto_msgTypes[5]
+	mi := &file_datasync_datasync_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -386,7 +49,7 @@ func (x *DataSyncRequest) String() string {
 func (*DataSyncRequest) ProtoMessage() {}
 
 func (x *DataSyncRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_datasync_datasync_proto_msgTypes[5]
+	mi := &file_datasync_datasync_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -399,14 +62,14 @@ func (x *DataSyncRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DataSyncRequest.ProtoReflect.Descriptor instead.
 func (*DataSyncRequest) Descriptor() ([]byte, []int) {
-	return file_datasync_datasync_proto_rawDescGZIP(), []int{5}
+	return file_datasync_datasync_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *DataSyncRequest) GetBlockNumber() uint64 {
+func (x *DataSyncRequest) GetTag() *tagging.Tag {
 	if x != nil {
-		return x.BlockNumber
+		return x.Tag
 	}
-	return 0
+	return nil
 }
 
 func (x *DataSyncRequest) GetVersion() uint32 {
@@ -432,7 +95,7 @@ func (x *DataSyncRequest) GetPhase() *phase.Phase {
 
 type DataSyncResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	Data          *NonHeaders            `protobuf:"bytes,1,opt,name=data,proto3" json:"data,omitempty"`
+	Data          []*block.NonHeaders    `protobuf:"bytes,1,rep,name=data,proto3" json:"data,omitempty"`
 	Version       uint32                 `protobuf:"varint,2,opt,name=version,proto3" json:"version,omitempty"`
 	Ack           *ack.Ack               `protobuf:"bytes,3,opt,name=ack,proto3" json:"ack,omitempty"`
 	Phase         *phase.Phase           `protobuf:"bytes,4,opt,name=phase,proto3" json:"phase,omitempty"`
@@ -442,7 +105,7 @@ type DataSyncResponse struct {
 
 func (x *DataSyncResponse) Reset() {
 	*x = DataSyncResponse{}
-	mi := &file_datasync_datasync_proto_msgTypes[6]
+	mi := &file_datasync_datasync_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -454,7 +117,7 @@ func (x *DataSyncResponse) String() string {
 func (*DataSyncResponse) ProtoMessage() {}
 
 func (x *DataSyncResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_datasync_datasync_proto_msgTypes[6]
+	mi := &file_datasync_datasync_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -467,10 +130,10 @@ func (x *DataSyncResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use DataSyncResponse.ProtoReflect.Descriptor instead.
 func (*DataSyncResponse) Descriptor() ([]byte, []int) {
-	return file_datasync_datasync_proto_rawDescGZIP(), []int{6}
+	return file_datasync_datasync_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *DataSyncResponse) GetData() *NonHeaders {
+func (x *DataSyncResponse) GetData() []*block.NonHeaders {
 	if x != nil {
 		return x.Data
 	}
@@ -498,56 +161,156 @@ func (x *DataSyncResponse) GetPhase() *phase.Phase {
 	return nil
 }
 
+// Heartbeat is sent periodically by Node 1 during computation to keep the stream alive.
+type DataSyncHeartbeat struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Timestamp     int64                  `protobuf:"varint,1,opt,name=timestamp,proto3" json:"timestamp,omitempty"` // Unix nanoseconds — for observability only
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DataSyncHeartbeat) Reset() {
+	*x = DataSyncHeartbeat{}
+	mi := &file_datasync_datasync_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DataSyncHeartbeat) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DataSyncHeartbeat) ProtoMessage() {}
+
+func (x *DataSyncHeartbeat) ProtoReflect() protoreflect.Message {
+	mi := &file_datasync_datasync_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DataSyncHeartbeat.ProtoReflect.Descriptor instead.
+func (*DataSyncHeartbeat) Descriptor() ([]byte, []int) {
+	return file_datasync_datasync_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *DataSyncHeartbeat) GetTimestamp() int64 {
+	if x != nil {
+		return x.Timestamp
+	}
+	return 0
+}
+
+// StreamMessage is the wire envelope for the DataSync stream.
+// Node 1 sends N heartbeats followed by exactly one final response.
+type DataSyncStreamMessage struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Payload:
+	//
+	//	*DataSyncStreamMessage_Heartbeat
+	//	*DataSyncStreamMessage_Response
+	Payload       isDataSyncStreamMessage_Payload `protobuf_oneof:"payload"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *DataSyncStreamMessage) Reset() {
+	*x = DataSyncStreamMessage{}
+	mi := &file_datasync_datasync_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *DataSyncStreamMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*DataSyncStreamMessage) ProtoMessage() {}
+
+func (x *DataSyncStreamMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_datasync_datasync_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use DataSyncStreamMessage.ProtoReflect.Descriptor instead.
+func (*DataSyncStreamMessage) Descriptor() ([]byte, []int) {
+	return file_datasync_datasync_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *DataSyncStreamMessage) GetPayload() isDataSyncStreamMessage_Payload {
+	if x != nil {
+		return x.Payload
+	}
+	return nil
+}
+
+func (x *DataSyncStreamMessage) GetHeartbeat() *DataSyncHeartbeat {
+	if x != nil {
+		if x, ok := x.Payload.(*DataSyncStreamMessage_Heartbeat); ok {
+			return x.Heartbeat
+		}
+	}
+	return nil
+}
+
+func (x *DataSyncStreamMessage) GetResponse() *DataSyncResponse {
+	if x != nil {
+		if x, ok := x.Payload.(*DataSyncStreamMessage_Response); ok {
+			return x.Response
+		}
+	}
+	return nil
+}
+
+type isDataSyncStreamMessage_Payload interface {
+	isDataSyncStreamMessage_Payload()
+}
+
+type DataSyncStreamMessage_Heartbeat struct {
+	Heartbeat *DataSyncHeartbeat `protobuf:"bytes,1,opt,name=heartbeat,proto3,oneof"`
+}
+
+type DataSyncStreamMessage_Response struct {
+	Response *DataSyncResponse `protobuf:"bytes,2,opt,name=response,proto3,oneof"`
+}
+
+func (*DataSyncStreamMessage_Heartbeat) isDataSyncStreamMessage_Payload() {}
+
+func (*DataSyncStreamMessage_Response) isDataSyncStreamMessage_Payload() {}
+
 var File_datasync_datasync_proto protoreflect.FileDescriptor
 
 const file_datasync_datasync_proto_rawDesc = "" +
 	"\n" +
-	"\x17datasync/datasync.proto\x12\bdatasync\x1a\rack/ack.proto\x1a\x11phase/phase.proto\x1a\x11block/block.proto\"N\n" +
-	"\x0eSnapshotRecord\x12\x1d\n" +
-	"\n" +
-	"block_hash\x18\x01 \x01(\fR\tblockHash\x12\x1d\n" +
-	"\n" +
-	"created_at\x18\x02 \x01(\x03R\tcreatedAt\"\x88\x01\n" +
-	"\aZKProof\x12\x1d\n" +
-	"\n" +
-	"proof_hash\x18\x01 \x01(\tR\tproofHash\x12\x1f\n" +
-	"\vstark_proof\x18\x02 \x01(\fR\n" +
-	"starkProof\x12\x1e\n" +
-	"\n" +
-	"commitment\x18\x03 \x01(\fR\n" +
-	"commitment\x12\x1d\n" +
-	"\n" +
-	"created_at\x18\x04 \x01(\x03R\tcreatedAt\"m\n" +
-	"\rDBTransaction\x12\"\n" +
-	"\x02tx\x18\x01 \x01(\v2\x12.block.TransactionR\x02tx\x12\x19\n" +
-	"\btx_index\x18\x02 \x01(\rR\atxIndex\x12\x1d\n" +
-	"\n" +
-	"created_at\x18\x03 \x01(\x03R\tcreatedAt\"\x90\x01\n" +
-	"\n" +
-	"L1Finality\x12\"\n" +
-	"\fconfirmation\x18\x01 \x01(\fR\fconfirmation\x12#\n" +
-	"\rblock_numbers\x18\x02 \x03(\x04R\fblockNumbers\x12\x1a\n" +
-	"\bmetadata\x18\x03 \x01(\fR\bmetadata\x12\x1d\n" +
-	"\n" +
-	"created_at\x18\x04 \x01(\x03R\tcreatedAt\"\x87\x02\n" +
-	"\n" +
-	"NonHeaders\x12!\n" +
-	"\fblock_number\x18\x01 \x01(\x04R\vblockNumber\x124\n" +
-	"\bsnapshot\x18\x02 \x01(\v2\x18.datasync.SnapshotRecordR\bsnapshot\x12;\n" +
-	"\ftransactions\x18\x03 \x03(\v2\x17.datasync.DBTransactionR\ftransactions\x12,\n" +
-	"\bzk_proof\x18\x04 \x01(\v2\x11.datasync.ZKProofR\azkProof\x125\n" +
-	"\vl1_finality\x18\x05 \x01(\v2\x14.datasync.L1FinalityR\n" +
-	"l1Finality\"\x8e\x01\n" +
-	"\x0fDataSyncRequest\x12!\n" +
-	"\fblock_number\x18\x01 \x01(\x04R\vblockNumber\x12\x18\n" +
+	"\x17datasync/datasync.proto\x12\bdatasync\x1a\rack/ack.proto\x1a\x11phase/phase.proto\x1a\x1bblock/block_nonheader.proto\x1a\x11tagging/tag.proto\"\x8b\x01\n" +
+	"\x0fDataSyncRequest\x12\x1e\n" +
+	"\x03tag\x18\x01 \x01(\v2\f.tagging.TagR\x03tag\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\rR\aversion\x12\x1a\n" +
 	"\x03ack\x18\x03 \x01(\v2\b.ack.AckR\x03ack\x12\"\n" +
-	"\x05phase\x18\x04 \x01(\v2\f.phase.PhaseR\x05phase\"\x96\x01\n" +
-	"\x10DataSyncResponse\x12(\n" +
-	"\x04data\x18\x01 \x01(\v2\x14.datasync.NonHeadersR\x04data\x12\x18\n" +
+	"\x05phase\x18\x04 \x01(\v2\f.phase.PhaseR\x05phase\"\x93\x01\n" +
+	"\x10DataSyncResponse\x12%\n" +
+	"\x04data\x18\x01 \x03(\v2\x11.block.NonHeadersR\x04data\x12\x18\n" +
 	"\aversion\x18\x02 \x01(\rR\aversion\x12\x1a\n" +
 	"\x03ack\x18\x03 \x01(\v2\b.ack.AckR\x03ack\x12\"\n" +
-	"\x05phase\x18\x04 \x01(\v2\f.phase.PhaseR\x05phaseB@Z>github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/datasyncb\x06proto3"
+	"\x05phase\x18\x04 \x01(\v2\f.phase.PhaseR\x05phase\"1\n" +
+	"\x11DataSyncHeartbeat\x12\x1c\n" +
+	"\ttimestamp\x18\x01 \x01(\x03R\ttimestamp\"\x99\x01\n" +
+	"\x15DataSyncStreamMessage\x12;\n" +
+	"\theartbeat\x18\x01 \x01(\v2\x1b.datasync.DataSyncHeartbeatH\x00R\theartbeat\x128\n" +
+	"\bresponse\x18\x02 \x01(\v2\x1a.datasync.DataSyncResponseH\x00R\bresponseB\t\n" +
+	"\apayloadB@Z>github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/datasyncb\x06proto3"
 
 var (
 	file_datasync_datasync_proto_rawDescOnce sync.Once
@@ -561,35 +324,31 @@ func file_datasync_datasync_proto_rawDescGZIP() []byte {
 	return file_datasync_datasync_proto_rawDescData
 }
 
-var file_datasync_datasync_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_datasync_datasync_proto_msgTypes = make([]protoimpl.MessageInfo, 4)
 var file_datasync_datasync_proto_goTypes = []any{
-	(*SnapshotRecord)(nil),    // 0: datasync.SnapshotRecord
-	(*ZKProof)(nil),           // 1: datasync.ZKProof
-	(*DBTransaction)(nil),     // 2: datasync.DBTransaction
-	(*L1Finality)(nil),        // 3: datasync.L1Finality
-	(*NonHeaders)(nil),        // 4: datasync.NonHeaders
-	(*DataSyncRequest)(nil),   // 5: datasync.DataSyncRequest
-	(*DataSyncResponse)(nil),  // 6: datasync.DataSyncResponse
-	(*block.Transaction)(nil), // 7: block.Transaction
-	(*ack.Ack)(nil),           // 8: ack.Ack
-	(*phase.Phase)(nil),       // 9: phase.Phase
+	(*DataSyncRequest)(nil),       // 0: datasync.DataSyncRequest
+	(*DataSyncResponse)(nil),      // 1: datasync.DataSyncResponse
+	(*DataSyncHeartbeat)(nil),     // 2: datasync.DataSyncHeartbeat
+	(*DataSyncStreamMessage)(nil), // 3: datasync.DataSyncStreamMessage
+	(*tagging.Tag)(nil),           // 4: tagging.Tag
+	(*ack.Ack)(nil),               // 5: ack.Ack
+	(*phase.Phase)(nil),           // 6: phase.Phase
+	(*block.NonHeaders)(nil),      // 7: block.NonHeaders
 }
 var file_datasync_datasync_proto_depIdxs = []int32{
-	7,  // 0: datasync.DBTransaction.tx:type_name -> block.Transaction
-	0,  // 1: datasync.NonHeaders.snapshot:type_name -> datasync.SnapshotRecord
-	2,  // 2: datasync.NonHeaders.transactions:type_name -> datasync.DBTransaction
-	1,  // 3: datasync.NonHeaders.zk_proof:type_name -> datasync.ZKProof
-	3,  // 4: datasync.NonHeaders.l1_finality:type_name -> datasync.L1Finality
-	8,  // 5: datasync.DataSyncRequest.ack:type_name -> ack.Ack
-	9,  // 6: datasync.DataSyncRequest.phase:type_name -> phase.Phase
-	4,  // 7: datasync.DataSyncResponse.data:type_name -> datasync.NonHeaders
-	8,  // 8: datasync.DataSyncResponse.ack:type_name -> ack.Ack
-	9,  // 9: datasync.DataSyncResponse.phase:type_name -> phase.Phase
-	10, // [10:10] is the sub-list for method output_type
-	10, // [10:10] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	4, // 0: datasync.DataSyncRequest.tag:type_name -> tagging.Tag
+	5, // 1: datasync.DataSyncRequest.ack:type_name -> ack.Ack
+	6, // 2: datasync.DataSyncRequest.phase:type_name -> phase.Phase
+	7, // 3: datasync.DataSyncResponse.data:type_name -> block.NonHeaders
+	5, // 4: datasync.DataSyncResponse.ack:type_name -> ack.Ack
+	6, // 5: datasync.DataSyncResponse.phase:type_name -> phase.Phase
+	2, // 6: datasync.DataSyncStreamMessage.heartbeat:type_name -> datasync.DataSyncHeartbeat
+	1, // 7: datasync.DataSyncStreamMessage.response:type_name -> datasync.DataSyncResponse
+	8, // [8:8] is the sub-list for method output_type
+	8, // [8:8] is the sub-list for method input_type
+	8, // [8:8] is the sub-list for extension type_name
+	8, // [8:8] is the sub-list for extension extendee
+	0, // [0:8] is the sub-list for field type_name
 }
 
 func init() { file_datasync_datasync_proto_init() }
@@ -597,13 +356,17 @@ func file_datasync_datasync_proto_init() {
 	if File_datasync_datasync_proto != nil {
 		return
 	}
+	file_datasync_datasync_proto_msgTypes[3].OneofWrappers = []any{
+		(*DataSyncStreamMessage_Heartbeat)(nil),
+		(*DataSyncStreamMessage_Response)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_datasync_datasync_proto_rawDesc), len(file_datasync_datasync_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   7,
+			NumMessages:   4,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

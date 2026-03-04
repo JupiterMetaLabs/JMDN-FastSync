@@ -19,6 +19,9 @@ type Priorsync_router interface {
 	// SetupNetworkHandlers processes an incoming PriorSync request from a peer
 	SetupNetworkHandlers(debug bool) error
 
+	// Get the SyncVars - helpful for other modules to get the sync vars
+	GetSyncVars() *types.Syncvars
+
 	// Close the connection
 	Close()
 }

@@ -5,4 +5,5 @@ const (
 	PriorSync = "log:PriorSync"
 	Sync = "log:Protocols"
 	HeaderSync = "log:HeaderSync"
+	DataSync = "log:DataSync"
 )

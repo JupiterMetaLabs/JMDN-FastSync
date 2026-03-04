@@ -1,11 +1,10 @@
 package types
 
 import (
-	"github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/block"
+	blockpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/block"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/multiformats/go-multiaddr"
-	datasyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/datasync"
 )
 
 /*
@@ -28,6 +27,7 @@ type BlockInfo interface {
 	GetBlockDetails() PriorSync
 	NewBlockIterator(start, end uint64, batchsize int) BlockIterator
 	NewBlockHeaderIterator() BlockHeader
+	NewBlockNonHeaderIterator() BlockNonHeader
 	NewHeadersWriter() WriteHeaders
 	NewDataWriter() WriteData
 }
@@ -38,15 +38,20 @@ type BlockIterator interface {
 	Close()
 }
 
-type BlockHeader interface{
-	GetBlockHeaders(blocknumbers []uint64) ([]*block.Header, error)
-	GetBlockHeadersRange(start, end uint64) ([]*block.Header, error)
+type BlockHeader interface {
+	GetBlockHeaders(blocknumbers []uint64) ([]*blockpb.Header, error)
+	GetBlockHeadersRange(start, end uint64) ([]*blockpb.Header, error)
+}
+
+type BlockNonHeader interface {
+	GetBlockNonHeaders(blocknumbers []uint64) ([]*blockpb.NonHeaders, error)
+	GetBlockNonHeadersRange(start, end uint64) ([]*blockpb.NonHeaders, error)
 }
 
 type WriteHeaders interface {
-	WriteHeaders(headers []*block.Header) error
+	WriteHeaders(headers []*blockpb.Header) error
 }
 
 type WriteData interface {
-	WriteData(data []*datasyncpb.NonHeaders) error
+	WriteData(data []*blockpb.NonHeaders) error
 }

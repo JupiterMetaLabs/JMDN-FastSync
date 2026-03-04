@@ -9,6 +9,7 @@ import (
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/WAL"
 	ackpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/ack"
 	blockpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/block"
+	datasyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/datasync"
 	headersyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/headersync"
 	phasepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/phase"
 	taggingpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/tagging"
@@ -23,7 +24,6 @@ import (
 )
 
 const (
-	namedlogger   = Log.HeaderSync
 	maxRetries    = 2
 	maxSyncRounds = 4 // Max confirmation rounds to prevent infinite loops
 	maxWorkers    = 3 // concurrent fetch workers
@@ -62,7 +62,12 @@ func (hs *HeaderSync) SetSyncVars(ctx context.Context, protocolVersion uint16, n
 	hs.SyncVars.NodeInfo = nodeInfo
 	hs.SyncVars.Ctx = ctx
 	hs.SyncVars.WAL = wal
+	hs.SyncVars.Node = node
 	return hs
+}
+
+func (hs *HeaderSync) GetSyncVars() *types.Syncvars {
+	return hs.SyncVars
 }
 
 /*
@@ -80,25 +85,29 @@ func (hs *HeaderSync) SetSyncVars(ctx context.Context, protocolVersion uint16, n
 6. Add the headers to the local database after successful receival. using nodeinfo.WriteHeaders.WriteHeaders(headers []*block.Header).
 7. atlast we have to execute PRIORSYNC with the server to get to know are we fully synced or not.
 */
-func (hs *HeaderSync) HeaderSync(headersyncrequest *headersyncpb.HeaderSyncRequest, remotes []*types.Nodeinfo) error {
+func (hs *HeaderSync) HeaderSync(headersyncrequest *headersyncpb.HeaderSyncRequest, remotes []*types.Nodeinfo) (*datasyncpb.DataSyncRequest, error) {
 	if headersyncrequest == nil {
-		return fmt.Errorf("headersync request or tag is nil")
+		return nil, fmt.Errorf("headersync request or tag is nil")
 	}
 	if len(remotes) == 0 {
-		return fmt.Errorf("no remotes provided")
+		return nil, fmt.Errorf("no remotes provided")
 	}
 	if hs.Comm == nil {
-		return fmt.Errorf("communicator not set")
+		return nil, fmt.Errorf("communicator not set")
 	}
-	if headersyncrequest.Tag == nil {
+
+	// Capture the original tag for later DataSyncRequest construction.
+	originalTag := headersyncrequest.Tag
+
+	if originalTag == nil {
 		// No differences found — headers are already in sync.
 		// When the successive phase is DATA_SYNC_REQUEST, it confirms
 		// that the server verified both Merkle trees match.
 		if headersyncrequest.Phase != nil && headersyncrequest.Phase.SuccessivePhase == constants.DATA_SYNC_REQUEST {
-			Log.Logger(namedlogger).Info(hs.SyncVars.Ctx, "Headers already in sync — proceeding to data sync",
+			Log.Logger(Log.HeaderSync).Info(hs.SyncVars.Ctx, "Headers already in sync — proceeding to data sync",
 				ion.String("successive_phase", headersyncrequest.Phase.SuccessivePhase))
 		}
-		return nil
+		return nil, nil
 	}
 
 	ctx := hs.SyncVars.Ctx
@@ -107,9 +116,9 @@ func (hs *HeaderSync) HeaderSync(headersyncrequest *headersyncpb.HeaderSyncReque
 	// ---------------------------------------------------------------
 	// Initialize the queue with the first set of batches
 	// ---------------------------------------------------------------
-	queue := buildBatches(headersyncrequest.Tag)
+	queue := buildBatches(originalTag)
 
-	Log.Logger(namedlogger).Info(ctx, "HeaderSync starting",
+	Log.Logger(Log.HeaderSync).Info(ctx, "HeaderSync starting",
 		ion.Int("initial_batches", len(queue)),
 		ion.Int("total_remotes", len(remotes)))
 
@@ -119,39 +128,54 @@ func (hs *HeaderSync) HeaderSync(headersyncrequest *headersyncpb.HeaderSyncReque
 	// enqueued and the next round begins.
 	// ---------------------------------------------------------------
 	for round := 1; round <= maxSyncRounds; round++ {
-		Log.Logger(namedlogger).Info(ctx, "Starting sync round",
+		Log.Logger(Log.HeaderSync).Info(ctx, "Starting sync round",
 			ion.Int("round", round),
 			ion.Int("queue_size", len(queue)))
 
 		// Drain all batches in the current queue (concurrently)
 		if err := processQueue(ctx, hs, queue, remotes, headerWriter); err != nil {
-			return fmt.Errorf("round %d: %w", round, err)
+			return nil, fmt.Errorf("round %d: %w", round, err)
 		}
 
 		// -------------------------------------------------------
 		// Sync confirmation — compare Merkle trees with a remote
 		// -------------------------------------------------------
-		Log.Logger(namedlogger).Info(ctx, "Running sync confirmation",
+		Log.Logger(Log.HeaderSync).Info(ctx, "Running sync confirmation",
 			ion.Int("round", round))
 
 		newTag, synced, err := hs.SyncConfirmation(ctx, remotes)
 		if err != nil {
-			return fmt.Errorf("round %d sync confirmation failed: %w", round, err)
+			return nil, fmt.Errorf("round %d sync confirmation failed: %w", round, err)
 		}
 
 		if synced {
-			Log.Logger(namedlogger).Info(ctx, "HeaderSync completed — trees match",
+			Log.Logger(Log.HeaderSync).Info(ctx, "HeaderSync completed — trees match",
 				ion.Int("rounds_taken", round))
-			return nil
+
+			// Construct DataSyncRequest using the original identified tags.
+			return &datasyncpb.DataSyncRequest{
+				Tag:     originalTag,
+				Version: uint32(hs.SyncVars.Version),
+				Ack: &ackpb.Ack{
+					Ok:    true,
+					Error: "",
+				},
+				Phase: &phasepb.Phase{
+					PresentPhase:    constants.HEADER_SYNC_RESPONSE,
+					SuccessivePhase: constants.DATA_SYNC_REQUEST,
+					Success:         true,
+					Error:           "",
+				},
+			}, nil
 		}
 
 		// Trees still differ — enqueue the new batches for the next round
 		queue = buildBatches(newTag)
-		Log.Logger(namedlogger).Info(ctx, "Sync confirmation found differences, re-enqueuing",
+		Log.Logger(Log.HeaderSync).Info(ctx, "Sync confirmation found differences, re-enqueuing",
 			ion.Int("new_batches", len(queue)))
 	}
 
-	return fmt.Errorf("header sync did not converge after %d rounds", maxSyncRounds)
+	return nil, fmt.Errorf("header sync did not converge after %d rounds", maxSyncRounds)
 }
 
 // processQueue concurrently fetches header batches using a worker pool and
@@ -176,7 +200,7 @@ func processQueue(
 		numWorkers = len(queue)
 	}
 
-	Log.Logger(namedlogger).Info(ctx, "Worker pool starting",
+	Log.Logger(Log.HeaderSync).Info(ctx, "Worker pool starting",
 		ion.Int("workers", numWorkers),
 		ion.Int("batches", len(queue)))
 
@@ -244,7 +268,7 @@ func processQueue(
 			if err != nil {
 				return fmt.Errorf("batch %d: WAL write failed: %w", r.BatchID, err)
 			}
-			Log.Logger(namedlogger).Info(ctx, "WAL event written",
+			Log.Logger(Log.HeaderSync).Info(ctx, "WAL event written",
 				ion.Int("batch", r.BatchID),
 				ion.Int64("lsn", int64(lsn)),
 				ion.Int("headers", len(r.Headers)))
@@ -252,11 +276,11 @@ func processQueue(
 			if err := hs.SyncVars.WAL.Flush(); err != nil {
 				return fmt.Errorf("batch %d: WAL flush failed: %w", r.BatchID, err)
 			}
-			Log.Logger(namedlogger).Info(ctx, "WAL flushed",
+			Log.Logger(Log.HeaderSync).Info(ctx, "WAL flushed",
 				ion.Int("batch", r.BatchID),
 				ion.Int64("last_flushed_lsn", int64(hs.SyncVars.WAL.GetLastFlushedLSN())))
 		} else {
-			Log.Logger(namedlogger).Warn(ctx, "WAL is nil — skipping WAL write",
+			Log.Logger(Log.HeaderSync).Warn(ctx, "WAL is nil — skipping WAL write",
 				ion.Int("batch", r.BatchID))
 		}
 
@@ -264,7 +288,7 @@ func processQueue(
 			return fmt.Errorf("batch %d: failed to write headers to DB: %w", r.BatchID, err)
 		}
 
-		Log.Logger(namedlogger).Info(ctx, "Batch written to DB",
+		Log.Logger(Log.HeaderSync).Info(ctx, "Batch written to DB",
 			ion.Int("batch", r.BatchID),
 			ion.Int("headers_written", len(r.Headers)),
 			ion.Int64("first_block", int64(r.Headers[0].BlockNumber)),
@@ -294,7 +318,7 @@ func fetchWorker(
 			childctx, cancel := context.WithCancel(ctx)
 
 			for attempt := 1; attempt <= maxRetries; attempt++ {
-				Log.Logger(namedlogger).Debug(childctx, "Worker sending header sync batch",
+				Log.Logger(Log.HeaderSync).Debug(childctx, "Worker sending header sync batch",
 					ion.Int("worker", workerID),
 					ion.Int("batch", job.BatchID),
 					ion.Int("attempt", attempt),
@@ -304,7 +328,7 @@ func fetchWorker(
 				if err != nil {
 					lastErr = fmt.Errorf("worker %d, batch %d, remote %s, attempt %d: %w",
 						workerID, job.BatchID, remote.PeerID.String(), attempt, err)
-					Log.Logger(namedlogger).Warn(childctx, "Header sync request failed",
+					Log.Logger(Log.HeaderSync).Warn(childctx, "Header sync request failed",
 						ion.Err(lastErr),
 						ion.Int("worker", workerID),
 						ion.Int("attempt", attempt))
@@ -315,7 +339,7 @@ func fetchWorker(
 				if resp.Ack != nil && !resp.Ack.Ok {
 					lastErr = fmt.Errorf("worker %d, batch %d: server returned error: %s",
 						workerID, job.BatchID, resp.Ack.Error)
-					Log.Logger(namedlogger).Warn(childctx, "Header sync response error",
+					Log.Logger(Log.HeaderSync).Warn(childctx, "Header sync response error",
 						ion.Err(lastErr),
 						ion.Int("worker", workerID),
 						ion.Int("attempt", attempt))
@@ -325,7 +349,7 @@ func fetchWorker(
 				if len(resp.Header) == 0 {
 					lastErr = fmt.Errorf("worker %d, batch %d: server returned 0 headers",
 						workerID, job.BatchID)
-					Log.Logger(namedlogger).Warn(childctx, "Empty header response",
+					Log.Logger(Log.HeaderSync).Warn(childctx, "Empty header response",
 						ion.Err(lastErr),
 						ion.Int("worker", workerID),
 						ion.Int("attempt", attempt))
@@ -340,7 +364,7 @@ func fetchWorker(
 				headers = resp.Header
 				success = true
 
-				Log.Logger(namedlogger).Info(childctx, "Batch fetched successfully",
+				Log.Logger(Log.HeaderSync).Info(childctx, "Batch fetched successfully",
 					ion.Int("worker", workerID),
 					ion.Int("batch", job.BatchID),
 					ion.Int("headers_received", len(headers)),
@@ -397,7 +421,7 @@ func (hs *HeaderSync) SyncConfirmation(ctx context.Context, remotes []*types.Nod
 		cancel()
 
 		if err != nil {
-			Log.Logger(namedlogger).Warn(ctx, "Sync confirmation failed with remote, trying next",
+			Log.Logger(Log.HeaderSync).Warn(ctx, "Sync confirmation failed with remote, trying next",
 				ion.String("peer", remote.PeerID.String()),
 				ion.Err(err))
 			continue
@@ -411,7 +435,7 @@ func (hs *HeaderSync) SyncConfirmation(ctx context.Context, remotes []*types.Nod
 			// Trees match — nil tag with successive phase DATA_SYNC_REQUEST
 			// confirms headers are in sync.
 			if resp.Headersync.Tag == nil && resp.Phase.SuccessivePhase == constants.DATA_SYNC_REQUEST {
-				Log.Logger(namedlogger).Info(ctx, "Sync confirmation: headers in sync, ready for data sync",
+				Log.Logger(Log.HeaderSync).Info(ctx, "Sync confirmation: headers in sync, ready for data sync",
 					ion.String("successive_phase", resp.Phase.SuccessivePhase))
 				return nil, true, nil
 			}
@@ -422,14 +446,14 @@ func (hs *HeaderSync) SyncConfirmation(ctx context.Context, remotes []*types.Nod
 			tag := resp.Headersync.Tag
 			totalRanges := len(tag.Range)
 			totalBlocks := len(tag.BlockNumber)
-			Log.Logger(namedlogger).Info(ctx, "Sync confirmation: still out of sync",
+			Log.Logger(Log.HeaderSync).Info(ctx, "Sync confirmation: still out of sync",
 				ion.Int("remaining_ranges", totalRanges),
 				ion.Int("remaining_blocks", totalBlocks))
 			return tag, false, nil
 		}
 
 		// No phase success and no tag — ambiguous, try next remote
-		Log.Logger(namedlogger).Warn(ctx, "Sync confirmation returned ambiguous response",
+		Log.Logger(Log.HeaderSync).Warn(ctx, "Sync confirmation returned ambiguous response",
 			ion.String("peer", remote.PeerID.String()))
 	}
 
