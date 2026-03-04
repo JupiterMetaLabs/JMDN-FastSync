@@ -233,13 +233,16 @@ func (s *Sync) HandleDataSync(ctx context.Context, node host.Host) error {
 			return
 		}
 
-		remoteNodeInfo := &types.Nodeinfo{
-			PeerID:    str.Conn().RemotePeer(),
-			Multiaddr: []multiaddr.Multiaddr{str.Conn().RemoteMultiaddr()},
+		var remoteNodeInfo *types.Nodeinfo
+		if s.debug {
+			remoteNodeInfo = &types.Nodeinfo{
+				PeerID:    str.Conn().RemotePeer(),
+				Multiaddr: []multiaddr.Multiaddr{str.Conn().RemoteMultiaddr()},
+			}
 		}
 
 		// Route to Datarouter
-		resp := s.Datarouter.HandleDataSync(ctx, req, remoteNodeInfo)
+		resp := s.Datarouter.HandleDataSync(ctx, req)
 		s.Debug(ctx, constants.DataSyncProtocol, node, remoteNodeInfo)
 
 		// Send response
@@ -252,7 +255,7 @@ func (s *Sync) HandleDataSync(ctx context.Context, node host.Host) error {
 }
 
 func (s *Sync) Debug(ctx context.Context, protocol protocol.ID, node host.Host, remote *types.Nodeinfo) {
-	if s.debug {
+	if s.debug && remote != nil {
 		logging.Logger(logging.Sync).Info(ctx, "Sync Protocols Debug",
 			ion.String("protocol", string(protocol)),
 			ion.String("peerID", remote.PeerID.String()),
