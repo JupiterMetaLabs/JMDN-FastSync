@@ -191,11 +191,9 @@ func processQueue(
 		return nil
 	}
 
-	// Size the worker pool: min(maxWorkers, num remotes, num batches)
+	// Size the worker pool: min(maxWorkers, num batches)
+	// We do not cap by len(remotes) because a single remote can handle multiple concurrent batch requests.
 	numWorkers := maxWorkers
-	if len(remotes) < numWorkers {
-		numWorkers = len(remotes)
-	}
 	if len(queue) < numWorkers {
 		numWorkers = len(queue)
 	}
