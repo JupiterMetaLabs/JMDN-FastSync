@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/WAL"
 	ackpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/ack"
@@ -119,11 +120,9 @@ func processDataQueue(
 		return nil
 	}
 
-	// Size the worker pool: min(maxWorkers, num remotes, num batches)
+	// Size the worker pool: min(maxWorkers, num batches)
+	// We do not cap by len(remotes) because a single remote can handle multiple concurrent batch requests.
 	numWorkers := maxWorkers
-	if len(remotes) < numWorkers {
-		numWorkers = len(remotes)
-	}
 	if len(queue) < numWorkers {
 		numWorkers = len(queue)
 	}
@@ -217,13 +216,18 @@ func processDataQueue(
 		}
 
 		if ds.SyncVars.WAL != nil {
+			checkpointCreationTime := time.Now()
 			if _, err := ds.SyncVars.WAL.CreateCheckpoint(); err != nil {
+				checkpointEndTime := time.Now()
 				Log.Logger(Log.DataSync).Warn(ctx, "failed to create WAL checkpoint",
 					ion.Int("batch", r.BatchID),
-					ion.Err(err))
+					ion.Err(err),
+					ion.String("duration", checkpointCreationTime.Sub(checkpointEndTime).String()))
 			} else {
+				checkpointEndTime := time.Now()
 				Log.Logger(Log.DataSync).Info(ctx, "WAL checkpoint created",
-					ion.Int("batch", r.BatchID))
+					ion.Int("batch", r.BatchID),
+					ion.String("duration", checkpointCreationTime.Sub(checkpointEndTime).String()))
 			}
 		}
 
@@ -348,23 +352,40 @@ func buildDataBatches(tag *taggingpb.Tag, version uint16) []*datasyncpb.DataSync
 	var currentCount uint64
 
 	for _, r := range ranges {
-		rangeSize := r.End - r.Start + 1
+		currStart := r.Start
+		currEnd := r.End
 
-		// If adding this range would exceed the limit, finalize the current batch
-		if currentCount > 0 && currentCount+rangeSize > maxPerBatch {
-			batches = append(batches, makeDataBatchRequest(currentTag, version))
-			currentTag = &taggingpb.Tag{}
-			currentCount = 0
-		}
+		// Keep pulling chunks from this range until we've processed it all
+		for currStart <= currEnd {
+			remainingCapacity := maxPerBatch - currentCount
+			remainingPieces := currEnd - currStart + 1
 
-		currentTag.Range = append(currentTag.Range, r)
-		currentCount += rangeSize
+			if remainingPieces <= remainingCapacity {
+				// The rest of this range fits entirely in the current batch
+				currentTag.Range = append(currentTag.Range, &taggingpb.RangeTag{Start: currStart, End: currEnd})
+				currentCount += remainingPieces
+				currStart = currEnd + 1 // Done with this range
 
-		// If this single range already exceeds the limit, finalize immediately
-		if currentCount >= maxPerBatch {
-			batches = append(batches, makeDataBatchRequest(currentTag, version))
-			currentTag = &taggingpb.Tag{}
-			currentCount = 0
+				// If the batch exactly hit capacity, flush it
+				if currentCount == maxPerBatch {
+					batches = append(batches, makeDataBatchRequest(currentTag, version))
+					currentTag = &taggingpb.Tag{}
+					currentCount = 0
+				}
+			} else {
+				// We can only fit `remainingCapacity` from this range into the current batch
+				chunkEnd := currStart + remainingCapacity - 1
+				currentTag.Range = append(currentTag.Range, &taggingpb.RangeTag{Start: currStart, End: chunkEnd})
+				currentCount += remainingCapacity
+
+				// Batch is now full, finalize it
+				batches = append(batches, makeDataBatchRequest(currentTag, version))
+				currentTag = &taggingpb.Tag{}
+				currentCount = 0
+
+				// Advance currStart sequentially for the next sub-range
+				currStart = chunkEnd + 1
+			}
 		}
 	}
 
