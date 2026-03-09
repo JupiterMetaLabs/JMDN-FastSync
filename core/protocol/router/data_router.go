@@ -5,17 +5,11 @@ import (
 	"context"
 	"fmt"
 	"math"
-
-	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/communication"
-	merkle "github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/merkle"
-	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/router/helper"
-	merkle_types "github.com/JupiterMetaLabs/JMDN-FastSync/helper/merkle"
-	Log "github.com/JupiterMetaLabs/JMDN-FastSync/logging"
-	"github.com/JupiterMetaLabs/JMDN_Merkletree/merkletree"
-	"github.com/JupiterMetaLabs/ion"
+	"time"
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/checksum/checksum_priorsync"
 	ackpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/ack"
+	availabilitypb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/availability"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/block"
 	datasyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/datasync"
 	headerpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/headersync"
@@ -26,6 +20,14 @@ import (
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/constants"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/errors"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/core/availability"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/communication"
+	merkle "github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/merkle"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/router/helper"
+	merkle_types "github.com/JupiterMetaLabs/JMDN-FastSync/helper/merkle"
+	Log "github.com/JupiterMetaLabs/JMDN-FastSync/logging"
+	"github.com/JupiterMetaLabs/JMDN_Merkletree/merkletree"
+	"github.com/JupiterMetaLabs/ion"
 	libp2p_peer "github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
 )
@@ -211,6 +213,68 @@ func (router *Datarouter) HandleDataSync(ctx context.Context, req *datasyncpb.Da
 			},
 		}
 	}
+}
+
+func (router *Datarouter) HandleAvailability(ctx context.Context, req *availabilitypb.AvailabilityRequest, remote *types.Nodeinfo) *availabilitypb.AvailabilityResponse {
+	template := &availabilitypb.AvailabilityResponse{
+		IsAvailable: false,
+		Multiaddr:   make([]string, 0),
+		BlockMerge:  0,
+		UUID:        "",
+		Phase: &phasepb.Phase{
+			PresentPhase:    constants.AVAILABILITY_RESPONSE,
+			SuccessivePhase: constants.FAILURE,
+			Error:           "",
+			Success:         false,
+		},
+	}
+
+	if len(router.Nodeinfo.Multiaddr) == 0{
+		template.Phase.Error = "No Multiaddress to connect"
+		return template
+	}
+
+	fastsyncready := availability.FastsyncReady().AmIAvailable()
+	if fastsyncready {
+
+		loggerCtx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+		defer cancel()
+
+		// Calculate the blockmerge (current block height) of the present server
+		blockmerge, err := merkle.NewMerkleProof(router.Nodeinfo.BlockInfo).GenerateMerkleConfig(loggerCtx, req.Range.Start, req.Range.End)
+		if err != nil {
+			template.Phase.Error = err.Error()
+			return template
+		}
+
+		UUID := helper.GenerateUUID()
+
+		// MAKE AUTH Request
+		AUTH_err := router.Nodeinfo.BlockInfo.AUTH().AddRecord(remote.PeerID, UUID)
+		if AUTH_err != nil {
+			template.Phase.Error = AUTH_err.Error()
+			return template
+		}
+
+		template.BlockMerge = uint32(blockmerge.BlockMerge)
+
+		var multiaddrStr []string
+		for _, i := range(router.Nodeinfo.Multiaddr){
+			multiaddrStr = append(multiaddrStr, i.String())
+		}
+
+		template.Multiaddr = multiaddrStr
+
+		template.IsAvailable = true
+		template.Phase.SuccessivePhase = constants.SYNC_REQUEST
+		template.Phase.Success = true
+		template.UUID = UUID
+		template.Phase.Error = ""
+		return template
+	}
+	
+	template.Phase.Error = "Not available at this moment"
+	return template
 }
 
 func (router *Datarouter) SYNC_REQUEST_V2(ctx context.Context, req *priorsyncpb.PriorSync) *priorsyncpb.PriorSyncMessage {

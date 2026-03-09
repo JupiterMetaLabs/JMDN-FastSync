@@ -20,6 +20,7 @@ type MerkleProof struct {
 }
 
 type MerkleProofInterface interface {
+	GenerateMerkleConfig(logger_ctx context.Context, startBlock, endBlock uint64) (merkletree.Config, error)
 	GenerateMerkleTree(logger_ctx context.Context, startBlock, endBlock uint64) (*merkletree.Builder, error)
 	GenerateMerkleTreeWithConfig(logger_ctx context.Context, startBlock, endBlock uint64, config *merkletree.SnapshotConfig) (*merkletree.Builder, error)
 	ReconstructTree(logger_ctx context.Context, snap *merkletree.MerkleTreeSnapshot) (*merkletree.Builder, error)
@@ -28,6 +29,16 @@ type MerkleProofInterface interface {
 
 func NewMerkleProof(blockInfo types.BlockInfo) MerkleProofInterface {
 	return &MerkleProof{Blockinfo: blockInfo}
+}
+
+func (m *MerkleProof) GenerateMerkleConfig(logger_ctx context.Context, startBlock, endBlock uint64) (merkletree.Config, error){
+	
+	cfg := merkletree.Config{
+		ExpectedTotal: endBlock - startBlock + 1,
+		BlockMerge:    int(math.Ceil(float64(endBlock-startBlock+1) * 0.005)),
+	}
+
+	return cfg, nil
 }
 
 func (m *MerkleProof) GenerateMerkleTree(logger_ctx context.Context, startBlock, endBlock uint64) (*merkletree.Builder, error) {

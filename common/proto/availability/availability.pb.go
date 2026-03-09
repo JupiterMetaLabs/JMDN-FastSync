@@ -7,6 +7,7 @@
 package availability
 
 import (
+	merkle "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/merkle"
 	phase "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/phase"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
@@ -25,6 +26,7 @@ const (
 type AvailabilityRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	IsAvailable   bool                   `protobuf:"varint,1,opt,name=is_available,json=isAvailable,proto3" json:"is_available,omitempty"`
+	Range         *merkle.Range          `protobuf:"bytes,2,opt,name=range,proto3" json:"range,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -66,10 +68,17 @@ func (x *AvailabilityRequest) GetIsAvailable() bool {
 	return false
 }
 
+func (x *AvailabilityRequest) GetRange() *merkle.Range {
+	if x != nil {
+		return x.Range
+	}
+	return nil
+}
+
 type AvailabilityResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	IsAvailable   bool                   `protobuf:"varint,1,opt,name=is_available,json=isAvailable,proto3" json:"is_available,omitempty"`
-	Multiaddr     string                 `protobuf:"bytes,2,opt,name=multiaddr,proto3" json:"multiaddr,omitempty"`
+	Multiaddr     []string               `protobuf:"bytes,2,rep,name=multiaddr,proto3" json:"multiaddr,omitempty"`
 	BlockMerge    uint32                 `protobuf:"varint,3,opt,name=block_merge,json=blockMerge,proto3" json:"block_merge,omitempty"`
 	UUID          string                 `protobuf:"bytes,4,opt,name=UUID,proto3" json:"UUID,omitempty"`
 	Phase         *phase.Phase           `protobuf:"bytes,5,opt,name=phase,proto3" json:"phase,omitempty"`
@@ -114,11 +123,11 @@ func (x *AvailabilityResponse) GetIsAvailable() bool {
 	return false
 }
 
-func (x *AvailabilityResponse) GetMultiaddr() string {
+func (x *AvailabilityResponse) GetMultiaddr() []string {
 	if x != nil {
 		return x.Multiaddr
 	}
-	return ""
+	return nil
 }
 
 func (x *AvailabilityResponse) GetBlockMerge() uint32 {
@@ -146,12 +155,13 @@ var File_availability_availability_proto protoreflect.FileDescriptor
 
 const file_availability_availability_proto_rawDesc = "" +
 	"\n" +
-	"\x1favailability/availability.proto\x12\favailability\x1a\x11phase/phase.proto\"8\n" +
+	"\x1favailability/availability.proto\x12\favailability\x1a\x11phase/phase.proto\x1a\x13merkle/merkle.proto\"]\n" +
 	"\x13AvailabilityRequest\x12!\n" +
-	"\fis_available\x18\x01 \x01(\bR\visAvailable\"\xb0\x01\n" +
+	"\fis_available\x18\x01 \x01(\bR\visAvailable\x12#\n" +
+	"\x05range\x18\x02 \x01(\v2\r.merkle.rangeR\x05range\"\xb0\x01\n" +
 	"\x14AvailabilityResponse\x12!\n" +
 	"\fis_available\x18\x01 \x01(\bR\visAvailable\x12\x1c\n" +
-	"\tmultiaddr\x18\x02 \x01(\tR\tmultiaddr\x12\x1f\n" +
+	"\tmultiaddr\x18\x02 \x03(\tR\tmultiaddr\x12\x1f\n" +
 	"\vblock_merge\x18\x03 \x01(\rR\n" +
 	"blockMerge\x12\x12\n" +
 	"\x04UUID\x18\x04 \x01(\tR\x04UUID\x12\"\n" +
@@ -173,15 +183,17 @@ var file_availability_availability_proto_msgTypes = make([]protoimpl.MessageInfo
 var file_availability_availability_proto_goTypes = []any{
 	(*AvailabilityRequest)(nil),  // 0: availability.AvailabilityRequest
 	(*AvailabilityResponse)(nil), // 1: availability.AvailabilityResponse
-	(*phase.Phase)(nil),          // 2: phase.Phase
+	(*merkle.Range)(nil),         // 2: merkle.range
+	(*phase.Phase)(nil),          // 3: phase.Phase
 }
 var file_availability_availability_proto_depIdxs = []int32{
-	2, // 0: availability.AvailabilityResponse.phase:type_name -> phase.Phase
-	1, // [1:1] is the sub-list for method output_type
-	1, // [1:1] is the sub-list for method input_type
-	1, // [1:1] is the sub-list for extension type_name
-	1, // [1:1] is the sub-list for extension extendee
-	0, // [0:1] is the sub-list for field type_name
+	2, // 0: availability.AvailabilityRequest.range:type_name -> merkle.range
+	3, // 1: availability.AvailabilityResponse.phase:type_name -> phase.Phase
+	2, // [2:2] is the sub-list for method output_type
+	2, // [2:2] is the sub-list for method input_type
+	2, // [2:2] is the sub-list for extension type_name
+	2, // [2:2] is the sub-list for extension extendee
+	0, // [0:2] is the sub-list for field type_name
 }
 
 func init() { file_availability_availability_proto_init() }

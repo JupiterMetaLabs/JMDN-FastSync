@@ -1,17 +1,33 @@
 package availability
 
+import "sync"
+
 var (
-	availability = false
+	fastsyncAvailability *fastsyncready
+	once                 sync.Once
 )
 
-func AmIAvailable() bool {
-	return availability
+type fastsyncready struct {
+	availability bool
 }
 
-func IAmAvailable() {
-	availability = true
+func FastsyncReady() *fastsyncready {
+	once.Do(func() {
+		fastsyncAvailability = &fastsyncready{
+			availability: false,
+		}
+	})
+	return fastsyncAvailability
 }
 
-func IAmNotAvailable() {
-	availability = false
+func (fs *fastsyncready) AmIAvailable() bool {
+	return fs.availability
+}
+
+func (fs *fastsyncready) IAmAvailable() {
+	fs.availability = true
+}
+
+func (fs *fastsyncready) IAmNotAvailable() {
+	fs.availability = false
 }

@@ -30,6 +30,7 @@ type Sync struct {
 }
 
 type sync_interface interface {
+	HandleAuth(ctx context.Context, node host.Host) error
 	HandlePriorSync(ctx context.Context, node host.Host) error
 	HandleMerkle(ctx context.Context, node host.Host) error
 	HandleHeaderSync(ctx context.Context, node host.Host) error
@@ -43,6 +44,10 @@ func NewSyncHandler(nodeinfo *types.Nodeinfo, comm communication.Communicator, d
 		nodeinfo:   nodeinfo,
 		Datarouter: router.NewDatarouter(nodeinfo, comm),
 	}
+}
+
+func(s *Sync) HandleAuth(ctx context.Context, node host.Host) error{
+	return nil
 }
 
 func (s *Sync) HandlePriorSync(ctx context.Context, node host.Host) error {
