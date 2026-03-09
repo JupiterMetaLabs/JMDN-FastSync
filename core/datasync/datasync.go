@@ -216,6 +216,17 @@ func processDataQueue(
 			return fmt.Errorf("batch %d: failed to write non-headers to DB: %w", r.BatchID, err)
 		}
 
+		if ds.SyncVars.WAL != nil {
+			if _, err := ds.SyncVars.WAL.CreateCheckpoint(); err != nil {
+				Log.Logger(Log.DataSync).Warn(ctx, "failed to create WAL checkpoint",
+					ion.Int("batch", r.BatchID),
+					ion.Err(err))
+			} else {
+				Log.Logger(Log.DataSync).Info(ctx, "WAL checkpoint created",
+					ion.Int("batch", r.BatchID))
+			}
+		}
+
 		Log.Logger(Log.DataSync).Info(ctx, "Batch written to DB",
 			ion.Int("batch", r.BatchID),
 			ion.Int("nonheaders_written", len(r.NonHeaders)),
