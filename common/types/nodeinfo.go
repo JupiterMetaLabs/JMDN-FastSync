@@ -1,6 +1,8 @@
 package types
 
 import (
+	"time"
+
 	blockpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/block"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
@@ -22,7 +24,13 @@ type Nodeinfo struct {
 	BlockInfo    BlockInfo
 }
 
+type AUTHStructure struct {
+	UUID string
+	TTL  time.Time
+}
+
 type BlockInfo interface {
+	AUTH() AUTHHandler
 	GetBlockNumber() uint64
 	GetBlockDetails() PriorSync
 	NewBlockIterator(start, end uint64, batchsize int) BlockIterator
@@ -54,4 +62,27 @@ type WriteHeaders interface {
 
 type WriteData interface {
 	WriteData(data []*blockpb.NonHeaders) error
+}
+
+type AUTHHandler interface{
+	/* 
+	   This will add record to the cache table, 
+	   also if already exist then it is designed to reset the timer for that record
+	*/
+	AddRecord(PeerID peer.ID, UUID string) error
+
+	/* 
+	   This will remove record from the cache table
+	*/
+	RemoveRecord(PeerID peer.ID) error
+
+	/* 
+	   This will get record from the cache table
+	*/
+	GetRecord(PeerID peer.ID) (AUTHStructure, error)
+
+	/* 
+	   This will check if the record is present in the cache table [PeerID : UUID] with valid TTL
+	*/
+	IsAUTH(PeerID peer.ID, UUID string) bool
 }

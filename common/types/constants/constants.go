@@ -28,10 +28,17 @@ const (
 
 	DATA_SYNC_REQUEST  = "state:datasync:datasyncrequest"
 	DATA_SYNC_RESPONSE = "state:datasync:datasyncresponse"
+
+	AVAILABILITY_REQUEST = "state:availability:availabilityrequest"
+	AVAILABILITY_RESPONSE = "state:availability:availabilityresponse"
 )
 
 const (
 	PriorSyncVersion = 1
+)
+
+const (
+	AUTH_TTL = 2 * time.Minute
 )
 
 const (

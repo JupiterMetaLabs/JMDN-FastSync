@@ -1,0 +1,20 @@
+syntax = "proto3";
+
+package availability;
+
+option go_package = "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/availability";
+import "phase/phase.proto";
+import "merkle/merkle.proto";
+
+message AvailabilityRequest {
+    bool is_available = 1;
+    merkle.range range = 2;
+}
+
+message AvailabilityResponse {
+    bool is_available = 1;
+    repeated string multiaddr = 2;
+    uint32 block_merge = 3;
+    string UUID = 4;
+    phase.Phase phase = 5;
+}
