@@ -8,6 +8,7 @@ import (
 	"github.com/JupiterMetaLabs/JMDN-FastSync/logging"
 	"github.com/JupiterMetaLabs/ion"
 
+	availabilitypb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/availability"
 	datasyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/datasync"
 	headerpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/headersync"
 	merklepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/merkle"
@@ -30,7 +31,7 @@ type Sync struct {
 }
 
 type sync_interface interface {
-	HandleAuth(ctx context.Context, node host.Host) error
+	HandleAvailability(ctx context.Context, node host.Host) error
 	HandlePriorSync(ctx context.Context, node host.Host) error
 	HandleMerkle(ctx context.Context, node host.Host) error
 	HandleHeaderSync(ctx context.Context, node host.Host) error
@@ -46,7 +47,41 @@ func NewSyncHandler(nodeinfo *types.Nodeinfo, comm communication.Communicator, d
 	}
 }
 
-func(s *Sync) HandleAuth(ctx context.Context, node host.Host) error{
+func (s *Sync) HandleAvailability(ctx context.Context, node host.Host) error {
+	node.SetStreamHandler(constants.AvailabilityProtocol, func(str network.Stream) {
+		defer str.Close()
+
+		// refuse work if shutting down
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		_ = str.SetReadDeadline(time.Now().Add(10 * time.Second))
+		defer str.SetReadDeadline(time.Time{})
+
+		req := &availabilitypb.AvailabilityRequest{}
+		if err := pbstream.ReadDelimited(str, req); err != nil {
+			return
+		}
+
+		// Requested remote peer
+		remoteNodeInfo := &types.Nodeinfo{
+			PeerID:    str.Conn().RemotePeer(),
+			Multiaddr: []multiaddr.Multiaddr{str.Conn().RemoteMultiaddr()},
+		}
+
+		// Route to Datarouter
+		resp := s.Datarouter.HandleAvailability(ctx, req, remoteNodeInfo)
+		s.Debug(ctx, constants.AvailabilityProtocol, node, remoteNodeInfo)
+
+		// Send response
+		_ = str.SetWriteDeadline(time.Now().Add(10 * time.Second))
+		defer str.SetWriteDeadline(time.Time{})
+
+		_ = pbstream.WriteDelimited(str, resp)
+	})
 	return nil
 }
 

@@ -229,6 +229,11 @@ func (router *Datarouter) HandleAvailability(ctx context.Context, req *availabil
 		},
 	}
 
+	if req.Range == nil{
+		template.Phase.Error = "range cannot be nil"
+		return template
+	}
+
 	if len(router.Nodeinfo.Multiaddr) == 0{
 		template.Phase.Error = "No Multiaddress to connect"
 		return template
