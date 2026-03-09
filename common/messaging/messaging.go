@@ -262,6 +262,22 @@ type streamConfig[E proto.Message] struct {
 
 // sendProtoDelimitedWithHeartbeatGeneric is the shared implementation for both
 // SendProtoDelimitedWithHeartbeat and SendDataSyncProtoDelimitedWithHeartbeat.
+
+// It sends a protocol buffer request and waits for a response, while keeping
+// the connection alive by resetting the read deadline every time a heartbeat
+// message is received. This is useful for long-running remote operations (e.g.
+// heavy DB reads) where the remote peer sends periodic heartbeats to prevent
+// timeouts.
+//
+// Parameters:
+//   - ctx: Context for the stream configuration.
+//   - version: Protocol version, used for transport selection (e.g. QUIC vs TCP).
+//   - host: The libp2p host instance.
+//   - peerInfo: The target peer's address info.
+//   - protocolID: The protocol string identifier to negotiate.
+//   - request: The protobuf message to send to the remote peer.
+//   - cfg: A streamConfig containing type-specific callbacks for allocating,
+//     evaluating, and merging the stream envelope type.
 func sendProtoDelimitedWithHeartbeatGeneric[E proto.Message](
 	ctx context.Context,
 	version uint16,
@@ -281,6 +297,7 @@ func sendProtoDelimitedWithHeartbeatGeneric[E proto.Message](
 		return errors.New("peer has no addresses")
 	}
 
+	// 1. Select primary and fallback transports based on protocol version
 	primaryAddr, fallbackAddr, err := SelectTransportAddrWithFallback(peerInfo.Addrs, version)
 	if err != nil {
 		return fmt.Errorf("transport selection failed: %w", err)
@@ -291,11 +308,13 @@ func sendProtoDelimitedWithHeartbeatGeneric[E proto.Message](
 		Addrs: []multiaddr.Multiaddr{primaryAddr},
 	}
 
+	// 2. Attempt connection with primary transport
 	connectCtx, cancel := context.WithTimeout(ctx, constants.StreamDeadline)
 	defer cancel()
 
 	connectErr := host.Connect(connectCtx, targetPeer)
 
+	// 3. Fallback to TCP if V2+ and primary (QUIC) failed
 	if connectErr != nil && version >= 2 && fallbackAddr != nil {
 		fmt.Printf("Primary transport failed (err=%v), attempting TCP fallback...\n", connectErr)
 		targetPeer.Addrs = []multiaddr.Multiaddr{fallbackAddr}
@@ -309,12 +328,14 @@ func sendProtoDelimitedWithHeartbeatGeneric[E proto.Message](
 		return fmt.Errorf("failed to connect to peer %s at %v: %w", peerInfo.ID, targetPeer.Addrs, connectErr)
 	}
 
+	// 4. Create the stream
 	stream, err := host.NewStream(ctx, peerInfo.ID, protocolID)
 	if err != nil {
 		return fmt.Errorf("failed to create stream: %w", err)
 	}
 	defer stream.Close()
 
+	// 5. Write the initial request
 	if err := stream.SetWriteDeadline(time.Now().Add(constants.StreamDeadline)); err != nil {
 		return fmt.Errorf("failed to set write deadline: %w", err)
 	}
@@ -324,6 +345,8 @@ func sendProtoDelimitedWithHeartbeatGeneric[E proto.Message](
 		return fmt.Errorf("failed to write request: %w", err)
 	}
 
+	// 6. Heartbeat read loop
+	// Read envelopes until we get the final response. Each heartbeat resets the read deadline.
 	for {
 		if err := stream.SetReadDeadline(time.Now().Add(constants.StreamDeadline)); err != nil {
 			return fmt.Errorf("failed to set read deadline: %w", err)
@@ -335,9 +358,11 @@ func sendProtoDelimitedWithHeartbeatGeneric[E proto.Message](
 		}
 
 		if cfg.isHeartbeat(envelope) {
+			// Heartbeat received — loop around to read next envelope and reset deadline.
 			continue
 		}
 
+		// Final response — copy into caller's struct natively and exit.
 		if err := cfg.mergeResponse(envelope); err != nil {
 			return err
 		}
