@@ -3,12 +3,34 @@ package example
 import (
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/block"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
+	"github.com/libp2p/go-libp2p/core/peer"
 )
 
 type example_blockinfo struct{}
 
 func NewExampleBlockInfo() types.BlockInfo {
 	return example_blockinfo{}
+}
+type example_authhandler struct{}
+
+func (e example_blockinfo) AUTH() types.AUTHHandler {
+	return &example_authhandler{}
+}
+
+func (e example_authhandler) AddRecord(peerID peer.ID, UUID string) error {
+	return nil
+}
+
+func (e example_authhandler) RemoveRecord(peerID peer.ID) error {
+	return nil
+}
+
+func (e example_authhandler) GetRecord(peerID peer.ID) (types.AUTHStructure, error) {
+	return types.AUTHStructure{}, nil
+}
+
+func (e example_authhandler) IsAUTH(peerID peer.ID, UUID string) bool {
+	return false
 }
 
 func (e example_blockinfo) GetBlockNumber() uint64 {

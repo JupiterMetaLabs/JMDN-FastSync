@@ -35,6 +35,10 @@ const (
 )
 
 const (
+	AUTH_TTL = 2 * time.Minute
+)
+
+const (
 	MAX_HEADERS_PER_REQUEST = 1500
 	MAX_DATA_PER_REQUEST    = 30
 	MIN_BLOCKS              = 500 // if number of blocks in the client is less than 500 then do the full sync.
