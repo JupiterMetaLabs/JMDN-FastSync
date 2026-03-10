@@ -395,6 +395,7 @@ type MerkleRequestMessage struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Request       *MerkleRequest         `protobuf:"bytes,1,opt,name=request,proto3" json:"request,omitempty"`
 	Ack           *ack.Ack               `protobuf:"bytes,2,opt,name=ack,proto3" json:"ack,omitempty"`
+	Phase         *phase.Phase           `protobuf:"bytes,3,opt,name=phase,proto3" json:"phase,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -439,6 +440,13 @@ func (x *MerkleRequestMessage) GetRequest() *MerkleRequest {
 func (x *MerkleRequestMessage) GetAck() *ack.Ack {
 	if x != nil {
 		return x.Ack
+	}
+	return nil
+}
+
+func (x *MerkleRequestMessage) GetPhase() *phase.Phase {
+	if x != nil {
+		return x.Phase
 	}
 	return nil
 }
@@ -528,10 +536,11 @@ const file_merkle_merkle_proto_rawDesc = "" +
 	"\rMerkleMessage\x122\n" +
 	"\bsnapshot\x18\x01 \x01(\v2\x16.merkle.MerkleSnapshotR\bsnapshot\x12\x1a\n" +
 	"\x03ack\x18\x02 \x01(\v2\b.ack.AckR\x03ack\x12\"\n" +
-	"\x05phase\x18\x03 \x01(\v2\f.phase.PhaseR\x05phase\"c\n" +
+	"\x05phase\x18\x03 \x01(\v2\f.phase.PhaseR\x05phase\"\x87\x01\n" +
 	"\x14MerkleRequestMessage\x12/\n" +
 	"\arequest\x18\x01 \x01(\v2\x15.merkle.MerkleRequestR\arequest\x12\x1a\n" +
-	"\x03ack\x18\x02 \x01(\v2\b.ack.AckR\x03ack\"/\n" +
+	"\x03ack\x18\x02 \x01(\v2\b.ack.AckR\x03ack\x12\"\n" +
+	"\x05phase\x18\x03 \x01(\v2\f.phase.PhaseR\x05phase\"/\n" +
 	"\x05range\x12\x14\n" +
 	"\x05start\x18\x01 \x01(\x04R\x05start\x12\x10\n" +
 	"\x03end\x18\x02 \x01(\x04R\x03endB>Z<github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/merkleb\x06proto3"
@@ -571,11 +580,12 @@ var file_merkle_merkle_proto_depIdxs = []int32{
 	8,  // 7: merkle.MerkleMessage.phase:type_name -> phase.Phase
 	3,  // 8: merkle.MerkleRequestMessage.request:type_name -> merkle.MerkleRequest
 	7,  // 9: merkle.MerkleRequestMessage.ack:type_name -> ack.Ack
-	10, // [10:10] is the sub-list for method output_type
-	10, // [10:10] is the sub-list for method input_type
-	10, // [10:10] is the sub-list for extension type_name
-	10, // [10:10] is the sub-list for extension extendee
-	0,  // [0:10] is the sub-list for field type_name
+	8,  // 10: merkle.MerkleRequestMessage.phase:type_name -> phase.Phase
+	11, // [11:11] is the sub-list for method output_type
+	11, // [11:11] is the sub-list for method input_type
+	11, // [11:11] is the sub-list for extension type_name
+	11, // [11:11] is the sub-list for extension extendee
+	0,  // [0:11] is the sub-list for field type_name
 }
 
 func init() { file_merkle_merkle_proto_init() }

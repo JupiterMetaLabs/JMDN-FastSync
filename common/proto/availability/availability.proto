@@ -8,7 +8,6 @@ import "merkle/merkle.proto";
 import "availability/auth/auth.proto";
 
 message AvailabilityRequest {
-    bool is_available = 1;
     merkle.range range = 2;
 }
 

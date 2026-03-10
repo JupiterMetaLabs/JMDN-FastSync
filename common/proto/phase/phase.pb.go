@@ -28,7 +28,7 @@ type Phase struct {
 	SuccessivePhase string                 `protobuf:"bytes,2,opt,name=successive_phase,json=successivePhase,proto3" json:"successive_phase,omitempty"`
 	Success         bool                   `protobuf:"varint,4,opt,name=success,proto3" json:"success,omitempty"` // True if request is valid/accepted
 	Error           string                 `protobuf:"bytes,5,opt,name=error,proto3" json:"error,omitempty"`      // Reason if success is false
-	Auth            *auth.Auth             `protobuf:"bytes,6,opt,name=auth,proto3" json:"auth,omitempty"`
+	Auth            *auth.Auth             `protobuf:"bytes,6,opt,name=auth,proto3" json:"auth,omitempty"`        // This is the UUID token of the client for authentication. dont try to send the server UUID.
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }

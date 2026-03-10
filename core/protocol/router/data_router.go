@@ -38,45 +38,20 @@ const (
 )
 
 type Datarouter struct {
-	Nodeinfo *types.Nodeinfo
-	Comm     communication.Communicator
+	Nodeinfo            *types.Nodeinfo
+	Comm                communication.Communicator
+	clientGeneratedUUID string
 }
 
 func NewDatarouter(nodeinfo *types.Nodeinfo, comm communication.Communicator) *Datarouter {
 	return &Datarouter{
 		Nodeinfo: nodeinfo,
-		Comm:     comm,
+		Comm: comm,
+		clientGeneratedUUID: "",
 	}
 }
 
-/*
-	Let the authentication happens in the Data Router itself rather than doing it outside.
-*/
-func (router *Datarouter) Authenticate(ctx context.Context, auth_req *authpb.Auth, remote *types.Nodeinfo) (bool, error) {
-	if auth_req == nil || auth_req.UUID == "" {
-		return false, fmt.Errorf("authentication request is nil or UUID is empty")
-	}
-	if !availability.FastsyncReady().AmIAvailable() {
-		return false, fmt.Errorf("node is not available for fast sync")
-	}
-	is_authenticated, err := router.Nodeinfo.BlockInfo.AUTH().IsAUTH(remote.PeerID, auth_req.UUID)
-	if err != nil {
-		Log.Logger(namedlogger).Error(ctx, "Error checking authentication", err)
-		return false, err
-	}
-	return is_authenticated, nil
-}
 
-/*
-	After the authentication let reset the TTL
-*/
-func (router *Datarouter) ResetTTL(ctx context.Context, auth_req *authpb.Auth, remote *types.Nodeinfo) error {
-	if auth_req == nil || auth_req.UUID == "" {
-		return fmt.Errorf("authentication request is nil or UUID is empty")
-	}
-	// Reset the TTL for the remote node
-	return router.Nodeinfo.BlockInfo.AUTH().ResetTTL(remote.PeerID)
-}
 
 func (router *Datarouter) HandlePriorSync(ctx context.Context, req *priorsyncpb.PriorSyncMessage, remote *types.Nodeinfo) *priorsyncpb.PriorSyncMessage {
 	// Extract state from metadata
@@ -96,6 +71,7 @@ func (router *Datarouter) HandlePriorSync(ctx context.Context, req *priorsyncpb.
 		}
 	}
 
+	// Authenticate the request
 	if req.Phase.Auth == nil || req.Phase.Auth.UUID == "" {
 		return &priorsyncpb.PriorSyncMessage{
 			Priorsync: req.Priorsync,
@@ -111,6 +87,30 @@ func (router *Datarouter) HandlePriorSync(ctx context.Context, req *priorsyncpb.
 			},
 		}
 	}
+
+	authenticated, err := router.Authenticate(ctx, req.Phase.Auth, remote)
+	if err != nil || !authenticated {
+		return &priorsyncpb.PriorSyncMessage{
+			Priorsync: req.Priorsync,
+			Ack: &ackpb.Ack{
+				Ok:    false,
+				Error: "authentication failed",
+			},
+			Phase: &phasepb.Phase{
+				PresentPhase:    constants.UNKNOWN,
+				SuccessivePhase: constants.FAILURE,
+				Success:         false,
+				Error:           "authentication failed",
+			},
+		}
+	}
+
+	// Defer TTL reset
+	defer func() {
+		if resetErr := router.ResetTTL(ctx, req.Phase.Auth, remote); resetErr != nil {
+			Log.Logger(namedlogger).Error(ctx, "Failed to reset TTL", resetErr)
+		}
+	}()
 
 	state := req.Phase.PresentPhase
 
@@ -180,7 +180,44 @@ func (router *Datarouter) HandleMerkle(ctx context.Context, merkleReq *merklepb.
 			},
 		}
 	}
-	
+
+	if merkleReq.Phase == nil || merkleReq.Phase.Auth == nil || merkleReq.Phase.Auth.UUID == "" {
+		return &merklepb.MerkleMessage{
+			Ack: &ackpb.Ack{
+				Ok:    false,
+				Error: "authentication required",
+			},
+			Phase: &phasepb.Phase{
+				PresentPhase:    constants.REQUEST_MERKLE,
+				SuccessivePhase: constants.FAILURE,
+				Success:         false,
+				Error:           "authentication required",
+			},
+		}
+	}
+
+	authenticated, err := router.Authenticate(ctx, merkleReq.Phase.Auth, remote)
+	if err != nil || !authenticated {
+		return &merklepb.MerkleMessage{
+			Ack: &ackpb.Ack{
+				Ok:    false,
+				Error: "authentication failed",
+			},
+			Phase: &phasepb.Phase{
+				PresentPhase:    constants.REQUEST_MERKLE,
+				SuccessivePhase: constants.FAILURE,
+				Success:         false,
+				Error:           "authentication failed",
+			},
+		}
+	}
+
+	// Defer TTL reset
+	defer func() {
+		if resetErr := router.ResetTTL(ctx, merkleReq.Phase.Auth, remote); resetErr != nil {
+			Log.Logger(namedlogger).Error(ctx, "Failed to reset TTL", resetErr)
+		}
+	}()
 
 	merkleRange := &merklepb.Range{
 		Start: merkleReq.Request.Start,
@@ -192,7 +229,8 @@ func (router *Datarouter) HandleMerkle(ctx context.Context, merkleReq *merklepb.
 	return router.REQUEST_MERKLE(ctx, merkleRange, merkleReq.Request.Config, remote)
 }
 
-func (router *Datarouter) HandleHeaderSync(ctx context.Context, headerSyncReq *headerpb.HeaderSyncRequest) *headerpb.HeaderSyncResponse {
+func (router *Datarouter) HandleHeaderSync(ctx context.Context, headerSyncReq *headerpb.HeaderSyncRequest, remote *types.Nodeinfo) *headerpb.HeaderSyncResponse {
+	// Authenticate the request
 	if headerSyncReq.Phase.Auth == nil || headerSyncReq.Phase.Auth.UUID == "" {
 		return &headerpb.HeaderSyncResponse{
 			Ack: &ackpb.Ack{
@@ -207,6 +245,29 @@ func (router *Datarouter) HandleHeaderSync(ctx context.Context, headerSyncReq *h
 			},
 		}
 	}
+
+	authenticated, err := router.Authenticate(ctx, headerSyncReq.Phase.Auth, remote)
+	if err != nil || !authenticated {
+		return &headerpb.HeaderSyncResponse{
+			Ack: &ackpb.Ack{
+				Ok:    false,
+				Error: "authentication failed",
+			},
+			Phase: &phasepb.Phase{
+				PresentPhase:    constants.UNKNOWN,
+				SuccessivePhase: constants.FAILURE,
+				Success:         false,
+				Error:           "authentication failed",
+			},
+		}
+	}
+
+	// Defer TTL reset
+	defer func() {
+		if resetErr := router.ResetTTL(ctx, headerSyncReq.Phase.Auth, remote); resetErr != nil {
+			Log.Logger(namedlogger).Error(ctx, "Failed to reset TTL", resetErr)
+		}
+	}()
 
 	switch headerSyncReq.Phase.PresentPhase {
 	case constants.HEADER_SYNC_REQUEST:
@@ -242,7 +303,8 @@ func (router *Datarouter) HandleHeaderSync(ctx context.Context, headerSyncReq *h
 	}
 }
 
-func (router *Datarouter) HandleDataSync(ctx context.Context, req *datasyncpb.DataSyncRequest) *datasyncpb.DataSyncResponse {
+func (router *Datarouter) HandleDataSync(ctx context.Context, req *datasyncpb.DataSyncRequest, remote *types.Nodeinfo) *datasyncpb.DataSyncResponse {
+	// Authenticate the request
 	if req.Phase.Auth == nil || req.Phase.Auth.UUID == "" {
 		return &datasyncpb.DataSyncResponse{
 			Ack: &ackpb.Ack{
@@ -257,7 +319,30 @@ func (router *Datarouter) HandleDataSync(ctx context.Context, req *datasyncpb.Da
 			},
 		}
 	}
-	
+
+	authenticated, err := router.Authenticate(ctx, req.Phase.Auth, remote)
+	if err != nil || !authenticated {
+		return &datasyncpb.DataSyncResponse{
+			Ack: &ackpb.Ack{
+				Ok:    false,
+				Error: "authentication failed",
+			},
+			Phase: &phasepb.Phase{
+				PresentPhase:    constants.UNKNOWN,
+				SuccessivePhase: constants.FAILURE,
+				Success:         false,
+				Error:           "authentication failed",
+			},
+		}
+	}
+
+	// Defer TTL reset
+	defer func() {
+		if resetErr := router.ResetTTL(ctx, req.Phase.Auth, remote); resetErr != nil {
+			Log.Logger(namedlogger).Error(ctx, "Failed to reset TTL", resetErr)
+		}
+	}()
+
 	switch req.Phase.PresentPhase {
 	case constants.DATA_SYNC_REQUEST:
 		if req == nil || req.Tag == nil {

@@ -26,7 +26,6 @@ const (
 
 type AvailabilityRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	IsAvailable   bool                   `protobuf:"varint,1,opt,name=is_available,json=isAvailable,proto3" json:"is_available,omitempty"`
 	Range         *merkle.Range          `protobuf:"bytes,2,opt,name=range,proto3" json:"range,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
@@ -60,13 +59,6 @@ func (x *AvailabilityRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use AvailabilityRequest.ProtoReflect.Descriptor instead.
 func (*AvailabilityRequest) Descriptor() ([]byte, []int) {
 	return file_availability_availability_proto_rawDescGZIP(), []int{0}
-}
-
-func (x *AvailabilityRequest) GetIsAvailable() bool {
-	if x != nil {
-		return x.IsAvailable
-	}
-	return false
 }
 
 func (x *AvailabilityRequest) GetRange() *merkle.Range {
@@ -156,9 +148,8 @@ var File_availability_availability_proto protoreflect.FileDescriptor
 
 const file_availability_availability_proto_rawDesc = "" +
 	"\n" +
-	"\x1favailability/availability.proto\x12\favailability\x1a\x11phase/phase.proto\x1a\x13merkle/merkle.proto\x1a\x1cavailability/auth/auth.proto\"]\n" +
-	"\x13AvailabilityRequest\x12!\n" +
-	"\fis_available\x18\x01 \x01(\bR\visAvailable\x12#\n" +
+	"\x1favailability/availability.proto\x12\favailability\x1a\x11phase/phase.proto\x1a\x13merkle/merkle.proto\x1a\x1cavailability/auth/auth.proto\":\n" +
+	"\x13AvailabilityRequest\x12#\n" +
 	"\x05range\x18\x02 \x01(\v2\r.merkle.rangeR\x05range\"\xbc\x01\n" +
 	"\x14AvailabilityResponse\x12!\n" +
 	"\fis_available\x18\x01 \x01(\bR\visAvailable\x12\x1c\n" +

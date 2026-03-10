@@ -54,6 +54,7 @@ message MerkleMessage{
 message MerkleRequestMessage{
     MerkleRequest request = 1;
     ack.Ack ack = 2;
+    phase.Phase phase = 3;
 }
 
 message range{

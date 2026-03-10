@@ -233,16 +233,14 @@ func (s *Sync) HandleHeaderSync(ctx context.Context, node host.Host) error {
 			return
 		}
 
-		var remoteNodeInfo *types.Nodeinfo
-		if s.debug {
-			remoteNodeInfo = &types.Nodeinfo{
-				PeerID:    str.Conn().RemotePeer(),
-				Multiaddr: []multiaddr.Multiaddr{str.Conn().RemoteMultiaddr()},
-			}
+		// Always create remoteNodeInfo for authentication
+		remoteNodeInfo := &types.Nodeinfo{
+			PeerID:    str.Conn().RemotePeer(),
+			Multiaddr: []multiaddr.Multiaddr{str.Conn().RemoteMultiaddr()},
 		}
 
 		// Route to Datarouter
-		resp := s.Datarouter.HandleHeaderSync(ctx, req)
+		resp := s.Datarouter.HandleHeaderSync(ctx, req, remoteNodeInfo)
 		s.Debug(ctx, constants.HeaderSyncProtocol, node, remoteNodeInfo)
 
 		// Send response
@@ -274,12 +272,11 @@ func (s *Sync) HandleDataSync(ctx context.Context, node host.Host) error {
 		}
 
 		var remoteNodeInfo *types.Nodeinfo
-		if s.debug {
-			remoteNodeInfo = &types.Nodeinfo{
-				PeerID:    str.Conn().RemotePeer(),
-				Multiaddr: []multiaddr.Multiaddr{str.Conn().RemoteMultiaddr()},
-			}
+		remoteNodeInfo = &types.Nodeinfo{
+			PeerID:    str.Conn().RemotePeer(),
+			Multiaddr: []multiaddr.Multiaddr{str.Conn().RemoteMultiaddr()},
 		}
+
 
 		// ── Start heartbeat goroutine ──────────────────────────────────
 		computeCtx, computeCancel := context.WithCancel(ctx)
@@ -321,7 +318,7 @@ func (s *Sync) HandleDataSync(ctx context.Context, node host.Host) error {
 		}()
 
 		// ── Run the (potentially long) computation ────────────────────
-		resp := s.Datarouter.HandleDataSync(computeCtx, req)
+		resp := s.Datarouter.HandleDataSync(computeCtx, req, remoteNodeInfo)
 		s.Debug(ctx, constants.DataSyncProtocol, node, remoteNodeInfo)
 
 		// ── Stop heartbeats and send final response ───────────────────

@@ -6,17 +6,22 @@ import (
 	"math"
 	"sync"
 
+	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
 	merkle "github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/merkle"
 	router_helper "github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/router/helper"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/tagging"
 	merkle_types "github.com/JupiterMetaLabs/JMDN-FastSync/helper/merkle"
 	Log "github.com/JupiterMetaLabs/JMDN-FastSync/logging"
 	"github.com/JupiterMetaLabs/JMDN_Merkletree/merkletree"
+
+	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/constants"
 	"github.com/JupiterMetaLabs/ion"
 
+	availabilitypb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/availability"
+	authpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/availability/auth"
 	headersyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/headersync"
 	merklepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/merkle"
-	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
+	phasepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/phase"
 )
 
 const (
@@ -53,6 +58,39 @@ type rangeResponse struct {
 	err     error
 }
 
+// Inorder to get the merkle subtree from the client we need to register with it first.
+// This funciton will register first before calling the merkle subtree request.
+// can ignore this fields from the response - blockmerge, currentphase, multiaddr.
+func (router *Datarouter) registerWithClient(ctx context.Context, remote *types.Nodeinfo) error {
+	// Create availability request
+	availabilityReq := &availabilitypb.AvailabilityRequest{
+		Range: &merklepb.Range{
+			Start: 0,
+			End:   math.MaxUint64,
+		},
+	}
+
+	// Send availability request to get UUID
+	resp, err := router.Comm.SendAvailabilityRequest(ctx, *remote, availabilityReq)
+	if err != nil {
+		return fmt.Errorf("failed to send availability request: %w", err)
+	}
+
+	// Check if registration was successful
+	if !resp.IsAvailable || resp.Auth == nil || resp.Auth.UUID == "" {
+		return fmt.Errorf("registration failed: client not available or no UUID received")
+	}
+
+	// Store the generated UUID for future use
+	router.clientGeneratedUUID = resp.Auth.UUID
+
+	Log.Logger(namedlogger).Info(ctx, "Successfully registered with client",
+		ion.String("clientUUID", resp.Auth.UUID),
+		ion.String("remotePeerID", remote.PeerID.String()))
+
+	return nil
+}
+
 // dataBisect performs breadth-first bisection using TreeDiff to find ALL differing
 // ranges between local and target trees, then iteratively refines large ranges
 // by requesting finer-grained sub-trees from the peer.
@@ -69,6 +107,18 @@ func (router *Datarouter) dataBisect(
 
 	Log.Logger(namedlogger).Info(ctx, "Starting data bisection",
 		ion.String("function", "dataBisect"))
+
+	// Register with client first to get UUID for authentication
+	if !router.IsRegistered() {
+		Log.Logger(namedlogger).Info(ctx, "Registering with client for merkle subtree requests",
+			ion.String("function", "dataBisect"))
+
+		if err := router.registerWithClient(ctx, remote); err != nil {
+			Log.Logger(namedlogger).Error(ctx, "Failed to register with client", err,
+				ion.String("function", "dataBisect"))
+			return nil, fmt.Errorf("failed to register with client: %w", err)
+		}
+	}
 
 	tag := tagging.NewTagging()
 
@@ -374,6 +424,14 @@ func (router *Datarouter) requestSubTree(
 			Config: &merklepb.SnapshotConfig{
 				BlockMerge:    int32(req.blockMerge),
 				ExpectedTotal: uint64(req.count),
+			},
+		},
+		Phase: &phasepb.Phase{
+			PresentPhase:    constants.REQUEST_MERKLE,
+			SuccessivePhase: constants.RESPONSE_MERKLE,
+			Success:         true,
+			Auth: &authpb.Auth{
+				UUID: router.clientGeneratedUUID,
 			},
 		},
 	}
