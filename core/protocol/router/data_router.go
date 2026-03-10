@@ -9,8 +9,8 @@ import (
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/checksum/checksum_priorsync"
 	ackpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/ack"
-	authpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/availability/auth"
 	availabilitypb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/availability"
+	authpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/availability/auth"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/block"
 	datasyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/datasync"
 	headerpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/headersync"
@@ -49,6 +49,35 @@ func NewDatarouter(nodeinfo *types.Nodeinfo, comm communication.Communicator) *D
 	}
 }
 
+/*
+	Let the authentication happens in the Data Router itself rather than doing it outside.
+*/
+func (router *Datarouter) Authenticate(ctx context.Context, auth_req *authpb.Auth, remote *types.Nodeinfo) (bool, error) {
+	if auth_req == nil || auth_req.UUID == "" {
+		return false, fmt.Errorf("authentication request is nil or UUID is empty")
+	}
+	if !availability.FastsyncReady().AmIAvailable() {
+		return false, fmt.Errorf("node is not available for fast sync")
+	}
+	is_authenticated, err := router.Nodeinfo.BlockInfo.AUTH().IsAUTH(remote.PeerID, auth_req.UUID)
+	if err != nil {
+		Log.Logger(namedlogger).Error(ctx, "Error checking authentication", err)
+		return false, err
+	}
+	return is_authenticated, nil
+}
+
+/*
+	After the authentication let reset the TTL
+*/
+func (router *Datarouter) ResetTTL(ctx context.Context, auth_req *authpb.Auth, remote *types.Nodeinfo) error {
+	if auth_req == nil || auth_req.UUID == "" {
+		return fmt.Errorf("authentication request is nil or UUID is empty")
+	}
+	// Reset the TTL for the remote node
+	return router.Nodeinfo.BlockInfo.AUTH().ResetTTL(remote.PeerID)
+}
+
 func (router *Datarouter) HandlePriorSync(ctx context.Context, req *priorsyncpb.PriorSyncMessage, remote *types.Nodeinfo) *priorsyncpb.PriorSyncMessage {
 	// Extract state from metadata
 	if req.Priorsync.Metadata == nil || req.Phase == nil {
@@ -63,6 +92,22 @@ func (router *Datarouter) HandlePriorSync(ctx context.Context, req *priorsyncpb.
 				SuccessivePhase: constants.UNKNOWN,
 				Success:         false,
 				Error:           errors.MetadataRequired.Error(),
+			},
+		}
+	}
+
+	if req.Phase.Auth == nil || req.Phase.Auth.UUID == "" {
+		return &priorsyncpb.PriorSyncMessage{
+			Priorsync: req.Priorsync,
+			Ack: &ackpb.Ack{
+				Ok:    false,
+				Error: errors.AuthRequired.Error(),
+			},
+			Phase: &phasepb.Phase{
+				PresentPhase:    constants.UNKNOWN,
+				SuccessivePhase: constants.UNKNOWN,
+				Success:         false,
+				Error:           errors.AuthRequired.Error(),
 			},
 		}
 	}
@@ -135,6 +180,7 @@ func (router *Datarouter) HandleMerkle(ctx context.Context, merkleReq *merklepb.
 			},
 		}
 	}
+	
 
 	merkleRange := &merklepb.Range{
 		Start: merkleReq.Request.Start,
@@ -147,6 +193,21 @@ func (router *Datarouter) HandleMerkle(ctx context.Context, merkleReq *merklepb.
 }
 
 func (router *Datarouter) HandleHeaderSync(ctx context.Context, headerSyncReq *headerpb.HeaderSyncRequest) *headerpb.HeaderSyncResponse {
+	if headerSyncReq.Phase.Auth == nil || headerSyncReq.Phase.Auth.UUID == "" {
+		return &headerpb.HeaderSyncResponse{
+			Ack: &ackpb.Ack{
+				Ok:    false,
+				Error: errors.AuthRequired.Error(),
+			},
+			Phase: &phasepb.Phase{
+				PresentPhase:    constants.UNKNOWN,
+				SuccessivePhase: constants.UNKNOWN,
+				Success:         false,
+				Error:           errors.AuthRequired.Error(),
+			},
+		}
+	}
+
 	switch headerSyncReq.Phase.PresentPhase {
 	case constants.HEADER_SYNC_REQUEST:
 		if headerSyncReq == nil || headerSyncReq.Tag == nil {
@@ -182,6 +243,21 @@ func (router *Datarouter) HandleHeaderSync(ctx context.Context, headerSyncReq *h
 }
 
 func (router *Datarouter) HandleDataSync(ctx context.Context, req *datasyncpb.DataSyncRequest) *datasyncpb.DataSyncResponse {
+	if req.Phase.Auth == nil || req.Phase.Auth.UUID == "" {
+		return &datasyncpb.DataSyncResponse{
+			Ack: &ackpb.Ack{
+				Ok:    false,
+				Error: errors.AuthRequired.Error(),
+			},
+			Phase: &phasepb.Phase{
+				PresentPhase:    constants.UNKNOWN,
+				SuccessivePhase: constants.UNKNOWN,
+				Success:         false,
+				Error:           errors.AuthRequired.Error(),
+			},
+		}
+	}
+	
 	switch req.Phase.PresentPhase {
 	case constants.DATA_SYNC_REQUEST:
 		if req == nil || req.Tag == nil {
@@ -221,7 +297,7 @@ func (router *Datarouter) HandleAvailability(ctx context.Context, req *availabil
 		IsAvailable: false,
 		Multiaddr:   make([]string, 0),
 		BlockMerge:  0,
-		Auth:        &authpb.Auth{
+		Auth: &authpb.Auth{
 			UUID: "",
 		},
 		Phase: &phasepb.Phase{
@@ -232,12 +308,12 @@ func (router *Datarouter) HandleAvailability(ctx context.Context, req *availabil
 		},
 	}
 
-	if req.Range == nil{
+	if req.Range == nil {
 		template.Phase.Error = "range cannot be nil"
 		return template
 	}
 
-	if len(router.Nodeinfo.Multiaddr) == 0{
+	if len(router.Nodeinfo.Multiaddr) == 0 {
 		template.Phase.Error = "No Multiaddress to connect"
 		return template
 	}
@@ -267,7 +343,7 @@ func (router *Datarouter) HandleAvailability(ctx context.Context, req *availabil
 		template.BlockMerge = uint32(blockmerge.BlockMerge)
 
 		var multiaddrStr []string
-		for _, i := range(router.Nodeinfo.Multiaddr){
+		for _, i := range router.Nodeinfo.Multiaddr {
 			multiaddrStr = append(multiaddrStr, i.String())
 		}
 
@@ -280,7 +356,7 @@ func (router *Datarouter) HandleAvailability(ctx context.Context, req *availabil
 		template.Phase.Error = ""
 		return template
 	}
-	
+
 	template.Phase.Error = "Not available at this moment"
 	return template
 }

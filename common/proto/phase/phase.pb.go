@@ -7,6 +7,7 @@
 package phase
 
 import (
+	auth "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/availability/auth"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
@@ -27,6 +28,7 @@ type Phase struct {
 	SuccessivePhase string                 `protobuf:"bytes,2,opt,name=successive_phase,json=successivePhase,proto3" json:"successive_phase,omitempty"`
 	Success         bool                   `protobuf:"varint,4,opt,name=success,proto3" json:"success,omitempty"` // True if request is valid/accepted
 	Error           string                 `protobuf:"bytes,5,opt,name=error,proto3" json:"error,omitempty"`      // Reason if success is false
+	Auth            *auth.Auth             `protobuf:"bytes,6,opt,name=auth,proto3" json:"auth,omitempty"`
 	unknownFields   protoimpl.UnknownFields
 	sizeCache       protoimpl.SizeCache
 }
@@ -89,16 +91,25 @@ func (x *Phase) GetError() string {
 	return ""
 }
 
+func (x *Phase) GetAuth() *auth.Auth {
+	if x != nil {
+		return x.Auth
+	}
+	return nil
+}
+
 var File_phase_phase_proto protoreflect.FileDescriptor
 
 const file_phase_phase_proto_rawDesc = "" +
 	"\n" +
-	"\x11phase/phase.proto\x12\x05phase\"\x87\x01\n" +
+	"\x11phase/phase.proto\x12\x05phase\x1a\x1cavailability/auth/auth.proto\"\xa7\x01\n" +
 	"\x05Phase\x12#\n" +
 	"\rpresent_phase\x18\x01 \x01(\tR\fpresentPhase\x12)\n" +
 	"\x10successive_phase\x18\x02 \x01(\tR\x0fsuccessivePhase\x12\x18\n" +
 	"\asuccess\x18\x04 \x01(\bR\asuccess\x12\x14\n" +
-	"\x05error\x18\x05 \x01(\tR\x05errorB=Z;github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/phaseb\x06proto3"
+	"\x05error\x18\x05 \x01(\tR\x05error\x12\x1e\n" +
+	"\x04auth\x18\x06 \x01(\v2\n" +
+	".auth.AuthR\x04authB=Z;github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/phaseb\x06proto3"
 
 var (
 	file_phase_phase_proto_rawDescOnce sync.Once
@@ -114,14 +125,16 @@ func file_phase_phase_proto_rawDescGZIP() []byte {
 
 var file_phase_phase_proto_msgTypes = make([]protoimpl.MessageInfo, 1)
 var file_phase_phase_proto_goTypes = []any{
-	(*Phase)(nil), // 0: phase.Phase
+	(*Phase)(nil),     // 0: phase.Phase
+	(*auth.Auth)(nil), // 1: auth.Auth
 }
 var file_phase_phase_proto_depIdxs = []int32{
-	0, // [0:0] is the sub-list for method output_type
-	0, // [0:0] is the sub-list for method input_type
-	0, // [0:0] is the sub-list for extension type_name
-	0, // [0:0] is the sub-list for extension extendee
-	0, // [0:0] is the sub-list for field type_name
+	1, // 0: phase.Phase.auth:type_name -> auth.Auth
+	1, // [1:1] is the sub-list for method output_type
+	1, // [1:1] is the sub-list for method input_type
+	1, // [1:1] is the sub-list for extension type_name
+	1, // [1:1] is the sub-list for extension extendee
+	0, // [0:1] is the sub-list for field type_name
 }
 
 func init() { file_phase_phase_proto_init() }

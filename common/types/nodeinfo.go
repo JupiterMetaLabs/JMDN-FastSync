@@ -84,5 +84,10 @@ type AUTHHandler interface{
 	/* 
 	   This will check if the record is present in the cache table [PeerID : UUID] with valid TTL
 	*/
-	IsAUTH(PeerID peer.ID, UUID string) bool
+	IsAUTH(PeerID peer.ID, UUID string) (bool, error)
+
+	/*
+		Reset TTL for the record
+	*/
+	ResetTTL(PeerID peer.ID) error
 }

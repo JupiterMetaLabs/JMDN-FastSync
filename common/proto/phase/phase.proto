@@ -3,10 +3,12 @@ syntax = "proto3";
 package phase;
 
 option go_package = "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/phase";
+import "availability/auth/auth.proto";
 
 message Phase {
     string present_phase = 1;
     string successive_phase = 2;
     bool success = 4;        // True if request is valid/accepted
     string error = 5;        // Reason if success is false
+    auth.Auth auth = 6;     // This is the UUID token of the client for authentication. dont try to send the server UUID.
 }
