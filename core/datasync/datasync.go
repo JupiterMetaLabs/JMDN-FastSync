@@ -9,6 +9,7 @@ import (
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/WAL"
 	ackpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/ack"
+	authpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/availability/auth"
 	blockpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/block"
 	datasyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/datasync"
 	phasepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/phase"
@@ -41,8 +42,9 @@ type dataBatchResult struct {
 }
 
 type DataSync struct {
-	SyncVars *types.Syncvars
-	Comm     communication.Communicator
+	SyncVars   *types.Syncvars
+	Comm       communication.Communicator
+	ServerAuth *authpb.Auth
 }
 
 func NewDataSync() *DataSync {
@@ -86,11 +88,12 @@ func (ds *DataSync) DataSync(datasyncrequest *datasyncpb.DataSyncRequest, remote
 
 	ctx := ds.SyncVars.Ctx
 	dataWriter := ds.SyncVars.NodeInfo.BlockInfo.NewDataWriter()
+	ds.ServerAuth = datasyncrequest.Phase.GetAuth()
 
 	// ---------------------------------------------------------------
 	// Build batches from the tag (at most MAX_DATA_PER_REQUEST per batch)
 	// ---------------------------------------------------------------
-	queue := buildDataBatches(datasyncrequest.Tag, ds.SyncVars.Version)
+	queue := buildDataBatches(datasyncrequest.Tag, ds.SyncVars.Version, ds.ServerAuth)
 
 	Log.Logger(Log.DataSync).Info(ctx, "DataSync starting",
 		ion.Int("initial_batches", len(queue)),
@@ -329,7 +332,7 @@ func dataFetchWorker(
 
 // buildDataBatches groups tag ranges and individual block numbers into
 // DataSyncRequest batches, each containing at most MAX_DATA_PER_REQUEST blocks.
-func buildDataBatches(tag *taggingpb.Tag, version uint16) []*datasyncpb.DataSyncRequest {
+func buildDataBatches(tag *taggingpb.Tag, version uint16, auth *authpb.Auth) []*datasyncpb.DataSyncRequest {
 	maxPerBatch := uint64(constants.MAX_DATA_PER_REQUEST)
 	var batches []*datasyncpb.DataSyncRequest
 
@@ -368,7 +371,7 @@ func buildDataBatches(tag *taggingpb.Tag, version uint16) []*datasyncpb.DataSync
 
 				// If the batch exactly hit capacity, flush it
 				if currentCount == maxPerBatch {
-					batches = append(batches, makeDataBatchRequest(currentTag, version))
+					batches = append(batches, makeDataBatchRequest(currentTag, version, auth))
 					currentTag = &taggingpb.Tag{}
 					currentCount = 0
 				}
@@ -379,7 +382,7 @@ func buildDataBatches(tag *taggingpb.Tag, version uint16) []*datasyncpb.DataSync
 				currentCount += remainingCapacity
 
 				// Batch is now full, finalize it
-				batches = append(batches, makeDataBatchRequest(currentTag, version))
+				batches = append(batches, makeDataBatchRequest(currentTag, version, auth))
 				currentTag = &taggingpb.Tag{}
 				currentCount = 0
 
@@ -392,7 +395,7 @@ func buildDataBatches(tag *taggingpb.Tag, version uint16) []*datasyncpb.DataSync
 	// -- Pack individual block numbers into the current or new batch --
 	for _, bn := range blockNums {
 		if currentCount > 0 && currentCount+1 > maxPerBatch {
-			batches = append(batches, makeDataBatchRequest(currentTag, version))
+			batches = append(batches, makeDataBatchRequest(currentTag, version, auth))
 			currentTag = &taggingpb.Tag{}
 			currentCount = 0
 		}
@@ -403,14 +406,14 @@ func buildDataBatches(tag *taggingpb.Tag, version uint16) []*datasyncpb.DataSync
 
 	// Flush remaining
 	if currentCount > 0 {
-		batches = append(batches, makeDataBatchRequest(currentTag, version))
+		batches = append(batches, makeDataBatchRequest(currentTag, version, auth))
 	}
 
 	return batches
 }
 
 // makeDataBatchRequest wraps a Tag into a DataSyncRequest with proper phase info.
-func makeDataBatchRequest(tag *taggingpb.Tag, version uint16) *datasyncpb.DataSyncRequest {
+func makeDataBatchRequest(tag *taggingpb.Tag, version uint16, auth *authpb.Auth) *datasyncpb.DataSyncRequest {
 	return &datasyncpb.DataSyncRequest{
 		Tag:     tag,
 		Version: uint32(version),
@@ -423,6 +426,7 @@ func makeDataBatchRequest(tag *taggingpb.Tag, version uint16) *datasyncpb.DataSy
 			SuccessivePhase: constants.DATA_SYNC_RESPONSE,
 			Success:         true,
 			Error:           "",
+			Auth:            auth,
 		},
 	}
 }

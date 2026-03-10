@@ -8,10 +8,13 @@ import (
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/WAL"
 	ackpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/ack"
+	authpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/availability/auth"
 	blockpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/block"
 	datasyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/datasync"
 	headersyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/headersync"
+	merklepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/merkle"
 	phasepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/phase"
+	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/priorsync"
 	taggingpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/tagging"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/constants"
@@ -45,6 +48,7 @@ type batchResult struct {
 type HeaderSync struct {
 	SyncVars *types.Syncvars
 	Comm     communication.Communicator
+	ServerAuth *authpb.Auth
 }
 
 func NewHeaderSync() *HeaderSync {
@@ -112,11 +116,12 @@ func (hs *HeaderSync) HeaderSync(headersyncrequest *headersyncpb.HeaderSyncReque
 
 	ctx := hs.SyncVars.Ctx
 	headerWriter := hs.SyncVars.NodeInfo.BlockInfo.NewHeadersWriter()
+	hs.ServerAuth = headersyncrequest.Phase.GetAuth()
 
 	// ---------------------------------------------------------------
 	// Initialize the queue with the first set of batches
 	// ---------------------------------------------------------------
-	queue := buildBatches(originalTag)
+	queue := buildBatches(originalTag, hs.ServerAuth)
 
 	Log.Logger(Log.HeaderSync).Info(ctx, "HeaderSync starting",
 		ion.Int("initial_batches", len(queue)),
@@ -165,12 +170,13 @@ func (hs *HeaderSync) HeaderSync(headersyncrequest *headersyncpb.HeaderSyncReque
 					SuccessivePhase: constants.DATA_SYNC_REQUEST,
 					Success:         true,
 					Error:           "",
+					Auth:            hs.ServerAuth,
 				},
 			}, nil
 		}
 
 		// Trees still differ — enqueue the new batches for the next round
-		queue = buildBatches(newTag)
+		queue = buildBatches(newTag, hs.ServerAuth)
 		Log.Logger(Log.HeaderSync).Info(ctx, "Sync confirmation found differences, re-enqueuing",
 			ion.Int("new_batches", len(queue)))
 	}
@@ -405,17 +411,30 @@ func (hs *HeaderSync) SyncConfirmation(ctx context.Context, remotes []*types.Nod
 	for _, remote := range remotes {
 		childctx, cancel := context.WithCancel(ctx)
 
-		syncMsg := types.PriorSyncMessage{
-			Priorsync: &types.PriorSync{
+		metadata := &priorsyncpb.Metadata{
+			Version:  uint32(localDetails.Metadata.Version),
+			Checksum: localDetails.Metadata.Checksum,
+		}
+
+		range_priorsync := &merklepb.Range{
+			Start: localDetails.Range.Start,
+			End:   localDetails.Range.End,
+		}
+
+		syncMsg := &priorsyncpb.PriorSyncMessage{
+			Priorsync: &priorsyncpb.PriorSync{
 				Blocknumber: localDetails.Blocknumber,
 				Stateroot:   localDetails.Stateroot,
 				Blockhash:   localDetails.Blockhash,
-				Metadata:    localDetails.Metadata,
-				Range:       localDetails.Range,
+				Metadata:    metadata,
+				Range:       range_priorsync,
+			},
+			Phase: &phasepb.Phase{
+				Auth: hs.ServerAuth,
 			},
 		}
 
-		resp, err := hs.Comm.SendPriorSync(childctx, merkleSnapshot, *remote, syncMsg)
+		resp, err := hs.Comm.SendPriorSync(childctx, merkleSnapshot, *remote, *syncMsg)
 		cancel()
 
 		if err != nil {
@@ -460,7 +479,7 @@ func (hs *HeaderSync) SyncConfirmation(ctx context.Context, remotes []*types.Nod
 
 // buildBatches groups tag ranges and individual block numbers into
 // HeaderSyncRequest batches, each containing at most MAX_HEADERS_PER_REQUEST headers.
-func buildBatches(tag *taggingpb.Tag) []*headersyncpb.HeaderSyncRequest {
+func buildBatches(tag *taggingpb.Tag, auth *authpb.Auth) []*headersyncpb.HeaderSyncRequest {
 	maxPerBatch := uint64(constants.MAX_HEADERS_PER_REQUEST)
 	var batches []*headersyncpb.HeaderSyncRequest
 
@@ -488,7 +507,7 @@ func buildBatches(tag *taggingpb.Tag) []*headersyncpb.HeaderSyncRequest {
 		// If adding this range would exceed the limit, finalize the current batch
 		// (but always include at least one range per batch)
 		if currentCount > 0 && currentCount+rangeSize > maxPerBatch {
-			batches = append(batches, makeBatchRequest(currentTag))
+			batches = append(batches, makeBatchRequest(currentTag, auth))
 			currentTag = &taggingpb.Tag{}
 			currentCount = 0
 		}
@@ -498,7 +517,7 @@ func buildBatches(tag *taggingpb.Tag) []*headersyncpb.HeaderSyncRequest {
 
 		// If this single range already exceeds the limit, finalize immediately
 		if currentCount >= maxPerBatch {
-			batches = append(batches, makeBatchRequest(currentTag))
+			batches = append(batches, makeBatchRequest(currentTag, auth))
 			currentTag = &taggingpb.Tag{}
 			currentCount = 0
 		}
@@ -507,7 +526,7 @@ func buildBatches(tag *taggingpb.Tag) []*headersyncpb.HeaderSyncRequest {
 	// -- Pack individual block numbers into the current or new batch --
 	for _, bn := range blockNums {
 		if currentCount > 0 && currentCount+1 > maxPerBatch {
-			batches = append(batches, makeBatchRequest(currentTag))
+			batches = append(batches, makeBatchRequest(currentTag, auth))
 			currentTag = &taggingpb.Tag{}
 			currentCount = 0
 		}
@@ -518,14 +537,14 @@ func buildBatches(tag *taggingpb.Tag) []*headersyncpb.HeaderSyncRequest {
 
 	// Flush remaining
 	if currentCount > 0 {
-		batches = append(batches, makeBatchRequest(currentTag))
+		batches = append(batches, makeBatchRequest(currentTag, auth))
 	}
 
 	return batches
 }
 
 // makeBatchRequest wraps a Tag into a HeaderSyncRequest with proper phase info.
-func makeBatchRequest(tag *taggingpb.Tag) *headersyncpb.HeaderSyncRequest {
+func makeBatchRequest(tag *taggingpb.Tag, auth *authpb.Auth) *headersyncpb.HeaderSyncRequest {
 	return &headersyncpb.HeaderSyncRequest{
 		Tag: tag,
 		Ack: &ackpb.Ack{
@@ -537,6 +556,7 @@ func makeBatchRequest(tag *taggingpb.Tag) *headersyncpb.HeaderSyncRequest {
 			SuccessivePhase: constants.HEADER_SYNC_RESPONSE,
 			Success:         true,
 			Error:           "",
+			Auth:            auth,
 		},
 	}
 }

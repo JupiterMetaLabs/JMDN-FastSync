@@ -51,8 +51,6 @@ func NewDatarouter(nodeinfo *types.Nodeinfo, comm communication.Communicator) *D
 	}
 }
 
-
-
 func (router *Datarouter) HandlePriorSync(ctx context.Context, req *priorsyncpb.PriorSyncMessage, remote *types.Nodeinfo) *priorsyncpb.PriorSyncMessage {
 	// Extract state from metadata
 	if req.Priorsync.Metadata == nil || req.Phase == nil {
@@ -67,6 +65,7 @@ func (router *Datarouter) HandlePriorSync(ctx context.Context, req *priorsyncpb.
 				SuccessivePhase: constants.UNKNOWN,
 				Success:         false,
 				Error:           errors.MetadataRequired.Error(),
+				Auth: req.Phase.Auth,
 			},
 		}
 	}
@@ -84,6 +83,7 @@ func (router *Datarouter) HandlePriorSync(ctx context.Context, req *priorsyncpb.
 				SuccessivePhase: constants.UNKNOWN,
 				Success:         false,
 				Error:           errors.AuthRequired.Error(),
+				Auth: req.Phase.Auth,
 			},
 		}
 	}
@@ -101,6 +101,7 @@ func (router *Datarouter) HandlePriorSync(ctx context.Context, req *priorsyncpb.
 				SuccessivePhase: constants.FAILURE,
 				Success:         false,
 				Error:           "authentication failed",
+				Auth: req.Phase.Auth,
 			},
 		}
 	}
@@ -143,7 +144,10 @@ func (router *Datarouter) HandlePriorSync(ctx context.Context, req *priorsyncpb.
 			}
 		}
 
-		return router.SYNC_REQUEST(ctx, req.Priorsync, peerInfo, remote)
+		Data := router.SYNC_REQUEST(ctx, req.Priorsync, peerInfo, remote)
+		Data.Phase.Auth = req.Phase.Auth
+		Data.Headersync.Phase.Auth = req.Phase.Auth
+		return Data
 
 	default:
 		Log.Logger(namedlogger).Debug(ctx, "Unknown State - LOG",
@@ -160,6 +164,7 @@ func (router *Datarouter) HandlePriorSync(ctx context.Context, req *priorsyncpb.
 				SuccessivePhase: constants.FAILURE,
 				Success:         false,
 				Error:           "unknown state: " + state,
+				Auth: req.Phase.Auth,
 			},
 		}
 	}
@@ -177,6 +182,7 @@ func (router *Datarouter) HandleMerkle(ctx context.Context, merkleReq *merklepb.
 				SuccessivePhase: constants.FAILURE,
 				Success:         false,
 				Error:           "Merkle request or range is nil",
+				Auth:            merkleReq.Phase.Auth,
 			},
 		}
 	}
@@ -192,6 +198,7 @@ func (router *Datarouter) HandleMerkle(ctx context.Context, merkleReq *merklepb.
 				SuccessivePhase: constants.FAILURE,
 				Success:         false,
 				Error:           "authentication required",
+				Auth:            merkleReq.Phase.Auth,
 			},
 		}
 	}
@@ -208,6 +215,7 @@ func (router *Datarouter) HandleMerkle(ctx context.Context, merkleReq *merklepb.
 				SuccessivePhase: constants.FAILURE,
 				Success:         false,
 				Error:           "authentication failed",
+				Auth:            merkleReq.Phase.Auth,
 			},
 		}
 	}
@@ -226,7 +234,9 @@ func (router *Datarouter) HandleMerkle(ctx context.Context, merkleReq *merklepb.
 
 	// Pass the requester's config so we build the tree with the same BlockMerge.
 	// If nil, REQUEST_MERKLE falls back to a default calculation.
-	return router.REQUEST_MERKLE(ctx, merkleRange, merkleReq.Request.Config, remote)
+	Data := router.REQUEST_MERKLE(ctx, merkleRange, merkleReq.Request.Config, remote)
+	Data.Phase.Auth = merkleReq.Phase.Auth
+	return Data
 }
 
 func (router *Datarouter) HandleHeaderSync(ctx context.Context, headerSyncReq *headerpb.HeaderSyncRequest, remote *types.Nodeinfo) *headerpb.HeaderSyncResponse {
@@ -242,6 +252,7 @@ func (router *Datarouter) HandleHeaderSync(ctx context.Context, headerSyncReq *h
 				SuccessivePhase: constants.UNKNOWN,
 				Success:         false,
 				Error:           errors.AuthRequired.Error(),
+				Auth: headerSyncReq.Phase.Auth,	
 			},
 		}
 	}
@@ -258,6 +269,7 @@ func (router *Datarouter) HandleHeaderSync(ctx context.Context, headerSyncReq *h
 				SuccessivePhase: constants.FAILURE,
 				Success:         false,
 				Error:           "authentication failed",
+				Auth: headerSyncReq.Phase.Auth,
 			},
 		}
 	}
@@ -282,10 +294,13 @@ func (router *Datarouter) HandleHeaderSync(ctx context.Context, headerSyncReq *h
 					SuccessivePhase: constants.FAILURE,
 					Success:         false,
 					Error:           "Header sync request or range is nil",
+					Auth: headerSyncReq.Phase.Auth,
 				},
 			}
 		}
-		return router.HEADER_SYNC(ctx, headerSyncReq)
+		Data := router.HEADER_SYNC(ctx, headerSyncReq)
+		Data.Phase.Auth = headerSyncReq.Phase.Auth
+		return Data
 
 	default:
 		return &headerpb.HeaderSyncResponse{
@@ -298,6 +313,7 @@ func (router *Datarouter) HandleHeaderSync(ctx context.Context, headerSyncReq *h
 				SuccessivePhase: constants.FAILURE,
 				Success:         false,
 				Error:           "unknown state: " + headerSyncReq.Phase.PresentPhase,
+				Auth: headerSyncReq.Phase.Auth,
 			},
 		}
 	}
@@ -316,6 +332,7 @@ func (router *Datarouter) HandleDataSync(ctx context.Context, req *datasyncpb.Da
 				SuccessivePhase: constants.UNKNOWN,
 				Success:         false,
 				Error:           errors.AuthRequired.Error(),
+				Auth: req.Phase.Auth,
 			},
 		}
 	}
@@ -332,6 +349,7 @@ func (router *Datarouter) HandleDataSync(ctx context.Context, req *datasyncpb.Da
 				SuccessivePhase: constants.FAILURE,
 				Success:         false,
 				Error:           "authentication failed",
+				Auth: req.Phase.Auth,
 			},
 		}
 	}
@@ -356,10 +374,13 @@ func (router *Datarouter) HandleDataSync(ctx context.Context, req *datasyncpb.Da
 					SuccessivePhase: constants.FAILURE,
 					Success:         false,
 					Error:           "Data sync request or range is nil",
+					Auth: req.Phase.Auth,
 				},
 			}
 		}
-		return router.DATA_SYNC(ctx, req)
+		Data := router.DATA_SYNC(ctx, req)
+		Data.Phase.Auth = req.Phase.Auth
+		return Data
 
 	default:
 		return &datasyncpb.DataSyncResponse{
@@ -372,6 +393,7 @@ func (router *Datarouter) HandleDataSync(ctx context.Context, req *datasyncpb.Da
 				SuccessivePhase: constants.FAILURE,
 				Success:         false,
 				Error:           "unknown state: " + req.Phase.PresentPhase,
+				Auth: req.Phase.Auth,
 			},
 		}
 	}
