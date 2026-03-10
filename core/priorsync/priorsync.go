@@ -9,6 +9,7 @@ import (
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/WAL"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/checksum/checksum_priorsync"
 	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/priorsync"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/core/availability"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/constants"
 	wal_types "github.com/JupiterMetaLabs/JMDN-FastSync/common/types/wal"
@@ -68,6 +69,9 @@ func (ps *PriorSync) SetupNetworkHandlers(debug bool) error {
 	if ps.SyncVars == nil || ps.SyncVars.Ctx == nil {
 		return errors.New("sync vars ctx not set")
 	}
+	if !availability.FastsyncReady().AmIAvailable(){
+		return errors.New("not available right now")
+	}
 
 	// derive child from parent; child cannot outlive parent
 	ctx, cancel := context.WithCancel(ps.SyncVars.Ctx)
@@ -81,13 +85,13 @@ func (ps *PriorSync) SetupNetworkHandlers(debug bool) error {
 	ps.mu.Lock()
 
 	// If called twice, stop the old one first
-
 	var RemoveStreams func()
 	RemoveStreams = func() {
 		ps.SyncVars.Node.RemoveStreamHandler(constants.PriorSyncProtocol)
 		ps.SyncVars.Node.RemoveStreamHandler(constants.MerkleProtocol)
 		ps.SyncVars.Node.RemoveStreamHandler(constants.HeaderSyncProtocol)
 		ps.SyncVars.Node.RemoveStreamHandler(constants.DataSyncProtocol)
+		ps.SyncVars.Node.RemoveStreamHandler(constants.AvailabilityProtocol)
 	}
 
 	if ps.cancel != nil {
@@ -113,6 +117,10 @@ func (ps *PriorSync) SetupNetworkHandlers(debug bool) error {
 	}
 
 	if err:= syncHandler.HandleDataSync(ctx, ps.SyncVars.Node); err != nil {
+		return err
+	}
+
+	if err:= syncHandler.HandleAvailability(ctx, ps.SyncVars.Node); err != nil{
 		return err
 	}
 

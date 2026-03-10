@@ -9,6 +9,7 @@ import (
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/checksum/checksum_priorsync"
 	ackpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/ack"
+	authpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/availability/auth"
 	availabilitypb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/availability"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/block"
 	datasyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/datasync"
@@ -220,7 +221,9 @@ func (router *Datarouter) HandleAvailability(ctx context.Context, req *availabil
 		IsAvailable: false,
 		Multiaddr:   make([]string, 0),
 		BlockMerge:  0,
-		UUID:        "",
+		Auth:        &authpb.Auth{
+			UUID: "",
+		},
 		Phase: &phasepb.Phase{
 			PresentPhase:    constants.AVAILABILITY_RESPONSE,
 			SuccessivePhase: constants.FAILURE,
@@ -273,7 +276,7 @@ func (router *Datarouter) HandleAvailability(ctx context.Context, req *availabil
 		template.IsAvailable = true
 		template.Phase.SuccessivePhase = constants.SYNC_REQUEST
 		template.Phase.Success = true
-		template.UUID = UUID
+		template.Auth.UUID = UUID
 		template.Phase.Error = ""
 		return template
 	}

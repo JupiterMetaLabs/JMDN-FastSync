@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/messaging"
+	availabilitypb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/availability"
 	datasyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/datasync"
 	headersyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/headersync"
 	merklepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/merkle"
@@ -33,6 +34,8 @@ type Communicator interface {
 
 	// SendDataSyncRequest sends a DataSyncRequest to a peer and returns the DataSyncResponse.
 	SendDataSyncRequest(ctx context.Context, peerNode types.Nodeinfo, req *datasyncpb.DataSyncRequest) (*datasyncpb.DataSyncResponse, error)
+
+	SendAvailabilityRequest(ctx context.Context, peerNode types.Nodeinfo, req *availabilitypb.AvailabilityRequest) (*availabilitypb.AvailabilityResponse, error)
 }
 
 func NewCommunication(host host.Host, protocolVersion uint16) Communicator {
@@ -259,6 +262,41 @@ func (c *communication) SendDataSyncRequest(
 		resp,
 	); err != nil {
 		return nil, errors.New("failed to send data sync request: " + err.Error())
+	}
+
+	return resp, nil
+}
+
+// SendAvailabilityRequest sends an AvailabilityRequest to a peer and returns the AvailabilityResponse.
+func (c *communication) SendAvailabilityRequest(
+	ctx context.Context,
+	peerNode types.Nodeinfo,
+	req *availabilitypb.AvailabilityRequest,
+) (*availabilitypb.AvailabilityResponse, error) {
+	if c.host == nil {
+		return nil, errors.New("host is nil")
+	}
+
+	// Prepare peer.AddrInfo from types.Nodeinfo
+	peerInfo := libp2p_peer.AddrInfo{
+		ID:    peerNode.PeerID,
+		Addrs: peerNode.Multiaddr,
+	}
+
+	// Prepare response container
+	resp := &availabilitypb.AvailabilityResponse{}
+
+	// Send using SendProtoDelimited
+	if err := messaging.SendProtoDelimited(
+		ctx,
+		c.protocolVersion,
+		c.host,
+		peerInfo,
+		constants.AvailabilityProtocol,
+		req,
+		resp,
+	); err != nil {
+		return nil, errors.New("failed to send availability request: " + err.Error())
 	}
 
 	return resp, nil
