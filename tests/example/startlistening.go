@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	priorsync "github.com/JupiterMetaLabs/JMDN-FastSync/core/priorsync"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
+	priorsync "github.com/JupiterMetaLabs/JMDN-FastSync/core/priorsync"
 	"github.com/libp2p/go-libp2p/core/protocol"
 )
 
@@ -38,7 +38,8 @@ func StartListening(ctx context.Context, port string, version uint16) (*Node, er
 
 	// Create PriorSync protocol handler from core
 	ps := priorsync.NewPriorSyncRouter()
-	ps.SetSyncVars(node.GetContext(), version, nodeInfo, node.GetHost(), nil)
+	checksum_version := uint16(2)
+	ps.SetSyncVars(node.GetContext(), version, checksum_version, nodeInfo, node.GetHost(), nil)
 
 	// Start handling in background - core handler manages its own stream handler registration
 	go func() {

@@ -7,7 +7,7 @@ import (
 	"sync"
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/WAL"
-	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/router/helper"
+	checksum_priorsync "github.com/JupiterMetaLabs/JMDN-FastSync/common/checksum/checksum_priorsync"
 	ackpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/ack"
 	availabilitypb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/availability"
 	authpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/availability/auth"
@@ -23,6 +23,7 @@ import (
 	wal_types "github.com/JupiterMetaLabs/JMDN-FastSync/common/types/wal"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/communication"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/merkle"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/router/helper"
 	Log "github.com/JupiterMetaLabs/JMDN-FastSync/logging"
 	"github.com/JupiterMetaLabs/ion"
 	"github.com/libp2p/go-libp2p/core/host"
@@ -420,6 +421,10 @@ func (hs *HeaderSync) SyncConfirmation(ctx context.Context, remotes []*availabil
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to convert merkle snapshot: %w", err)
 	}
+
+	// Checksum handler
+	checksum_handler := checksum_priorsync.PriorSyncChecksum()
+
 	// Try each remote for confirmation
 	for _, availResp := range remotes {
 		remoteNodeInfo, err := helper.NewNodeInfoHelper().ToNodeinfo(availResp.Nodeinfo)
@@ -428,12 +433,9 @@ func (hs *HeaderSync) SyncConfirmation(ctx context.Context, remotes []*availabil
 				ion.Err(err))
 			continue
 		}
-		childctx, cancel := context.WithCancel(ctx)
 
-		metadata := &priorsyncpb.Metadata{
-			Version:  uint32(localDetails.Metadata.Version),
-			Checksum: localDetails.Metadata.Checksum,
-		}
+		childctx, cancel := context.WithCancel(ctx)
+		defer cancel()
 
 		var range_priorsync *merklepb.Range
 		if localDetails.Range != nil {
@@ -454,13 +456,21 @@ func (hs *HeaderSync) SyncConfirmation(ctx context.Context, remotes []*availabil
 				Blocknumber: localDetails.Blocknumber,
 				Stateroot:   localDetails.Stateroot,
 				Blockhash:   localDetails.Blockhash,
-				Metadata:    metadata,
 				Range:       range_priorsync,
+				Metadata:    &priorsyncpb.Metadata{},
 			},
 			Phase: &phasepb.Phase{
 				Auth: availResp.Auth,
 			},
 		}
+
+		checksum, err := checksum_handler.CreatefromPB(syncMsg.GetPriorsync(), uint16(localDetails.Metadata.Version))
+		if err != nil {
+			return nil, false, fmt.Errorf("failed to create checksum: %w", err)
+		}
+
+		syncMsg.Priorsync.Metadata.Checksum = checksum
+		syncMsg.Priorsync.Metadata.Version = uint32(localDetails.Metadata.Version)
 
 		Log.Logger(Log.HeaderSync).Info(ctx, "Sending sync confirmation",
 			ion.String("peer", remoteNodeInfo.PeerID.String()),

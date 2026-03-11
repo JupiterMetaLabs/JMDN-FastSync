@@ -9,6 +9,8 @@ import (
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/WAL"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/checksum/checksum_priorsync"
 	authpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/availability/auth"
+	merklepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/merkle"
+	phasepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/phase"
 	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/priorsync"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/constants"
@@ -20,16 +22,15 @@ import (
 	"github.com/JupiterMetaLabs/JMDN-FastSync/logging"
 	"github.com/JupiterMetaLabs/ion"
 	"github.com/libp2p/go-libp2p/core/host"
-	merklepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/merkle"
-	phasepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/phase"
 )
 
 type PriorSync struct {
 	PriorSync_msg *types.PriorSyncMessage
 	SyncVars      *types.Syncvars
 
-	mu     sync.Mutex
-	cancel context.CancelFunc
+	checksum_version uint16
+	mu               sync.Mutex
+	cancel           context.CancelFunc
 }
 
 func NewPriorSyncRouter() Priorsync_router {
@@ -40,7 +41,7 @@ func NewPriorSyncRouter() Priorsync_router {
 	}
 }
 
-func (ps *PriorSync) SetSyncVars(ctx context.Context, protocolVersion uint16, nodeInfo types.Nodeinfo, node host.Host, wal *WAL.WAL) Priorsync_router {
+func (ps *PriorSync) SetSyncVars(ctx context.Context, protocolVersion uint16, checksum_version uint16, nodeInfo types.Nodeinfo, node host.Host, wal *WAL.WAL) Priorsync_router {
 	if ps.SyncVars == nil {
 		ps.SyncVars = &types.Syncvars{}
 	}
@@ -57,6 +58,7 @@ func (ps *PriorSync) SetSyncVars(ctx context.Context, protocolVersion uint16, no
 	ps.SyncVars.Ctx = ctx
 	ps.SyncVars.WAL = wal
 	ps.SyncVars.Node = node
+	ps.checksum_version = checksum_version
 	return ps
 }
 
@@ -71,7 +73,7 @@ func (ps *PriorSync) SetupNetworkHandlers(debug bool) error {
 	if ps.SyncVars == nil || ps.SyncVars.Ctx == nil {
 		return errors.New("sync vars ctx not set")
 	}
-	if !availability.FastsyncReady().AmIAvailable(){
+	if !availability.FastsyncReady().AmIAvailable() {
 		return errors.New("not available right now")
 	}
 
@@ -118,11 +120,11 @@ func (ps *PriorSync) SetupNetworkHandlers(debug bool) error {
 		return err
 	}
 
-	if err:= syncHandler.HandleDataSync(ctx, ps.SyncVars.Node); err != nil {
+	if err := syncHandler.HandleDataSync(ctx, ps.SyncVars.Node); err != nil {
 		return err
 	}
 
-	if err:= syncHandler.HandleAvailability(ctx, ps.SyncVars.Node); err != nil{
+	if err := syncHandler.HandleAvailability(ctx, ps.SyncVars.Node); err != nil {
 		return err
 	}
 
@@ -185,17 +187,17 @@ func (ps *PriorSync) PriorSync(local_start, local_end, remote_start, remote_end 
 			PresentPhase:    constants.SYNC_REQUEST,
 			SuccessivePhase: constants.SYNC_REQUEST_RESPONSE,
 			Success:         true,
-			Auth: auth_req,
+			Auth:            auth_req,
 		},
 	}
 
 	// 4. Compute checksum
-	checksumBytes, err := checksum_priorsync.PriorSyncChecksum().CreatefromPB(reqMsg.Priorsync, uint16(ps.SyncVars.Version))
+	checksumBytes, err := checksum_priorsync.PriorSyncChecksum().CreatefromPB(reqMsg.Priorsync, ps.checksum_version)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create checksum: %w", err)
 	}
 	reqMsg.Priorsync.Metadata.Checksum = checksumBytes
-	reqMsg.Priorsync.Metadata.Version = uint32(ps.SyncVars.Version)
+	reqMsg.Priorsync.Metadata.Version = uint32(ps.checksum_version)
 
 	// 5. Send the PriorSync request to the remote peer
 	comm := communication.NewCommunication(ps.SyncVars.Node, ps.SyncVars.Version)
@@ -206,7 +208,6 @@ func (ps *PriorSync) PriorSync(local_start, local_end, remote_start, remote_end 
 
 	logging.Logger(logging.PriorSync).Info(ctx, "PriorSync response received",
 		ion.String("remote", remote.PeerID.String()))
-
 
 	event := &WAL.PriorSyncEvent{
 		BaseEvent: wal_types.BaseEvent{Operation: wal_types.OpAppend},

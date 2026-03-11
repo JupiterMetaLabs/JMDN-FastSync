@@ -12,7 +12,7 @@ import (
 
 type Priorsync_router interface {
 	// Set the information prior so that this variables can be reused
-	SetSyncVars(ctx context.Context, protocolversion uint16, nodeInfo types.Nodeinfo, node host.Host, wal *WAL.WAL) Priorsync_router
+	SetSyncVars(ctx context.Context, protocolversion uint16, checksum_version uint16, nodeInfo types.Nodeinfo, node host.Host, wal *WAL.WAL) Priorsync_router
 
 	// PriorSync is the main function that will be called by the user to do priorsync operation
 	PriorSync(local_start, local_end, remote_start, remote_end uint64, remote *types.Nodeinfo, auth_req *authpb.Auth) (*priorsyncpb.PriorSyncMessage, error)
