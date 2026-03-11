@@ -4,7 +4,6 @@ import (
 	"time"
 
 	blockpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/block"
-	nodeinfopb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/nodeinfo"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/multiformats/go-multiaddr"
@@ -23,22 +22,6 @@ type Nodeinfo struct {
 	Version      uint16
 	Protocol     protocol.ID
 	BlockInfo    BlockInfo
-}
-
-func (nf *Nodeinfo) ToProto() *nodeinfopb.NodeInfo {
-	var multiaddrs [][]byte
-	for _, m := range nf.Multiaddr {
-		multiaddrs = append(multiaddrs, m.Bytes())
-	}
-
-	return &nodeinfopb.NodeInfo{
-		PeerId:       []byte(nf.PeerID),
-		Multiaddrs:   multiaddrs,
-		Capabilities: nf.Capabilities,
-		PublicKey:    nf.PublicKey,
-		Version:      uint32(nf.Version),
-		Protocol:     string(nf.Protocol),
-	}
 }
 
 type AUTHStructure struct {

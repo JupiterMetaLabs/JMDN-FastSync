@@ -7,7 +7,9 @@ import (
 	"sync"
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/WAL"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/router/helper"
 	ackpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/ack"
+	availabilitypb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/availability"
 	authpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/availability/auth"
 	blockpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/block"
 	datasyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/datasync"
@@ -46,8 +48,8 @@ type batchResult struct {
 }
 
 type HeaderSync struct {
-	SyncVars *types.Syncvars
-	Comm     communication.Communicator
+	SyncVars   *types.Syncvars
+	Comm       communication.Communicator
 	ServerAuth *authpb.Auth
 }
 
@@ -89,7 +91,7 @@ func (hs *HeaderSync) GetSyncVars() *types.Syncvars {
 6. Add the headers to the local database after successful receival. using nodeinfo.WriteHeaders.WriteHeaders(headers []*block.Header).
 7. atlast we have to execute PRIORSYNC with the server to get to know are we fully synced or not.
 */
-func (hs *HeaderSync) HeaderSync(headersyncrequest *headersyncpb.HeaderSyncRequest, remotes []*types.Nodeinfo) (*datasyncpb.DataSyncRequest, error) {
+func (hs *HeaderSync) HeaderSync(headersyncrequest *headersyncpb.HeaderSyncRequest, remotes []*availabilitypb.AvailabilityResponse) (*datasyncpb.DataSyncRequest, error) {
 	if headersyncrequest == nil {
 		return nil, fmt.Errorf("headersync request or tag is nil")
 	}
@@ -190,7 +192,7 @@ func processQueue(
 	ctx context.Context,
 	hs *HeaderSync,
 	queue []*headersyncpb.HeaderSyncRequest,
-	remotes []*types.Nodeinfo,
+	remotes []*availabilitypb.AvailabilityResponse,
 	headerWriter types.WriteHeaders,
 ) error {
 	if len(queue) == 0 {
@@ -308,7 +310,7 @@ func fetchWorker(
 	ctx context.Context,
 	workerID int,
 	hs *HeaderSync,
-	remotes []*types.Nodeinfo,
+	remotes []*availabilitypb.AvailabilityResponse,
 	workCh <-chan batchJob,
 	resultCh chan<- batchResult,
 ) {
@@ -318,20 +320,31 @@ func fetchWorker(
 		success := false
 
 		for remoteIdx := 0; remoteIdx < len(remotes) && !success; remoteIdx++ {
-			remote := remotes[remoteIdx]
+			availResp := remotes[remoteIdx]
+			remoteNodeInfo, err := helper.NewNodeInfoHelper().ToNodeinfo(availResp.Nodeinfo)
+			if err != nil {
+				lastErr = fmt.Errorf("worker %d, batch %d: failed to parse remote nodeinfo: %w",
+					workerID, job.BatchID, err)
+				continue
+			}
 			childctx, cancel := context.WithCancel(ctx)
+
+			// Set the auth from the availability response for this specific remote
+			if job.Request.Phase != nil {
+				job.Request.Phase.Auth = availResp.Auth
+			}
 
 			for attempt := 1; attempt <= maxRetries; attempt++ {
 				Log.Logger(Log.HeaderSync).Debug(childctx, "Worker sending header sync batch",
 					ion.Int("worker", workerID),
 					ion.Int("batch", job.BatchID),
 					ion.Int("attempt", attempt),
-					ion.String("peer", remote.PeerID.String()))
+					ion.String("peer", remoteNodeInfo.PeerID.String()))
 
-				resp, err := hs.Comm.SendHeaderSyncRequest(childctx, *remote, job.Request)
+				resp, err := hs.Comm.SendHeaderSyncRequest(childctx, *remoteNodeInfo, job.Request)
 				if err != nil {
 					lastErr = fmt.Errorf("worker %d, batch %d, remote %s, attempt %d: %w",
-						workerID, job.BatchID, remote.PeerID.String(), attempt, err)
+						workerID, job.BatchID, remoteNodeInfo.PeerID.String(), attempt, err)
 					Log.Logger(Log.HeaderSync).Warn(childctx, "Header sync request failed",
 						ion.Err(lastErr),
 						ion.Int("worker", workerID),
@@ -392,7 +405,7 @@ func fetchWorker(
 // Merkle trees. If the trees match, (nil, true, nil) is returned. If they differ,
 // the response will contain a HeaderSyncRequest.Tag with the differing ranges,
 // which is returned as (tag, false, nil) for re-enqueueing.
-func (hs *HeaderSync) SyncConfirmation(ctx context.Context, remotes []*types.Nodeinfo) (*taggingpb.Tag, bool, error) {
+func (hs *HeaderSync) SyncConfirmation(ctx context.Context, remotes []*availabilitypb.AvailabilityResponse) (*taggingpb.Tag, bool, error) {
 	// Build local Merkle tree from our current block state
 	blockInfo := hs.SyncVars.NodeInfo.BlockInfo
 	localDetails := blockInfo.GetBlockDetails()
@@ -408,7 +421,13 @@ func (hs *HeaderSync) SyncConfirmation(ctx context.Context, remotes []*types.Nod
 		return nil, false, fmt.Errorf("failed to convert merkle snapshot: %w", err)
 	}
 	// Try each remote for confirmation
-	for _, remote := range remotes {
+	for _, availResp := range remotes {
+		remoteNodeInfo, err := helper.NewNodeInfoHelper().ToNodeinfo(availResp.Nodeinfo)
+		if err != nil {
+			Log.Logger(Log.HeaderSync).Warn(ctx, "Failed to parse remote nodeinfo, skipping",
+				ion.Err(err))
+			continue
+		}
 		childctx, cancel := context.WithCancel(ctx)
 
 		metadata := &priorsyncpb.Metadata{
@@ -416,11 +435,20 @@ func (hs *HeaderSync) SyncConfirmation(ctx context.Context, remotes []*types.Nod
 			Checksum: localDetails.Metadata.Checksum,
 		}
 
-		range_priorsync := &merklepb.Range{
-			Start: localDetails.Range.Start,
-			End:   localDetails.Range.End,
+		var range_priorsync *merklepb.Range
+		if localDetails.Range != nil {
+			range_priorsync = &merklepb.Range{
+				Start: localDetails.Range.Start,
+				End:   localDetails.Range.End,
+			}
+		} else {
+			range_priorsync = &merklepb.Range{
+				Start: 0,
+				End:   localDetails.Blocknumber,
+			}
 		}
 
+		// Use the auth from this specific remote's availability response
 		syncMsg := &priorsyncpb.PriorSyncMessage{
 			Priorsync: &priorsyncpb.PriorSync{
 				Blocknumber: localDetails.Blocknumber,
@@ -430,16 +458,21 @@ func (hs *HeaderSync) SyncConfirmation(ctx context.Context, remotes []*types.Nod
 				Range:       range_priorsync,
 			},
 			Phase: &phasepb.Phase{
-				Auth: hs.ServerAuth,
+				Auth: availResp.Auth,
 			},
 		}
 
-		resp, err := hs.Comm.SendPriorSync(childctx, merkleSnapshot, *remote, *syncMsg)
+		Log.Logger(Log.HeaderSync).Info(ctx, "Sending sync confirmation",
+			ion.String("peer", remoteNodeInfo.PeerID.String()),
+			ion.Uint64("blocknumber", localDetails.Blocknumber),
+			ion.String("UUID", syncMsg.Phase.GetAuth().GetUUID()))
+
+		resp, err := hs.Comm.SendPriorSync(childctx, merkleSnapshot, *remoteNodeInfo, *syncMsg)
 		cancel()
 
 		if err != nil {
 			Log.Logger(Log.HeaderSync).Warn(ctx, "Sync confirmation failed with remote, trying next",
-				ion.String("peer", remote.PeerID.String()),
+				ion.String("peer", remoteNodeInfo.PeerID.String()),
 				ion.Err(err))
 			continue
 		}
@@ -471,7 +504,7 @@ func (hs *HeaderSync) SyncConfirmation(ctx context.Context, remotes []*types.Nod
 
 		// No phase success and no tag — ambiguous, try next remote
 		Log.Logger(Log.HeaderSync).Warn(ctx, "Sync confirmation returned ambiguous response",
-			ion.String("peer", remote.PeerID.String()))
+			ion.String("peer", remoteNodeInfo.PeerID.String()))
 	}
 
 	return nil, false, fmt.Errorf("sync confirmation failed: all remotes exhausted")

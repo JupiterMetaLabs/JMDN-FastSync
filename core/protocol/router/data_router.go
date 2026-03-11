@@ -434,6 +434,14 @@ func (router *Datarouter) HandleAvailability(ctx context.Context, req *availabil
 
 		loggerCtx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 		defer cancel()
+		
+		var err error
+		template.Nodeinfo, err = helper.NewNodeInfoHelper().ToProto(router.Nodeinfo)
+
+		if err != nil {
+			template.Phase.Error = err.Error()
+			return template
+		}
 
 		// Calculate the blockmerge (current block height) of the present server
 		blockmerge, err := merkle.NewMerkleProof(router.Nodeinfo.BlockInfo).GenerateMerkleConfig(loggerCtx, req.Range.Start, req.Range.End)
@@ -452,8 +460,6 @@ func (router *Datarouter) HandleAvailability(ctx context.Context, req *availabil
 		}
 
 		template.BlockMerge = uint32(blockmerge.BlockMerge)
-
-		template.Nodeinfo = router.Nodeinfo.ToProto()
 
 		template.IsAvailable = true
 		template.Phase.SuccessivePhase = constants.SYNC_REQUEST

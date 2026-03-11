@@ -80,9 +80,7 @@ func (a *Availability) SendMultipleAvailabilityRequest(ctx context.Context, sync
 	}
 
 	parallelCount := constants.MAX_PARALLEL_REQUESTS
-	if numNodes < parallelCount {
-		parallelCount = numNodes
-	}
+	parallelCount = min(parallelCount, numNodes)
 
 	peerCh := make(chan types.Nodeinfo, numNodes)
 	for _, peer := range peerNode {
@@ -93,17 +91,15 @@ func (a *Availability) SendMultipleAvailabilityRequest(ctx context.Context, sync
 	respCh := make(chan *availabilitypb.AvailabilityResponse, numNodes)
 	var wg sync.WaitGroup
 
-	for i := 0; i < parallelCount; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range parallelCount {
+		wg.Go(func() {
 			for peer := range peerCh {
 				availabilityResponse, err := a.Comm.SendAvailabilityRequest(ctx, peer, availabilityRequest)
 				if err == nil && availabilityResponse != nil && availabilityResponse.IsAvailable {
 					respCh <- availabilityResponse
 				}
 			}
-		}()
+		})
 	}
 
 	wg.Wait()

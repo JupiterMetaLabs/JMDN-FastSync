@@ -9,6 +9,7 @@ import (
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/WAL"
 	ackpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/ack"
+	availabilitypb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/availability"
 	authpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/availability/auth"
 	blockpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/block"
 	datasyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/datasync"
@@ -18,6 +19,7 @@ import (
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/constants"
 	wal_types "github.com/JupiterMetaLabs/JMDN-FastSync/common/types/wal"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/communication"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/router/helper"
 	Log "github.com/JupiterMetaLabs/JMDN-FastSync/logging"
 	"github.com/JupiterMetaLabs/ion"
 	"github.com/libp2p/go-libp2p/core/host"
@@ -75,7 +77,7 @@ DataSync fetches non-header block data from remote peers and writes it to the lo
 2. Dispatch batches to a worker pool that queries remotes with retry + failover.
 3. Collect results, sort by block number, and write to DB via WriteData.
 */
-func (ds *DataSync) DataSync(datasyncrequest *datasyncpb.DataSyncRequest, remotes []*types.Nodeinfo) error {
+func (ds *DataSync) DataSync(datasyncrequest *datasyncpb.DataSyncRequest, remotes []*availabilitypb.AvailabilityResponse) error {
 	if datasyncrequest == nil || datasyncrequest.Tag == nil {
 		return fmt.Errorf("datasync request or tag is nil")
 	}
@@ -116,7 +118,7 @@ func processDataQueue(
 	ctx context.Context,
 	ds *DataSync,
 	queue []*datasyncpb.DataSyncRequest,
-	remotes []*types.Nodeinfo,
+	remotes []*availabilitypb.AvailabilityResponse,
 	dataWriter types.WriteData,
 ) error {
 	if len(queue) == 0 {
@@ -125,10 +127,7 @@ func processDataQueue(
 
 	// Size the worker pool: min(maxWorkers, num batches)
 	// We do not cap by len(remotes) because a single remote can handle multiple concurrent batch requests.
-	numWorkers := maxWorkers
-	if len(queue) < numWorkers {
-		numWorkers = len(queue)
-	}
+	numWorkers := min(maxWorkers, len(queue))
 
 	Log.Logger(Log.DataSync).Info(ctx, "Worker pool starting",
 		ion.Int("workers", numWorkers),
@@ -250,7 +249,7 @@ func dataFetchWorker(
 	ctx context.Context,
 	workerID int,
 	ds *DataSync,
-	remotes []*types.Nodeinfo,
+	remotes []*availabilitypb.AvailabilityResponse,
 	workCh <-chan dataBatchJob,
 	resultCh chan<- dataBatchResult,
 ) {
@@ -260,20 +259,31 @@ func dataFetchWorker(
 		success := false
 
 		for remoteIdx := 0; remoteIdx < len(remotes) && !success; remoteIdx++ {
-			remote := remotes[remoteIdx]
+			availResp := remotes[remoteIdx]
+			remoteNodeInfo, err := helper.NewNodeInfoHelper().ToNodeinfo(availResp.Nodeinfo)
+			if err != nil {
+				lastErr = fmt.Errorf("worker %d, batch %d: failed to parse remote nodeinfo: %w",
+					workerID, job.BatchID, err)
+				continue
+			}
 			childctx, cancel := context.WithCancel(ctx)
+
+			// Set the auth from the availability response for this specific remote
+			if job.Request.Phase != nil {
+				job.Request.Phase.Auth = availResp.Auth
+			}
 
 			for attempt := 1; attempt <= maxRetries; attempt++ {
 				Log.Logger(Log.DataSync).Debug(childctx, "Worker sending data sync batch",
 					ion.Int("worker", workerID),
 					ion.Int("batch", job.BatchID),
 					ion.Int("attempt", attempt),
-					ion.String("peer", remote.PeerID.String()))
+					ion.String("peer", remoteNodeInfo.PeerID.String()))
 
-				resp, err := ds.Comm.SendDataSyncRequest(childctx, *remote, job.Request)
+				resp, err := ds.Comm.SendDataSyncRequest(childctx, *remoteNodeInfo, job.Request)
 				if err != nil {
 					lastErr = fmt.Errorf("worker %d, batch %d, remote %s, attempt %d: %w",
-						workerID, job.BatchID, remote.PeerID.String(), attempt, err)
+						workerID, job.BatchID, remoteNodeInfo.PeerID.String(), attempt, err)
 					Log.Logger(Log.DataSync).Warn(childctx, "Data sync request failed",
 						ion.Err(lastErr),
 						ion.Int("worker", workerID),
