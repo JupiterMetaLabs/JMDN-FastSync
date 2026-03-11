@@ -6,6 +6,7 @@ option go_package = "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/avail
 import "phase/phase.proto";
 import "merkle/merkle.proto";
 import "availability/auth/auth.proto";
+import "nodeinfo/nodeinfo.proto";
 
 message AvailabilityRequest {
     merkle.range range = 2;
@@ -13,7 +14,7 @@ message AvailabilityRequest {
 
 message AvailabilityResponse {
     bool is_available = 1;
-    repeated string multiaddr = 2;
+    nodeinfo.NodeInfo nodeinfo = 2;
     uint32 block_merge = 3;
     auth.Auth auth = 4;
     phase.Phase phase = 5;

@@ -4,6 +4,7 @@ import (
 	"time"
 
 	blockpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/block"
+	nodeinfopb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/nodeinfo"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/multiformats/go-multiaddr"
@@ -22,6 +23,22 @@ type Nodeinfo struct {
 	Version      uint16
 	Protocol     protocol.ID
 	BlockInfo    BlockInfo
+}
+
+func (nf *Nodeinfo) ToProto() *nodeinfopb.NodeInfo {
+	var multiaddrs [][]byte
+	for _, m := range nf.Multiaddr {
+		multiaddrs = append(multiaddrs, m.Bytes())
+	}
+
+	return &nodeinfopb.NodeInfo{
+		PeerId:       []byte(nf.PeerID),
+		Multiaddrs:   multiaddrs,
+		Capabilities: nf.Capabilities,
+		PublicKey:    nf.PublicKey,
+		Version:      uint32(nf.Version),
+		Protocol:     string(nf.Protocol),
+	}
 }
 
 type AUTHStructure struct {
@@ -64,24 +81,24 @@ type WriteData interface {
 	WriteData(data []*blockpb.NonHeaders) error
 }
 
-type AUTHHandler interface{
-	/* 
-	   This will add record to the cache table, 
+type AUTHHandler interface {
+	/*
+	   This will add record to the cache table,
 	   also if already exist then it is designed to reset the timer for that record
 	*/
 	AddRecord(PeerID peer.ID, UUID string) error
 
-	/* 
+	/*
 	   This will remove record from the cache table
 	*/
 	RemoveRecord(PeerID peer.ID) error
 
-	/* 
+	/*
 	   This will get record from the cache table
 	*/
 	GetRecord(PeerID peer.ID) (AUTHStructure, error)
 
-	/* 
+	/*
 	   This will check if the record is present in the cache table [PeerID : UUID] with valid TTL
 	*/
 	IsAUTH(PeerID peer.ID, UUID string) (bool, error)

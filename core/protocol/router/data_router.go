@@ -30,6 +30,7 @@ import (
 	"github.com/JupiterMetaLabs/JMDN_Merkletree/merkletree"
 	"github.com/JupiterMetaLabs/ion"
 	libp2p_peer "github.com/libp2p/go-libp2p/core/peer"
+	nodeinfopb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/nodeinfo"
 	"github.com/multiformats/go-multiaddr"
 )
 
@@ -402,7 +403,10 @@ func (router *Datarouter) HandleDataSync(ctx context.Context, req *datasyncpb.Da
 func (router *Datarouter) HandleAvailability(ctx context.Context, req *availabilitypb.AvailabilityRequest, remote *types.Nodeinfo) *availabilitypb.AvailabilityResponse {
 	template := &availabilitypb.AvailabilityResponse{
 		IsAvailable: false,
-		Multiaddr:   make([]string, 0),
+		Nodeinfo: &nodeinfopb.NodeInfo{
+
+			Multiaddrs: make([][]byte, 0),
+		},
 		BlockMerge:  0,
 		Auth: &authpb.Auth{
 			UUID: "",
@@ -449,12 +453,7 @@ func (router *Datarouter) HandleAvailability(ctx context.Context, req *availabil
 
 		template.BlockMerge = uint32(blockmerge.BlockMerge)
 
-		var multiaddrStr []string
-		for _, i := range router.Nodeinfo.Multiaddr {
-			multiaddrStr = append(multiaddrStr, i.String())
-		}
-
-		template.Multiaddr = multiaddrStr
+		template.Nodeinfo = router.Nodeinfo.ToProto()
 
 		template.IsAvailable = true
 		template.Phase.SuccessivePhase = constants.SYNC_REQUEST
