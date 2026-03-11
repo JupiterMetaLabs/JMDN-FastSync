@@ -7,17 +7,23 @@ import (
 	"sync"
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/WAL"
+	checksum_priorsync "github.com/JupiterMetaLabs/JMDN-FastSync/common/checksum/checksum_priorsync"
 	ackpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/ack"
+	availabilitypb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/availability"
+	authpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/availability/auth"
 	blockpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/block"
 	datasyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/datasync"
 	headersyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/headersync"
+	merklepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/merkle"
 	phasepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/phase"
+	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/priorsync"
 	taggingpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/tagging"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/constants"
 	wal_types "github.com/JupiterMetaLabs/JMDN-FastSync/common/types/wal"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/communication"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/merkle"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/router/helper"
 	Log "github.com/JupiterMetaLabs/JMDN-FastSync/logging"
 	"github.com/JupiterMetaLabs/ion"
 	"github.com/libp2p/go-libp2p/core/host"
@@ -43,8 +49,9 @@ type batchResult struct {
 }
 
 type HeaderSync struct {
-	SyncVars *types.Syncvars
-	Comm     communication.Communicator
+	SyncVars   *types.Syncvars
+	Comm       communication.Communicator
+	ServerAuth *authpb.Auth
 }
 
 func NewHeaderSync() *HeaderSync {
@@ -85,7 +92,7 @@ func (hs *HeaderSync) GetSyncVars() *types.Syncvars {
 6. Add the headers to the local database after successful receival. using nodeinfo.WriteHeaders.WriteHeaders(headers []*block.Header).
 7. atlast we have to execute PRIORSYNC with the server to get to know are we fully synced or not.
 */
-func (hs *HeaderSync) HeaderSync(headersyncrequest *headersyncpb.HeaderSyncRequest, remotes []*types.Nodeinfo) (*datasyncpb.DataSyncRequest, error) {
+func (hs *HeaderSync) HeaderSync(headersyncrequest *headersyncpb.HeaderSyncRequest, remotes []*availabilitypb.AvailabilityResponse) (*datasyncpb.DataSyncRequest, error) {
 	if headersyncrequest == nil {
 		return nil, fmt.Errorf("headersync request or tag is nil")
 	}
@@ -112,11 +119,12 @@ func (hs *HeaderSync) HeaderSync(headersyncrequest *headersyncpb.HeaderSyncReque
 
 	ctx := hs.SyncVars.Ctx
 	headerWriter := hs.SyncVars.NodeInfo.BlockInfo.NewHeadersWriter()
+	hs.ServerAuth = headersyncrequest.Phase.GetAuth()
 
 	// ---------------------------------------------------------------
 	// Initialize the queue with the first set of batches
 	// ---------------------------------------------------------------
-	queue := buildBatches(originalTag)
+	queue := buildBatches(originalTag, hs.ServerAuth)
 
 	Log.Logger(Log.HeaderSync).Info(ctx, "HeaderSync starting",
 		ion.Int("initial_batches", len(queue)),
@@ -165,12 +173,13 @@ func (hs *HeaderSync) HeaderSync(headersyncrequest *headersyncpb.HeaderSyncReque
 					SuccessivePhase: constants.DATA_SYNC_REQUEST,
 					Success:         true,
 					Error:           "",
+					Auth:            hs.ServerAuth,
 				},
 			}, nil
 		}
 
 		// Trees still differ — enqueue the new batches for the next round
-		queue = buildBatches(newTag)
+		queue = buildBatches(newTag, hs.ServerAuth)
 		Log.Logger(Log.HeaderSync).Info(ctx, "Sync confirmation found differences, re-enqueuing",
 			ion.Int("new_batches", len(queue)))
 	}
@@ -184,7 +193,7 @@ func processQueue(
 	ctx context.Context,
 	hs *HeaderSync,
 	queue []*headersyncpb.HeaderSyncRequest,
-	remotes []*types.Nodeinfo,
+	remotes []*availabilitypb.AvailabilityResponse,
 	headerWriter types.WriteHeaders,
 ) error {
 	if len(queue) == 0 {
@@ -302,7 +311,7 @@ func fetchWorker(
 	ctx context.Context,
 	workerID int,
 	hs *HeaderSync,
-	remotes []*types.Nodeinfo,
+	remotes []*availabilitypb.AvailabilityResponse,
 	workCh <-chan batchJob,
 	resultCh chan<- batchResult,
 ) {
@@ -312,20 +321,31 @@ func fetchWorker(
 		success := false
 
 		for remoteIdx := 0; remoteIdx < len(remotes) && !success; remoteIdx++ {
-			remote := remotes[remoteIdx]
+			availResp := remotes[remoteIdx]
+			remoteNodeInfo, err := helper.NewNodeInfoHelper().ToNodeinfo(availResp.Nodeinfo)
+			if err != nil {
+				lastErr = fmt.Errorf("worker %d, batch %d: failed to parse remote nodeinfo: %w",
+					workerID, job.BatchID, err)
+				continue
+			}
 			childctx, cancel := context.WithCancel(ctx)
+
+			// Set the auth from the availability response for this specific remote
+			if job.Request.Phase != nil {
+				job.Request.Phase.Auth = availResp.Auth
+			}
 
 			for attempt := 1; attempt <= maxRetries; attempt++ {
 				Log.Logger(Log.HeaderSync).Debug(childctx, "Worker sending header sync batch",
 					ion.Int("worker", workerID),
 					ion.Int("batch", job.BatchID),
 					ion.Int("attempt", attempt),
-					ion.String("peer", remote.PeerID.String()))
+					ion.String("peer", remoteNodeInfo.PeerID.String()))
 
-				resp, err := hs.Comm.SendHeaderSyncRequest(childctx, *remote, job.Request)
+				resp, err := hs.Comm.SendHeaderSyncRequest(childctx, *remoteNodeInfo, job.Request)
 				if err != nil {
 					lastErr = fmt.Errorf("worker %d, batch %d, remote %s, attempt %d: %w",
-						workerID, job.BatchID, remote.PeerID.String(), attempt, err)
+						workerID, job.BatchID, remoteNodeInfo.PeerID.String(), attempt, err)
 					Log.Logger(Log.HeaderSync).Warn(childctx, "Header sync request failed",
 						ion.Err(lastErr),
 						ion.Int("worker", workerID),
@@ -386,7 +406,7 @@ func fetchWorker(
 // Merkle trees. If the trees match, (nil, true, nil) is returned. If they differ,
 // the response will contain a HeaderSyncRequest.Tag with the differing ranges,
 // which is returned as (tag, false, nil) for re-enqueueing.
-func (hs *HeaderSync) SyncConfirmation(ctx context.Context, remotes []*types.Nodeinfo) (*taggingpb.Tag, bool, error) {
+func (hs *HeaderSync) SyncConfirmation(ctx context.Context, remotes []*availabilitypb.AvailabilityResponse) (*taggingpb.Tag, bool, error) {
 	// Build local Merkle tree from our current block state
 	blockInfo := hs.SyncVars.NodeInfo.BlockInfo
 	localDetails := blockInfo.GetBlockDetails()
@@ -401,26 +421,68 @@ func (hs *HeaderSync) SyncConfirmation(ctx context.Context, remotes []*types.Nod
 	if err != nil {
 		return nil, false, fmt.Errorf("failed to convert merkle snapshot: %w", err)
 	}
-	// Try each remote for confirmation
-	for _, remote := range remotes {
-		childctx, cancel := context.WithCancel(ctx)
 
-		syncMsg := types.PriorSyncMessage{
-			Priorsync: &types.PriorSync{
+	// Checksum handler
+	checksum_handler := checksum_priorsync.PriorSyncChecksum()
+
+	// Try each remote for confirmation
+	for _, availResp := range remotes {
+		remoteNodeInfo, err := helper.NewNodeInfoHelper().ToNodeinfo(availResp.Nodeinfo)
+		if err != nil {
+			Log.Logger(Log.HeaderSync).Warn(ctx, "Failed to parse remote nodeinfo, skipping",
+				ion.Err(err))
+			continue
+		}
+
+		childctx, cancel := context.WithCancel(ctx)
+		defer cancel()
+
+		var range_priorsync *merklepb.Range
+		if localDetails.Range != nil {
+			range_priorsync = &merklepb.Range{
+				Start: localDetails.Range.Start,
+				End:   localDetails.Range.End,
+			}
+		} else {
+			range_priorsync = &merklepb.Range{
+				Start: 0,
+				End:   localDetails.Blocknumber,
+			}
+		}
+
+		// Use the auth from this specific remote's availability response
+		syncMsg := &priorsyncpb.PriorSyncMessage{
+			Priorsync: &priorsyncpb.PriorSync{
 				Blocknumber: localDetails.Blocknumber,
 				Stateroot:   localDetails.Stateroot,
 				Blockhash:   localDetails.Blockhash,
-				Metadata:    localDetails.Metadata,
-				Range:       localDetails.Range,
+				Range:       range_priorsync,
+				Metadata:    &priorsyncpb.Metadata{},
+			},
+			Phase: &phasepb.Phase{
+				Auth: availResp.Auth,
 			},
 		}
 
-		resp, err := hs.Comm.SendPriorSync(childctx, merkleSnapshot, *remote, syncMsg)
+		checksum, err := checksum_handler.CreatefromPB(syncMsg.GetPriorsync(), uint16(localDetails.Metadata.Version))
+		if err != nil {
+			return nil, false, fmt.Errorf("failed to create checksum: %w", err)
+		}
+
+		syncMsg.Priorsync.Metadata.Checksum = checksum
+		syncMsg.Priorsync.Metadata.Version = uint32(localDetails.Metadata.Version)
+
+		Log.Logger(Log.HeaderSync).Info(ctx, "Sending sync confirmation",
+			ion.String("peer", remoteNodeInfo.PeerID.String()),
+			ion.Uint64("blocknumber", localDetails.Blocknumber),
+			ion.String("UUID", syncMsg.Phase.GetAuth().GetUUID()))
+
+		resp, err := hs.Comm.SendPriorSync(childctx, merkleSnapshot, *remoteNodeInfo, *syncMsg)
 		cancel()
 
 		if err != nil {
 			Log.Logger(Log.HeaderSync).Warn(ctx, "Sync confirmation failed with remote, trying next",
-				ion.String("peer", remote.PeerID.String()),
+				ion.String("peer", remoteNodeInfo.PeerID.String()),
 				ion.Err(err))
 			continue
 		}
@@ -452,7 +514,7 @@ func (hs *HeaderSync) SyncConfirmation(ctx context.Context, remotes []*types.Nod
 
 		// No phase success and no tag — ambiguous, try next remote
 		Log.Logger(Log.HeaderSync).Warn(ctx, "Sync confirmation returned ambiguous response",
-			ion.String("peer", remote.PeerID.String()))
+			ion.String("peer", remoteNodeInfo.PeerID.String()))
 	}
 
 	return nil, false, fmt.Errorf("sync confirmation failed: all remotes exhausted")
@@ -460,7 +522,7 @@ func (hs *HeaderSync) SyncConfirmation(ctx context.Context, remotes []*types.Nod
 
 // buildBatches groups tag ranges and individual block numbers into
 // HeaderSyncRequest batches, each containing at most MAX_HEADERS_PER_REQUEST headers.
-func buildBatches(tag *taggingpb.Tag) []*headersyncpb.HeaderSyncRequest {
+func buildBatches(tag *taggingpb.Tag, auth *authpb.Auth) []*headersyncpb.HeaderSyncRequest {
 	maxPerBatch := uint64(constants.MAX_HEADERS_PER_REQUEST)
 	var batches []*headersyncpb.HeaderSyncRequest
 
@@ -488,7 +550,7 @@ func buildBatches(tag *taggingpb.Tag) []*headersyncpb.HeaderSyncRequest {
 		// If adding this range would exceed the limit, finalize the current batch
 		// (but always include at least one range per batch)
 		if currentCount > 0 && currentCount+rangeSize > maxPerBatch {
-			batches = append(batches, makeBatchRequest(currentTag))
+			batches = append(batches, makeBatchRequest(currentTag, auth))
 			currentTag = &taggingpb.Tag{}
 			currentCount = 0
 		}
@@ -498,7 +560,7 @@ func buildBatches(tag *taggingpb.Tag) []*headersyncpb.HeaderSyncRequest {
 
 		// If this single range already exceeds the limit, finalize immediately
 		if currentCount >= maxPerBatch {
-			batches = append(batches, makeBatchRequest(currentTag))
+			batches = append(batches, makeBatchRequest(currentTag, auth))
 			currentTag = &taggingpb.Tag{}
 			currentCount = 0
 		}
@@ -507,7 +569,7 @@ func buildBatches(tag *taggingpb.Tag) []*headersyncpb.HeaderSyncRequest {
 	// -- Pack individual block numbers into the current or new batch --
 	for _, bn := range blockNums {
 		if currentCount > 0 && currentCount+1 > maxPerBatch {
-			batches = append(batches, makeBatchRequest(currentTag))
+			batches = append(batches, makeBatchRequest(currentTag, auth))
 			currentTag = &taggingpb.Tag{}
 			currentCount = 0
 		}
@@ -518,14 +580,14 @@ func buildBatches(tag *taggingpb.Tag) []*headersyncpb.HeaderSyncRequest {
 
 	// Flush remaining
 	if currentCount > 0 {
-		batches = append(batches, makeBatchRequest(currentTag))
+		batches = append(batches, makeBatchRequest(currentTag, auth))
 	}
 
 	return batches
 }
 
 // makeBatchRequest wraps a Tag into a HeaderSyncRequest with proper phase info.
-func makeBatchRequest(tag *taggingpb.Tag) *headersyncpb.HeaderSyncRequest {
+func makeBatchRequest(tag *taggingpb.Tag, auth *authpb.Auth) *headersyncpb.HeaderSyncRequest {
 	return &headersyncpb.HeaderSyncRequest{
 		Tag: tag,
 		Ack: &ackpb.Ack{
@@ -537,6 +599,7 @@ func makeBatchRequest(tag *taggingpb.Tag) *headersyncpb.HeaderSyncRequest {
 			SuccessivePhase: constants.HEADER_SYNC_RESPONSE,
 			Success:         true,
 			Error:           "",
+			Auth:            auth,
 		},
 	}
 }

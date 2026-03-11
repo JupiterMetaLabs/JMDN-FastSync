@@ -29,8 +29,12 @@ func (e example_authhandler) GetRecord(peerID peer.ID) (types.AUTHStructure, err
 	return types.AUTHStructure{}, nil
 }
 
-func (e example_authhandler) IsAUTH(peerID peer.ID, UUID string) bool {
-	return false
+func (e example_authhandler) IsAUTH(peerID peer.ID, UUID string) (bool, error){
+	return false, nil
+}
+
+func (e example_authhandler) ResetTTL(peerID peer.ID) error {
+	return nil
 }
 
 func (e example_blockinfo) GetBlockNumber() uint64 {

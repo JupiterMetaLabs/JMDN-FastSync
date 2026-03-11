@@ -8,14 +8,17 @@ import (
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/WAL"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/checksum/checksum_priorsync"
+	authpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/availability/auth"
+	merklepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/merkle"
+	phasepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/phase"
 	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/priorsync"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/constants"
 	wal_types "github.com/JupiterMetaLabs/JMDN-FastSync/common/types/wal"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/core/availability"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/communication"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/merkle"
 	sync_proto "github.com/JupiterMetaLabs/JMDN-FastSync/core/sync"
-	priorsync_converter "github.com/JupiterMetaLabs/JMDN-FastSync/helper/priorsync"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/logging"
 	"github.com/JupiterMetaLabs/ion"
 	"github.com/libp2p/go-libp2p/core/host"
@@ -25,8 +28,9 @@ type PriorSync struct {
 	PriorSync_msg *types.PriorSyncMessage
 	SyncVars      *types.Syncvars
 
-	mu     sync.Mutex
-	cancel context.CancelFunc
+	checksum_version uint16
+	mu               sync.Mutex
+	cancel           context.CancelFunc
 }
 
 func NewPriorSyncRouter() Priorsync_router {
@@ -37,7 +41,7 @@ func NewPriorSyncRouter() Priorsync_router {
 	}
 }
 
-func (ps *PriorSync) SetSyncVars(ctx context.Context, protocolVersion uint16, nodeInfo types.Nodeinfo, node host.Host, wal *WAL.WAL) Priorsync_router {
+func (ps *PriorSync) SetSyncVars(ctx context.Context, protocolVersion uint16, checksum_version uint16, nodeInfo types.Nodeinfo, node host.Host, wal *WAL.WAL) Priorsync_router {
 	if ps.SyncVars == nil {
 		ps.SyncVars = &types.Syncvars{}
 	}
@@ -54,6 +58,7 @@ func (ps *PriorSync) SetSyncVars(ctx context.Context, protocolVersion uint16, no
 	ps.SyncVars.Ctx = ctx
 	ps.SyncVars.WAL = wal
 	ps.SyncVars.Node = node
+	ps.checksum_version = checksum_version
 	return ps
 }
 
@@ -68,6 +73,9 @@ func (ps *PriorSync) SetupNetworkHandlers(debug bool) error {
 	if ps.SyncVars == nil || ps.SyncVars.Ctx == nil {
 		return errors.New("sync vars ctx not set")
 	}
+	if !availability.FastsyncReady().AmIAvailable() {
+		return errors.New("not available right now")
+	}
 
 	// derive child from parent; child cannot outlive parent
 	ctx, cancel := context.WithCancel(ps.SyncVars.Ctx)
@@ -81,13 +89,13 @@ func (ps *PriorSync) SetupNetworkHandlers(debug bool) error {
 	ps.mu.Lock()
 
 	// If called twice, stop the old one first
-
 	var RemoveStreams func()
 	RemoveStreams = func() {
 		ps.SyncVars.Node.RemoveStreamHandler(constants.PriorSyncProtocol)
 		ps.SyncVars.Node.RemoveStreamHandler(constants.MerkleProtocol)
 		ps.SyncVars.Node.RemoveStreamHandler(constants.HeaderSyncProtocol)
 		ps.SyncVars.Node.RemoveStreamHandler(constants.DataSyncProtocol)
+		ps.SyncVars.Node.RemoveStreamHandler(constants.AvailabilityProtocol)
 	}
 
 	if ps.cancel != nil {
@@ -112,7 +120,11 @@ func (ps *PriorSync) SetupNetworkHandlers(debug bool) error {
 		return err
 	}
 
-	if err:= syncHandler.HandleDataSync(ctx, ps.SyncVars.Node); err != nil {
+	if err := syncHandler.HandleDataSync(ctx, ps.SyncVars.Node); err != nil {
+		return err
+	}
+
+	if err := syncHandler.HandleAvailability(ctx, ps.SyncVars.Node); err != nil {
 		return err
 	}
 
@@ -134,7 +146,7 @@ func (ps *PriorSync) SetupNetworkHandlers(debug bool) error {
 // PriorSync builds a PriorSync request from the local node's state (block details,
 // merkle tree, checksum), sends it to the remote peer, writes the response to WAL,
 // and returns the protobuf response.
-func (ps *PriorSync) PriorSync(local_start, local_end, remote_start, remote_end uint64, remote *types.Nodeinfo) (*priorsyncpb.PriorSyncMessage, error) {
+func (ps *PriorSync) PriorSync(local_start, local_end, remote_start, remote_end uint64, remote *types.Nodeinfo, auth_req *authpb.Auth) (*priorsyncpb.PriorSyncMessage, error) {
 	if remote == nil {
 		return nil, errors.New("remote is nil")
 	}
@@ -160,31 +172,32 @@ func (ps *PriorSync) PriorSync(local_start, local_end, remote_start, remote_end 
 	}
 
 	// 3. Build the PriorSync request message
-	reqMsg := types.PriorSyncMessage{
-		Priorsync: &types.PriorSync{
+	reqMsg := priorsyncpb.PriorSyncMessage{
+		Priorsync: &priorsyncpb.PriorSync{
 			Blocknumber: localDetails.Blocknumber,
 			Stateroot:   localDetails.Stateroot,
 			Blockhash:   localDetails.Blockhash,
-			Range: &types.Range{
+			Range: &merklepb.Range{
 				Start: remote_start,
 				End:   remote_end,
 			},
-			Metadata: types.Metadata{},
+			Metadata: &priorsyncpb.Metadata{},
 		},
-		Phase: &types.Phase{
+		Phase: &phasepb.Phase{
 			PresentPhase:    constants.SYNC_REQUEST,
 			SuccessivePhase: constants.SYNC_REQUEST_RESPONSE,
 			Success:         true,
+			Auth:            auth_req,
 		},
 	}
 
 	// 4. Compute checksum
-	checksumBytes, err := checksum_priorsync.PriorSyncChecksum().Create(*reqMsg.Priorsync, ps.SyncVars.Version)
+	checksumBytes, err := checksum_priorsync.PriorSyncChecksum().CreatefromPB(reqMsg.Priorsync, ps.checksum_version)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create checksum: %w", err)
 	}
 	reqMsg.Priorsync.Metadata.Checksum = checksumBytes
-	reqMsg.Priorsync.Metadata.Version = ps.SyncVars.Version
+	reqMsg.Priorsync.Metadata.Version = uint32(ps.checksum_version)
 
 	// 5. Send the PriorSync request to the remote peer
 	comm := communication.NewCommunication(ps.SyncVars.Node, ps.SyncVars.Version)
@@ -196,36 +209,33 @@ func (ps *PriorSync) PriorSync(local_start, local_end, remote_start, remote_end 
 	logging.Logger(logging.PriorSync).Info(ctx, "PriorSync response received",
 		ion.String("remote", remote.PeerID.String()))
 
-	// 6. Convert to proto and write to WAL (if configured)
-	protoResp := priorsync_converter.TypesToProtoMessage(resp)
-	if ps.SyncVars.WAL != nil {
-		event := &WAL.PriorSyncEvent{
-			BaseEvent: wal_types.BaseEvent{Operation: wal_types.OpAppend},
-			Message:   protoResp,
-		}
-		if _, err := ps.SyncVars.WAL.WriteEvent(event); err != nil {
-			return nil, fmt.Errorf("WAL write failed: %w", err)
-		}
-		if err := ps.SyncVars.WAL.Flush(); err != nil {
-			return nil, fmt.Errorf("WAL flush failed: %w", err)
-		}
+	event := &WAL.PriorSyncEvent{
+		BaseEvent: wal_types.BaseEvent{Operation: wal_types.OpAppend},
+		Message:   resp,
+	}
+	if _, err := ps.SyncVars.WAL.WriteEvent(event); err != nil {
+		return nil, fmt.Errorf("WAL write failed: %w", err)
+	}
+	if err := ps.SyncVars.WAL.Flush(); err != nil {
+		return nil, fmt.Errorf("WAL flush failed: %w", err)
 	}
 
-	return protoResp, nil
+	return resp, nil
 }
 
 func (ps *PriorSync) Close() {
 	ps.mu.Lock()
 	cancel := ps.cancel
-	node := ps.SyncVars.Node
 	ps.mu.Unlock()
 
 	if cancel != nil {
 		cancel() // stops the HandlePriorSync wait + makes handler exit quickly
 	}
-	if node != nil {
-		node.RemoveStreamHandler(constants.PriorSyncProtocol)
-		node.RemoveStreamHandler(constants.MerkleProtocol) // Also remove Merkle handler
-		node.RemoveStreamHandler(constants.HeaderSyncProtocol)
+	if ps.SyncVars.Node != nil {
+		ps.SyncVars.Node.RemoveStreamHandler(constants.PriorSyncProtocol)
+		ps.SyncVars.Node.RemoveStreamHandler(constants.MerkleProtocol)
+		ps.SyncVars.Node.RemoveStreamHandler(constants.HeaderSyncProtocol)
+		ps.SyncVars.Node.RemoveStreamHandler(constants.DataSyncProtocol)
+		ps.SyncVars.Node.RemoveStreamHandler(constants.AvailabilityProtocol)
 	}
 }

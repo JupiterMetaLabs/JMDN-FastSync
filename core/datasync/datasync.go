@@ -9,6 +9,8 @@ import (
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/WAL"
 	ackpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/ack"
+	availabilitypb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/availability"
+	authpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/availability/auth"
 	blockpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/block"
 	datasyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/datasync"
 	phasepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/phase"
@@ -17,6 +19,7 @@ import (
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/constants"
 	wal_types "github.com/JupiterMetaLabs/JMDN-FastSync/common/types/wal"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/communication"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/router/helper"
 	Log "github.com/JupiterMetaLabs/JMDN-FastSync/logging"
 	"github.com/JupiterMetaLabs/ion"
 	"github.com/libp2p/go-libp2p/core/host"
@@ -41,8 +44,9 @@ type dataBatchResult struct {
 }
 
 type DataSync struct {
-	SyncVars *types.Syncvars
-	Comm     communication.Communicator
+	SyncVars   *types.Syncvars
+	Comm       communication.Communicator
+	ServerAuth *authpb.Auth
 }
 
 func NewDataSync() *DataSync {
@@ -73,7 +77,7 @@ DataSync fetches non-header block data from remote peers and writes it to the lo
 2. Dispatch batches to a worker pool that queries remotes with retry + failover.
 3. Collect results, sort by block number, and write to DB via WriteData.
 */
-func (ds *DataSync) DataSync(datasyncrequest *datasyncpb.DataSyncRequest, remotes []*types.Nodeinfo) error {
+func (ds *DataSync) DataSync(datasyncrequest *datasyncpb.DataSyncRequest, remotes []*availabilitypb.AvailabilityResponse) error {
 	if datasyncrequest == nil || datasyncrequest.Tag == nil {
 		return fmt.Errorf("datasync request or tag is nil")
 	}
@@ -86,11 +90,12 @@ func (ds *DataSync) DataSync(datasyncrequest *datasyncpb.DataSyncRequest, remote
 
 	ctx := ds.SyncVars.Ctx
 	dataWriter := ds.SyncVars.NodeInfo.BlockInfo.NewDataWriter()
+	ds.ServerAuth = datasyncrequest.Phase.GetAuth()
 
 	// ---------------------------------------------------------------
 	// Build batches from the tag (at most MAX_DATA_PER_REQUEST per batch)
 	// ---------------------------------------------------------------
-	queue := buildDataBatches(datasyncrequest.Tag, ds.SyncVars.Version)
+	queue := buildDataBatches(datasyncrequest.Tag, ds.SyncVars.Version, ds.ServerAuth)
 
 	Log.Logger(Log.DataSync).Info(ctx, "DataSync starting",
 		ion.Int("initial_batches", len(queue)),
@@ -113,7 +118,7 @@ func processDataQueue(
 	ctx context.Context,
 	ds *DataSync,
 	queue []*datasyncpb.DataSyncRequest,
-	remotes []*types.Nodeinfo,
+	remotes []*availabilitypb.AvailabilityResponse,
 	dataWriter types.WriteData,
 ) error {
 	if len(queue) == 0 {
@@ -122,10 +127,7 @@ func processDataQueue(
 
 	// Size the worker pool: min(maxWorkers, num batches)
 	// We do not cap by len(remotes) because a single remote can handle multiple concurrent batch requests.
-	numWorkers := maxWorkers
-	if len(queue) < numWorkers {
-		numWorkers = len(queue)
-	}
+	numWorkers := min(maxWorkers, len(queue))
 
 	Log.Logger(Log.DataSync).Info(ctx, "Worker pool starting",
 		ion.Int("workers", numWorkers),
@@ -247,7 +249,7 @@ func dataFetchWorker(
 	ctx context.Context,
 	workerID int,
 	ds *DataSync,
-	remotes []*types.Nodeinfo,
+	remotes []*availabilitypb.AvailabilityResponse,
 	workCh <-chan dataBatchJob,
 	resultCh chan<- dataBatchResult,
 ) {
@@ -257,20 +259,31 @@ func dataFetchWorker(
 		success := false
 
 		for remoteIdx := 0; remoteIdx < len(remotes) && !success; remoteIdx++ {
-			remote := remotes[remoteIdx]
+			availResp := remotes[remoteIdx]
+			remoteNodeInfo, err := helper.NewNodeInfoHelper().ToNodeinfo(availResp.Nodeinfo)
+			if err != nil {
+				lastErr = fmt.Errorf("worker %d, batch %d: failed to parse remote nodeinfo: %w",
+					workerID, job.BatchID, err)
+				continue
+			}
 			childctx, cancel := context.WithCancel(ctx)
+
+			// Set the auth from the availability response for this specific remote
+			if job.Request.Phase != nil {
+				job.Request.Phase.Auth = availResp.Auth
+			}
 
 			for attempt := 1; attempt <= maxRetries; attempt++ {
 				Log.Logger(Log.DataSync).Debug(childctx, "Worker sending data sync batch",
 					ion.Int("worker", workerID),
 					ion.Int("batch", job.BatchID),
 					ion.Int("attempt", attempt),
-					ion.String("peer", remote.PeerID.String()))
+					ion.String("peer", remoteNodeInfo.PeerID.String()))
 
-				resp, err := ds.Comm.SendDataSyncRequest(childctx, *remote, job.Request)
+				resp, err := ds.Comm.SendDataSyncRequest(childctx, *remoteNodeInfo, job.Request)
 				if err != nil {
 					lastErr = fmt.Errorf("worker %d, batch %d, remote %s, attempt %d: %w",
-						workerID, job.BatchID, remote.PeerID.String(), attempt, err)
+						workerID, job.BatchID, remoteNodeInfo.PeerID.String(), attempt, err)
 					Log.Logger(Log.DataSync).Warn(childctx, "Data sync request failed",
 						ion.Err(lastErr),
 						ion.Int("worker", workerID),
@@ -329,7 +342,7 @@ func dataFetchWorker(
 
 // buildDataBatches groups tag ranges and individual block numbers into
 // DataSyncRequest batches, each containing at most MAX_DATA_PER_REQUEST blocks.
-func buildDataBatches(tag *taggingpb.Tag, version uint16) []*datasyncpb.DataSyncRequest {
+func buildDataBatches(tag *taggingpb.Tag, version uint16, auth *authpb.Auth) []*datasyncpb.DataSyncRequest {
 	maxPerBatch := uint64(constants.MAX_DATA_PER_REQUEST)
 	var batches []*datasyncpb.DataSyncRequest
 
@@ -368,7 +381,7 @@ func buildDataBatches(tag *taggingpb.Tag, version uint16) []*datasyncpb.DataSync
 
 				// If the batch exactly hit capacity, flush it
 				if currentCount == maxPerBatch {
-					batches = append(batches, makeDataBatchRequest(currentTag, version))
+					batches = append(batches, makeDataBatchRequest(currentTag, version, auth))
 					currentTag = &taggingpb.Tag{}
 					currentCount = 0
 				}
@@ -379,7 +392,7 @@ func buildDataBatches(tag *taggingpb.Tag, version uint16) []*datasyncpb.DataSync
 				currentCount += remainingCapacity
 
 				// Batch is now full, finalize it
-				batches = append(batches, makeDataBatchRequest(currentTag, version))
+				batches = append(batches, makeDataBatchRequest(currentTag, version, auth))
 				currentTag = &taggingpb.Tag{}
 				currentCount = 0
 
@@ -392,7 +405,7 @@ func buildDataBatches(tag *taggingpb.Tag, version uint16) []*datasyncpb.DataSync
 	// -- Pack individual block numbers into the current or new batch --
 	for _, bn := range blockNums {
 		if currentCount > 0 && currentCount+1 > maxPerBatch {
-			batches = append(batches, makeDataBatchRequest(currentTag, version))
+			batches = append(batches, makeDataBatchRequest(currentTag, version, auth))
 			currentTag = &taggingpb.Tag{}
 			currentCount = 0
 		}
@@ -403,14 +416,14 @@ func buildDataBatches(tag *taggingpb.Tag, version uint16) []*datasyncpb.DataSync
 
 	// Flush remaining
 	if currentCount > 0 {
-		batches = append(batches, makeDataBatchRequest(currentTag, version))
+		batches = append(batches, makeDataBatchRequest(currentTag, version, auth))
 	}
 
 	return batches
 }
 
 // makeDataBatchRequest wraps a Tag into a DataSyncRequest with proper phase info.
-func makeDataBatchRequest(tag *taggingpb.Tag, version uint16) *datasyncpb.DataSyncRequest {
+func makeDataBatchRequest(tag *taggingpb.Tag, version uint16, auth *authpb.Auth) *datasyncpb.DataSyncRequest {
 	return &datasyncpb.DataSyncRequest{
 		Tag:     tag,
 		Version: uint32(version),
@@ -423,6 +436,7 @@ func makeDataBatchRequest(tag *taggingpb.Tag, version uint16) *datasyncpb.DataSy
 			SuccessivePhase: constants.DATA_SYNC_RESPONSE,
 			Success:         true,
 			Error:           "",
+			Auth:            auth,
 		},
 	}
 }

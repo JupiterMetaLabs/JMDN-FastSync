@@ -10,11 +10,13 @@ import (
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/checksum/checksum_priorsync"
 	ackpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/ack"
 	availabilitypb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/availability"
+	authpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/availability/auth"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/block"
 	datasyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/datasync"
 	headerpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/headersync"
 	headersyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/headersync"
 	merklepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/merkle"
+	nodeinfopb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/nodeinfo"
 	phasepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/phase"
 	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/priorsync"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
@@ -37,14 +39,16 @@ const (
 )
 
 type Datarouter struct {
-	Nodeinfo *types.Nodeinfo
-	Comm     communication.Communicator
+	Nodeinfo            *types.Nodeinfo
+	Comm                communication.Communicator
+	clientGeneratedUUID string
 }
 
 func NewDatarouter(nodeinfo *types.Nodeinfo, comm communication.Communicator) *Datarouter {
 	return &Datarouter{
-		Nodeinfo: nodeinfo,
-		Comm:     comm,
+		Nodeinfo:            nodeinfo,
+		Comm:                comm,
+		clientGeneratedUUID: "",
 	}
 }
 
@@ -62,9 +66,53 @@ func (router *Datarouter) HandlePriorSync(ctx context.Context, req *priorsyncpb.
 				SuccessivePhase: constants.UNKNOWN,
 				Success:         false,
 				Error:           errors.MetadataRequired.Error(),
+				Auth:            req.Phase.Auth,
 			},
 		}
 	}
+
+	// Authenticate the request
+	if req.Phase.Auth == nil || req.Phase.Auth.UUID == "" {
+		return &priorsyncpb.PriorSyncMessage{
+			Priorsync: req.Priorsync,
+			Ack: &ackpb.Ack{
+				Ok:    false,
+				Error: errors.AuthRequired.Error(),
+			},
+			Phase: &phasepb.Phase{
+				PresentPhase:    constants.UNKNOWN,
+				SuccessivePhase: constants.UNKNOWN,
+				Success:         false,
+				Error:           errors.AuthRequired.Error(),
+				Auth:            req.Phase.Auth,
+			},
+		}
+	}
+
+	authenticated, err := router.Authenticate(ctx, req.Phase.Auth, remote)
+	if err != nil || !authenticated {
+		return &priorsyncpb.PriorSyncMessage{
+			Priorsync: req.Priorsync,
+			Ack: &ackpb.Ack{
+				Ok:    false,
+				Error: "authentication failed",
+			},
+			Phase: &phasepb.Phase{
+				PresentPhase:    constants.UNKNOWN,
+				SuccessivePhase: constants.FAILURE,
+				Success:         false,
+				Error:           "authentication failed",
+				Auth:            req.Phase.Auth,
+			},
+		}
+	}
+
+	// Defer TTL reset
+	defer func() {
+		if resetErr := router.ResetTTL(ctx, req.Phase.Auth, remote); resetErr != nil {
+			Log.Logger(namedlogger).Error(ctx, "Failed to reset TTL", resetErr)
+		}
+	}()
 
 	state := req.Phase.PresentPhase
 
@@ -97,7 +145,14 @@ func (router *Datarouter) HandlePriorSync(ctx context.Context, req *priorsyncpb.
 			}
 		}
 
-		return router.SYNC_REQUEST(ctx, req.Priorsync, peerInfo, remote)
+		Data := router.SYNC_REQUEST(ctx, req.Priorsync, peerInfo, remote)
+		if Data.Phase != nil {
+			Data.Phase.Auth = req.Phase.Auth
+		}
+		if Data.Headersync != nil && Data.Headersync.Phase != nil {
+			Data.Headersync.Phase.Auth = req.Phase.Auth
+		}
+		return Data
 
 	default:
 		Log.Logger(namedlogger).Debug(ctx, "Unknown State - LOG",
@@ -114,6 +169,7 @@ func (router *Datarouter) HandlePriorSync(ctx context.Context, req *priorsyncpb.
 				SuccessivePhase: constants.FAILURE,
 				Success:         false,
 				Error:           "unknown state: " + state,
+				Auth:            req.Phase.Auth,
 			},
 		}
 	}
@@ -131,9 +187,50 @@ func (router *Datarouter) HandleMerkle(ctx context.Context, merkleReq *merklepb.
 				SuccessivePhase: constants.FAILURE,
 				Success:         false,
 				Error:           "Merkle request or range is nil",
+				Auth:            merkleReq.Phase.Auth,
 			},
 		}
 	}
+
+	if merkleReq.Phase == nil || merkleReq.Phase.Auth == nil || merkleReq.Phase.Auth.UUID == "" {
+		return &merklepb.MerkleMessage{
+			Ack: &ackpb.Ack{
+				Ok:    false,
+				Error: "authentication required",
+			},
+			Phase: &phasepb.Phase{
+				PresentPhase:    constants.REQUEST_MERKLE,
+				SuccessivePhase: constants.FAILURE,
+				Success:         false,
+				Error:           "authentication required",
+				Auth:            merkleReq.Phase.Auth,
+			},
+		}
+	}
+
+	authenticated, err := router.Authenticate(ctx, merkleReq.Phase.Auth, remote)
+	if err != nil || !authenticated {
+		return &merklepb.MerkleMessage{
+			Ack: &ackpb.Ack{
+				Ok:    false,
+				Error: "authentication failed",
+			},
+			Phase: &phasepb.Phase{
+				PresentPhase:    constants.REQUEST_MERKLE,
+				SuccessivePhase: constants.FAILURE,
+				Success:         false,
+				Error:           "authentication failed",
+				Auth:            merkleReq.Phase.Auth,
+			},
+		}
+	}
+
+	// Defer TTL reset
+	defer func() {
+		if resetErr := router.ResetTTL(ctx, merkleReq.Phase.Auth, remote); resetErr != nil {
+			Log.Logger(namedlogger).Error(ctx, "Failed to reset TTL", resetErr)
+		}
+	}()
 
 	merkleRange := &merklepb.Range{
 		Start: merkleReq.Request.Start,
@@ -142,10 +239,53 @@ func (router *Datarouter) HandleMerkle(ctx context.Context, merkleReq *merklepb.
 
 	// Pass the requester's config so we build the tree with the same BlockMerge.
 	// If nil, REQUEST_MERKLE falls back to a default calculation.
-	return router.REQUEST_MERKLE(ctx, merkleRange, merkleReq.Request.Config, remote)
+	Data := router.REQUEST_MERKLE(ctx, merkleRange, merkleReq.Request.Config, remote)
+	Data.Phase.Auth = merkleReq.Phase.Auth
+	return Data
 }
 
-func (router *Datarouter) HandleHeaderSync(ctx context.Context, headerSyncReq *headerpb.HeaderSyncRequest) *headerpb.HeaderSyncResponse {
+func (router *Datarouter) HandleHeaderSync(ctx context.Context, headerSyncReq *headerpb.HeaderSyncRequest, remote *types.Nodeinfo) *headerpb.HeaderSyncResponse {
+	// Authenticate the request
+	if headerSyncReq.Phase.Auth == nil || headerSyncReq.Phase.Auth.UUID == "" {
+		return &headerpb.HeaderSyncResponse{
+			Ack: &ackpb.Ack{
+				Ok:    false,
+				Error: errors.AuthRequired.Error(),
+			},
+			Phase: &phasepb.Phase{
+				PresentPhase:    constants.UNKNOWN,
+				SuccessivePhase: constants.UNKNOWN,
+				Success:         false,
+				Error:           errors.AuthRequired.Error(),
+				Auth:            headerSyncReq.Phase.Auth,
+			},
+		}
+	}
+
+	authenticated, err := router.Authenticate(ctx, headerSyncReq.Phase.Auth, remote)
+	if err != nil || !authenticated {
+		return &headerpb.HeaderSyncResponse{
+			Ack: &ackpb.Ack{
+				Ok:    false,
+				Error: "authentication failed",
+			},
+			Phase: &phasepb.Phase{
+				PresentPhase:    constants.UNKNOWN,
+				SuccessivePhase: constants.FAILURE,
+				Success:         false,
+				Error:           "authentication failed",
+				Auth:            headerSyncReq.Phase.Auth,
+			},
+		}
+	}
+
+	// Defer TTL reset
+	defer func() {
+		if resetErr := router.ResetTTL(ctx, headerSyncReq.Phase.Auth, remote); resetErr != nil {
+			Log.Logger(namedlogger).Error(ctx, "Failed to reset TTL", resetErr)
+		}
+	}()
+
 	switch headerSyncReq.Phase.PresentPhase {
 	case constants.HEADER_SYNC_REQUEST:
 		if headerSyncReq == nil || headerSyncReq.Tag == nil {
@@ -159,10 +299,13 @@ func (router *Datarouter) HandleHeaderSync(ctx context.Context, headerSyncReq *h
 					SuccessivePhase: constants.FAILURE,
 					Success:         false,
 					Error:           "Header sync request or range is nil",
+					Auth:            headerSyncReq.Phase.Auth,
 				},
 			}
 		}
-		return router.HEADER_SYNC(ctx, headerSyncReq)
+		Data := router.HEADER_SYNC(ctx, headerSyncReq)
+		Data.Phase.Auth = headerSyncReq.Phase.Auth
+		return Data
 
 	default:
 		return &headerpb.HeaderSyncResponse{
@@ -175,12 +318,54 @@ func (router *Datarouter) HandleHeaderSync(ctx context.Context, headerSyncReq *h
 				SuccessivePhase: constants.FAILURE,
 				Success:         false,
 				Error:           "unknown state: " + headerSyncReq.Phase.PresentPhase,
+				Auth:            headerSyncReq.Phase.Auth,
 			},
 		}
 	}
 }
 
-func (router *Datarouter) HandleDataSync(ctx context.Context, req *datasyncpb.DataSyncRequest) *datasyncpb.DataSyncResponse {
+func (router *Datarouter) HandleDataSync(ctx context.Context, req *datasyncpb.DataSyncRequest, remote *types.Nodeinfo) *datasyncpb.DataSyncResponse {
+	// Authenticate the request
+	if req.Phase.Auth == nil || req.Phase.Auth.UUID == "" {
+		return &datasyncpb.DataSyncResponse{
+			Ack: &ackpb.Ack{
+				Ok:    false,
+				Error: errors.AuthRequired.Error(),
+			},
+			Phase: &phasepb.Phase{
+				PresentPhase:    constants.UNKNOWN,
+				SuccessivePhase: constants.UNKNOWN,
+				Success:         false,
+				Error:           errors.AuthRequired.Error(),
+				Auth:            req.Phase.Auth,
+			},
+		}
+	}
+
+	authenticated, err := router.Authenticate(ctx, req.Phase.Auth, remote)
+	if err != nil || !authenticated {
+		return &datasyncpb.DataSyncResponse{
+			Ack: &ackpb.Ack{
+				Ok:    false,
+				Error: "authentication failed",
+			},
+			Phase: &phasepb.Phase{
+				PresentPhase:    constants.UNKNOWN,
+				SuccessivePhase: constants.FAILURE,
+				Success:         false,
+				Error:           "authentication failed",
+				Auth:            req.Phase.Auth,
+			},
+		}
+	}
+
+	// Defer TTL reset
+	defer func() {
+		if resetErr := router.ResetTTL(ctx, req.Phase.Auth, remote); resetErr != nil {
+			Log.Logger(namedlogger).Error(ctx, "Failed to reset TTL", resetErr)
+		}
+	}()
+
 	switch req.Phase.PresentPhase {
 	case constants.DATA_SYNC_REQUEST:
 		if req == nil || req.Tag == nil {
@@ -194,10 +379,13 @@ func (router *Datarouter) HandleDataSync(ctx context.Context, req *datasyncpb.Da
 					SuccessivePhase: constants.FAILURE,
 					Success:         false,
 					Error:           "Data sync request or range is nil",
+					Auth:            req.Phase.Auth,
 				},
 			}
 		}
-		return router.DATA_SYNC(ctx, req)
+		Data := router.DATA_SYNC(ctx, req)
+		Data.Phase.Auth = req.Phase.Auth
+		return Data
 
 	default:
 		return &datasyncpb.DataSyncResponse{
@@ -210,6 +398,7 @@ func (router *Datarouter) HandleDataSync(ctx context.Context, req *datasyncpb.Da
 				SuccessivePhase: constants.FAILURE,
 				Success:         false,
 				Error:           "unknown state: " + req.Phase.PresentPhase,
+				Auth:            req.Phase.Auth,
 			},
 		}
 	}
@@ -218,9 +407,14 @@ func (router *Datarouter) HandleDataSync(ctx context.Context, req *datasyncpb.Da
 func (router *Datarouter) HandleAvailability(ctx context.Context, req *availabilitypb.AvailabilityRequest, remote *types.Nodeinfo) *availabilitypb.AvailabilityResponse {
 	template := &availabilitypb.AvailabilityResponse{
 		IsAvailable: false,
-		Multiaddr:   make([]string, 0),
-		BlockMerge:  0,
-		UUID:        "",
+		Nodeinfo: &nodeinfopb.NodeInfo{
+
+			Multiaddrs: make([][]byte, 0),
+		},
+		BlockMerge: 0,
+		Auth: &authpb.Auth{
+			UUID: "",
+		},
 		Phase: &phasepb.Phase{
 			PresentPhase:    constants.AVAILABILITY_RESPONSE,
 			SuccessivePhase: constants.FAILURE,
@@ -229,12 +423,12 @@ func (router *Datarouter) HandleAvailability(ctx context.Context, req *availabil
 		},
 	}
 
-	if req.Range == nil{
+	if req.Range == nil {
 		template.Phase.Error = "range cannot be nil"
 		return template
 	}
 
-	if len(router.Nodeinfo.Multiaddr) == 0{
+	if len(router.Nodeinfo.Multiaddr) == 0 {
 		template.Phase.Error = "No Multiaddress to connect"
 		return template
 	}
@@ -244,6 +438,14 @@ func (router *Datarouter) HandleAvailability(ctx context.Context, req *availabil
 
 		loggerCtx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 		defer cancel()
+
+		var err error
+		template.Nodeinfo, err = helper.NewNodeInfoHelper().ToProto(router.Nodeinfo)
+
+		if err != nil {
+			template.Phase.Error = err.Error()
+			return template
+		}
 
 		// Calculate the blockmerge (current block height) of the present server
 		blockmerge, err := merkle.NewMerkleProof(router.Nodeinfo.BlockInfo).GenerateMerkleConfig(loggerCtx, req.Range.Start, req.Range.End)
@@ -263,21 +465,14 @@ func (router *Datarouter) HandleAvailability(ctx context.Context, req *availabil
 
 		template.BlockMerge = uint32(blockmerge.BlockMerge)
 
-		var multiaddrStr []string
-		for _, i := range(router.Nodeinfo.Multiaddr){
-			multiaddrStr = append(multiaddrStr, i.String())
-		}
-
-		template.Multiaddr = multiaddrStr
-
 		template.IsAvailable = true
 		template.Phase.SuccessivePhase = constants.SYNC_REQUEST
 		template.Phase.Success = true
-		template.UUID = UUID
+		template.Auth.UUID = UUID
 		template.Phase.Error = ""
 		return template
 	}
-	
+
 	template.Phase.Error = "Not available at this moment"
 	return template
 }

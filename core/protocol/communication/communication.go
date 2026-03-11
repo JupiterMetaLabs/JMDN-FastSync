@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/messaging"
+	availabilitypb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/availability"
 	datasyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/datasync"
 	headersyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/headersync"
 	merklepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/merkle"
@@ -23,7 +24,7 @@ type communication struct {
 
 type Communicator interface {
 	// SendPriorSync sends a PriorSync request to a specific peer and returns the response
-	SendPriorSync(ctx context.Context, merkle *merklepb.MerkleSnapshot, peer types.Nodeinfo, data types.PriorSyncMessage) (*types.PriorSyncMessage, error)
+	SendPriorSync(ctx context.Context, merkle *merklepb.MerkleSnapshot, peer types.Nodeinfo, data priorsyncpb.PriorSyncMessage) (*priorsyncpb.PriorSyncMessage, error)
 
 	// This is to send the request for merkle tree for the given range.
 	SendMerkleRequest(ctx context.Context, peerNode types.Nodeinfo, req *merklepb.MerkleRequestMessage) (*merklepb.MerkleMessage, error)
@@ -33,6 +34,8 @@ type Communicator interface {
 
 	// SendDataSyncRequest sends a DataSyncRequest to a peer and returns the DataSyncResponse.
 	SendDataSyncRequest(ctx context.Context, peerNode types.Nodeinfo, req *datasyncpb.DataSyncRequest) (*datasyncpb.DataSyncResponse, error)
+
+	SendAvailabilityRequest(ctx context.Context, peerNode types.Nodeinfo, req *availabilitypb.AvailabilityRequest) (*availabilitypb.AvailabilityResponse, error)
 }
 
 func NewCommunication(host host.Host, protocolVersion uint16) Communicator {
@@ -50,8 +53,8 @@ func (c *communication) SendPriorSync(
 	merkle_snapshot *merklepb.MerkleSnapshot,
 	// this peer is the one we are sending the prior sync to
 	peerNode types.Nodeinfo,
-	data types.PriorSyncMessage,
-) (*types.PriorSyncMessage, error) {
+	data priorsyncpb.PriorSyncMessage,
+) (*priorsyncpb.PriorSyncMessage, error) {
 	if c.host == nil {
 		return nil, errors.New("host is nil")
 	}
@@ -59,29 +62,34 @@ func (c *communication) SendPriorSync(
 		return nil, errors.New("merkle is nil")
 	}
 
+	// Make sure we have a valid Phase
+	phase := data.Phase
+	if phase == nil {
+		phase = &phasepb.Phase{}
+	}
+	// Always set the proper phase strings for this request
+	phase.PresentPhase = constants.SYNC_REQUEST
+	phase.SuccessivePhase = constants.SYNC_REQUEST_RESPONSE
+	phase.Success = true
+
 	req := &priorsyncpb.PriorSyncMessage{
 		Priorsync: &priorsyncpb.PriorSync{
-			Blocknumber:    data.Priorsync.Blocknumber,
-			Stateroot:      data.Priorsync.Stateroot,
-			Blockhash:      data.Priorsync.Blockhash,
+			Blocknumber:    data.Priorsync.GetBlocknumber(),
+			Stateroot:      data.Priorsync.GetStateroot(),
+			Blockhash:      data.Priorsync.GetBlockhash(),
 			Merklesnapshot: merkle_snapshot,
 			Metadata: &priorsyncpb.Metadata{
-				Checksum: data.Priorsync.Metadata.Checksum,
-				Version:  uint32(data.Priorsync.Metadata.Version),
+				Checksum: data.Priorsync.GetMetadata().GetChecksum(),
+				Version:  data.Priorsync.GetMetadata().GetVersion(),
 			},
 		},
-		Phase: &phasepb.Phase{
-			PresentPhase:    constants.SYNC_REQUEST,
-			SuccessivePhase: constants.SYNC_REQUEST_RESPONSE, // SYNC_REQUEST_RESPONSE because we are returning the response to the client.
-			Success:         true,
-			Error:           "",
-		},
+		Phase: phase,
 	}
 
-	if data.Priorsync.Range != nil {
+	if data.Priorsync.GetRange() != nil {
 		req.Priorsync.Range = &merklepb.Range{
-			Start: data.Priorsync.Range.Start,
-			End:   data.Priorsync.Range.End,
+			Start: data.Priorsync.GetRange().GetStart(),
+			End:   data.Priorsync.GetRange().GetEnd(),
 		}
 	}
 
@@ -115,48 +123,7 @@ func (c *communication) SendPriorSync(
 		return nil, errors.New("sync failed: " + resp.Ack.Error)
 	}
 
-	// Convert protobuf response to types.PriorSyncMessage
-	result := &types.PriorSyncMessage{
-		Ack: &types.PriorSyncAck{
-			Ok:    resp.Ack.Ok,
-			Error: resp.Ack.Error,
-		},
-	}
-
-	if resp.Priorsync != nil {
-		result.Priorsync = &types.PriorSync{
-			Blocknumber: resp.Priorsync.Blocknumber,
-			Stateroot:   resp.Priorsync.Stateroot,
-			Blockhash:   resp.Priorsync.Blockhash,
-			Metadata: types.Metadata{
-				Checksum: resp.Priorsync.Metadata.Checksum,
-				Version:  uint16(resp.Priorsync.Metadata.Version),
-			},
-		}
-		if resp.Priorsync.Range != nil {
-			result.Priorsync.Range = &types.Range{
-				Start: resp.Priorsync.Range.Start,
-				End:   resp.Priorsync.Range.End,
-			}
-		}
-		result.Phase = &types.Phase{
-			PresentPhase:    resp.Phase.PresentPhase,
-			SuccessivePhase: resp.Phase.SuccessivePhase,
-			Success:         resp.Phase.Success,
-			Error:           resp.Phase.Error,
-		}
-
-		result.Ack = &types.PriorSyncAck{
-			Ok:    resp.Ack.Ok,
-			Error: resp.Ack.Error,
-		}
-	}
-
-	if resp.Headersync != nil {
-		result.Headersync = resp.Headersync
-	}
-
-	return result, nil
+	return resp, nil
 }
 
 // SendMerkleRequest sends a MerkleRequestMessage to a peer and returns the response.
@@ -259,6 +226,41 @@ func (c *communication) SendDataSyncRequest(
 		resp,
 	); err != nil {
 		return nil, errors.New("failed to send data sync request: " + err.Error())
+	}
+
+	return resp, nil
+}
+
+// SendAvailabilityRequest sends an AvailabilityRequest to a peer and returns the AvailabilityResponse.
+func (c *communication) SendAvailabilityRequest(
+	ctx context.Context,
+	peerNode types.Nodeinfo,
+	req *availabilitypb.AvailabilityRequest,
+) (*availabilitypb.AvailabilityResponse, error) {
+	if c.host == nil {
+		return nil, errors.New("host is nil")
+	}
+
+	// Prepare peer.AddrInfo from types.Nodeinfo
+	peerInfo := libp2p_peer.AddrInfo{
+		ID:    peerNode.PeerID,
+		Addrs: peerNode.Multiaddr,
+	}
+
+	// Prepare response container
+	resp := &availabilitypb.AvailabilityResponse{}
+
+	// Send using SendProtoDelimited
+	if err := messaging.SendProtoDelimited(
+		ctx,
+		c.protocolVersion,
+		c.host,
+		peerInfo,
+		constants.AvailabilityProtocol,
+		req,
+		resp,
+	); err != nil {
+		return nil, errors.New("failed to send availability request: " + err.Error())
 	}
 
 	return resp, nil

@@ -64,25 +64,30 @@ type WriteData interface {
 	WriteData(data []*blockpb.NonHeaders) error
 }
 
-type AUTHHandler interface{
-	/* 
-	   This will add record to the cache table, 
+type AUTHHandler interface {
+	/*
+	   This will add record to the cache table,
 	   also if already exist then it is designed to reset the timer for that record
 	*/
 	AddRecord(PeerID peer.ID, UUID string) error
 
-	/* 
+	/*
 	   This will remove record from the cache table
 	*/
 	RemoveRecord(PeerID peer.ID) error
 
-	/* 
+	/*
 	   This will get record from the cache table
 	*/
 	GetRecord(PeerID peer.ID) (AUTHStructure, error)
 
-	/* 
+	/*
 	   This will check if the record is present in the cache table [PeerID : UUID] with valid TTL
 	*/
-	IsAUTH(PeerID peer.ID, UUID string) bool
+	IsAUTH(PeerID peer.ID, UUID string) (bool, error)
+
+	/*
+		Reset TTL for the record
+	*/
+	ResetTTL(PeerID peer.ID) error
 }
