@@ -23,8 +23,9 @@ message DataSyncRequest {
 message DataSyncResponse {
     repeated block.NonHeaders data    = 1;
     uint32                    version = 2;
-    ack.Ack                   ack     = 3;
-    phase.Phase               phase   = 4;
+    tagging.TaggedAccounts    taggedaccounts = 3;
+    ack.Ack                   ack     = 4;
+    phase.Phase               phase   = 5;
 }
 
 // Heartbeat is sent periodically by Node 1 during computation to keep the stream alive.
