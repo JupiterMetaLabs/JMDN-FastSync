@@ -20,6 +20,7 @@ import (
 	wal_types "github.com/JupiterMetaLabs/JMDN-FastSync/common/types/wal"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/communication"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/router/helper"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/tagging"
 	Log "github.com/JupiterMetaLabs/JMDN-FastSync/logging"
 	"github.com/JupiterMetaLabs/ion"
 	"github.com/libp2p/go-libp2p/core/host"
@@ -38,9 +39,10 @@ type dataBatchJob struct {
 
 // dataBatchResult is the outcome of a single batch fetch.
 type dataBatchResult struct {
-	BatchID    int
-	NonHeaders []*blockpb.NonHeaders // nil on permanent failure
-	Err        error                 // non-nil when all remotes exhausted
+	BatchID        int
+	NonHeaders     []*blockpb.NonHeaders     // nil on permanent failure
+	TaggedAccounts *taggingpb.TaggedAccounts // nil on permanent failure
+	Err            error                     // non-nil when all remotes exhausted
 }
 
 type DataSync struct {
@@ -77,15 +79,15 @@ DataSync fetches non-header block data from remote peers and writes it to the lo
 2. Dispatch batches to a worker pool that queries remotes with retry + failover.
 3. Collect results, sort by block number, and write to DB via WriteData.
 */
-func (ds *DataSync) DataSync(datasyncrequest *datasyncpb.DataSyncRequest, remotes []*availabilitypb.AvailabilityResponse) error {
+func (ds *DataSync) DataSync(datasyncrequest *datasyncpb.DataSyncRequest, remotes []*availabilitypb.AvailabilityResponse) (*taggingpb.TaggedAccounts, error) {
 	if datasyncrequest == nil || datasyncrequest.Tag == nil {
-		return fmt.Errorf("datasync request or tag is nil")
+		return nil, fmt.Errorf("datasync request or tag is nil")
 	}
 	if len(remotes) == 0 {
-		return fmt.Errorf("no remotes provided")
+		return nil, fmt.Errorf("no remotes provided")
 	}
 	if ds.Comm == nil {
-		return fmt.Errorf("communicator not set")
+		return nil, fmt.Errorf("communicator not set")
 	}
 
 	ctx := ds.SyncVars.Ctx
@@ -104,12 +106,13 @@ func (ds *DataSync) DataSync(datasyncrequest *datasyncpb.DataSyncRequest, remote
 	// ---------------------------------------------------------------
 	// Process the queue concurrently
 	// ---------------------------------------------------------------
-	if err := processDataQueue(ctx, ds, queue, remotes, dataWriter); err != nil {
-		return fmt.Errorf("datasync failed: %w", err)
+	tags, err := processDataQueue(ctx, ds, queue, remotes, dataWriter)
+	if err != nil {
+		return nil, fmt.Errorf("datasync failed: %w", err)
 	}
 
 	Log.Logger(Log.DataSync).Info(ctx, "DataSync completed successfully")
-	return nil
+	return tags, nil
 }
 
 // processDataQueue concurrently fetches non-header batches using a worker pool
@@ -120,9 +123,9 @@ func processDataQueue(
 	queue []*datasyncpb.DataSyncRequest,
 	remotes []*availabilitypb.AvailabilityResponse,
 	dataWriter types.WriteData,
-) error {
+) (*taggingpb.TaggedAccounts, error) {
 	if len(queue) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	// Size the worker pool: min(maxWorkers, num batches)
@@ -160,14 +163,20 @@ func processDataQueue(
 
 	// ---- Collect results ----
 	var results []dataBatchResult
+	aggregatedTags := tagging.NewTagging()
 	for r := range resultCh {
 		results = append(results, r)
+		if r.TaggedAccounts != nil && r.TaggedAccounts.Accounts != nil {
+			for addr := range r.TaggedAccounts.Accounts {
+				aggregatedTags.TagAccounts(addr)
+			}
+		}
 	}
 
 	// ---- Check for errors ----
 	for _, r := range results {
 		if r.Err != nil {
-			return fmt.Errorf("batch %d failed: %w", r.BatchID, r.Err)
+			return nil, fmt.Errorf("batch %d failed: %w", r.BatchID, r.Err)
 		}
 	}
 
@@ -195,7 +204,7 @@ func processDataQueue(
 			}
 			lsn, err := ds.SyncVars.WAL.WriteEvent(event)
 			if err != nil {
-				return fmt.Errorf("batch %d: WAL write failed: %w", r.BatchID, err)
+				return nil, fmt.Errorf("batch %d: WAL write failed: %w", r.BatchID, err)
 			}
 			Log.Logger(Log.DataSync).Info(ctx, "WAL event written",
 				ion.Int("batch", r.BatchID),
@@ -203,7 +212,7 @@ func processDataQueue(
 				ion.Int("nonheaders", len(r.NonHeaders)))
 
 			if err := ds.SyncVars.WAL.Flush(); err != nil {
-				return fmt.Errorf("batch %d: WAL flush failed: %w", r.BatchID, err)
+				return nil, fmt.Errorf("batch %d: WAL flush failed: %w", r.BatchID, err)
 			}
 			Log.Logger(Log.DataSync).Info(ctx, "WAL flushed",
 				ion.Int("batch", r.BatchID),
@@ -214,7 +223,7 @@ func processDataQueue(
 		}
 
 		if err := dataWriter.WriteData(r.NonHeaders); err != nil {
-			return fmt.Errorf("batch %d: failed to write non-headers to DB: %w", r.BatchID, err)
+			return nil, fmt.Errorf("batch %d: failed to write non-headers to DB: %w", r.BatchID, err)
 		}
 
 		if ds.SyncVars.WAL != nil {
@@ -240,7 +249,7 @@ func processDataQueue(
 			ion.Int64("last_block", int64(r.NonHeaders[len(r.NonHeaders)-1].BlockNumber)))
 	}
 
-	return nil
+	return aggregatedTags.GetAccountTag(), nil
 }
 
 // dataFetchWorker pulls jobs from workCh, tries each remote with retries, and
@@ -256,6 +265,7 @@ func dataFetchWorker(
 	for job := range workCh {
 		var lastErr error
 		var nonHeaders []*blockpb.NonHeaders
+		var taggedAccounts *taggingpb.TaggedAccounts
 		success := false
 
 		for remoteIdx := 0; remoteIdx < len(remotes) && !success; remoteIdx++ {
@@ -318,6 +328,7 @@ func dataFetchWorker(
 				})
 
 				nonHeaders = resp.Data
+				taggedAccounts = resp.Taggedaccounts
 				success = true
 
 				Log.Logger(Log.DataSync).Info(childctx, "Batch fetched successfully",
@@ -333,7 +344,7 @@ func dataFetchWorker(
 		}
 
 		if success {
-			resultCh <- dataBatchResult{BatchID: job.BatchID, NonHeaders: nonHeaders}
+			resultCh <- dataBatchResult{BatchID: job.BatchID, NonHeaders: nonHeaders, TaggedAccounts: taggedAccounts}
 		} else {
 			resultCh <- dataBatchResult{BatchID: job.BatchID, Err: lastErr}
 		}
