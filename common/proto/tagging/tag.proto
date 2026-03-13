@@ -14,3 +14,8 @@ message RangeTag {
 	uint64 start = 1;
 	uint64 end = 2;
 }
+
+message TaggedAccounts {
+	// map<string, bool> is mapping the account address to a boolean flag
+	map<string, bool> accounts = 1;
+}

@@ -3,6 +3,7 @@ package router
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"fmt"
 	"math"
 	"time"
@@ -26,6 +27,7 @@ import (
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/communication"
 	merkle "github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/merkle"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/router/helper"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/tagging"
 	merkle_types "github.com/JupiterMetaLabs/JMDN-FastSync/helper/merkle"
 	Log "github.com/JupiterMetaLabs/JMDN-FastSync/logging"
 	"github.com/JupiterMetaLabs/JMDN_Merkletree/merkletree"
@@ -1267,8 +1269,23 @@ func (router *Datarouter) DATA_SYNC(ctx context.Context, req *datasyncpb.DataSyn
 		ion.String("function", "DATA_SYNC"),
 		ion.Int("total_nonheaders", len(allNonHeaders)))
 
+	tagger := tagging.NewTagging()
+	for _, nonHeader := range allNonHeaders {
+		for _, tx := range nonHeader.Transactions {
+			if tx.Tx != nil {
+				if len(tx.Tx.From) > 0 {
+					tagger.TagAccounts(hex.EncodeToString(tx.Tx.From))
+				}
+				if len(tx.Tx.To) > 0 {
+					tagger.TagAccounts(hex.EncodeToString(tx.Tx.To))
+				}
+			}
+		}
+	}
+
 	return &datasyncpb.DataSyncResponse{
-		Data: allNonHeaders,
+		Data:           allNonHeaders,
+		Taggedaccounts: tagger.GetAccountTag(),
 		Ack: &ackpb.Ack{
 			Ok:    true,
 			Error: "",

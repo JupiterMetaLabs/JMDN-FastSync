@@ -4,13 +4,12 @@ import (
 	"context"
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/WAL"
-	datasyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/datasync"
 	availabilitypb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/availability"
+	datasyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/datasync"
+	taggingpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/tagging"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
 	"github.com/libp2p/go-libp2p/core/host"
 )
-
-
 
 type DataSync_router interface {
 	// Set the information prior so that this variables can be reused
@@ -22,7 +21,7 @@ type DataSync_router interface {
 	// DataSync is the main function that will be called by the user to sync data
 	// remotes[0] would be primary always - following nodes would be the extra nodes for data sourcing
 	// Reason for taking availabilityresponse is it have both nodeinfo and the auth info.
-	DataSync(datasyncrequest *datasyncpb.DataSyncRequest, remotes []*availabilitypb.AvailabilityResponse) error
+	DataSync(datasyncrequest *datasyncpb.DataSyncRequest, remotes []*availabilitypb.AvailabilityResponse) (*taggingpb.TaggedAccounts, error)
 
 	// Close the connection
 	Close()

@@ -191,6 +191,36 @@ func (e *DataSyncEvent) Deserialize(data []byte) error {
 	return nil
 }
 
+// ReconciliationEvent represents an account reconciliation event
+type ReconciliationEvent struct {
+	wal_types.BaseEvent
+	AccountAddress string `json:"account_address"`
+	OldBalance     string `json:"old_balance"`
+	NewBalance     string `json:"new_balance"`
+	Nonce          uint64 `json:"nonce"`
+	Timestamp      int64  `json:"timestamp"`
+}
+
+// GetType returns the WAL type for reconciliation events
+func (e *ReconciliationEvent) GetType() wal_types.WALType {
+	return wal_types.Reconciliation
+}
+
+// GetOperation returns the event operation type
+func (e *ReconciliationEvent) GetOperation() wal_types.EventOperation {
+	return wal_types.OpUpdate
+}
+
+// Serialize converts the event to bytes for storage
+func (e *ReconciliationEvent) Serialize() ([]byte, error) {
+	return json.Marshal(e)
+}
+
+// Deserialize reconstructs the event from bytes
+func (e *ReconciliationEvent) Deserialize(data []byte) error {
+	return json.Unmarshal(data, e)
+}
+
 // EventFactory creates the appropriate event adapter based on WAL type
 func EventFactory(walType wal_types.WALType) (wal_types.EventAdapter, error) {
 	switch walType {
@@ -202,6 +232,8 @@ func EventFactory(walType wal_types.WALType) (wal_types.EventAdapter, error) {
 		return &PriorSyncEvent{}, nil
 	case wal_types.DataSync:
 		return &DataSyncEvent{}, nil
+	case wal_types.Reconciliation:
+		return &ReconciliationEvent{}, nil
 	default:
 		return nil, fmt.Errorf("unknown WAL type: %s", walType)
 	}

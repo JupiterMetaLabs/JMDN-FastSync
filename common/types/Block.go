@@ -107,8 +107,9 @@ type ZKProof struct {
 // Embeds Transaction for all core tx fields; adds only the DB-specific extras.
 type DBTransaction struct {
 	Transaction           // all core fields (Hash, From, To, Value, Gas, Sig, etc.)
-	TxIndex     uint16    `json:"tx_index"`   // SMALLINT position within the block
-	CreatedAt   time.Time `json:"created_at"` // TIMESTAMPTZ insert time
+	BlockNumber uint64    `json:"block_number"` // The block this transaction belongs to
+	TxIndex     uint16    `json:"tx_index"`     // SMALLINT position within the block
+	CreatedAt   time.Time `json:"created_at"`   // TIMESTAMPTZ insert time
 }
 
 // L1Finality maps to the l1_finality table (append-only, Create Read).

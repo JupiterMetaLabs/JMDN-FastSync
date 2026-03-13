@@ -1,6 +1,7 @@
 package types
 
 import (
+	"math/big"
 	"time"
 
 	blockpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/block"
@@ -38,6 +39,7 @@ type BlockInfo interface {
 	NewBlockNonHeaderIterator() BlockNonHeader
 	NewHeadersWriter() WriteHeaders
 	NewDataWriter() WriteData
+	NewAccountManager() AccountManager
 }
 
 type BlockIterator interface {
@@ -62,6 +64,33 @@ type WriteHeaders interface {
 
 type WriteData interface {
 	WriteData(data []*blockpb.NonHeaders) error
+}
+
+// AccountUpdate describes a single account balance/nonce change for atomic batch commits.
+type AccountUpdate struct {
+	Address      string
+	NewBalance   *big.Int
+	Nonce        uint64
+	IsNewAccount bool // true = CreateAccount, false = UpdateAccountBalance
+}
+
+// AccountManager handles account balance operations for reconciliation.
+type AccountManager interface {
+	// GetTransactionsForAccount retrieves all transactions where the account is sender or receiver.
+	GetTransactionsForAccount(accountAddress string) ([]DBTransaction, error)
+
+	// GetAccountBalance retrieves the current balance and nonce for an account.
+	GetAccountBalance(accountAddress string) (*big.Int, uint64, error)
+
+	// UpdateAccountBalance updates the balance and nonce for an existing account.
+	UpdateAccountBalance(accountAddress string, balance *big.Int, nonce uint64) error
+
+	// CreateAccount creates a new account record with the given balance and nonce.
+	CreateAccount(accountAddress string, balance *big.Int, nonce uint64) error
+
+	// BatchUpdateAccounts atomically applies all account updates in a single DB transaction.
+	// Either every update is committed or none are (full rollback on any failure).
+	BatchUpdateAccounts(updates []AccountUpdate) error
 }
 
 type AUTHHandler interface {

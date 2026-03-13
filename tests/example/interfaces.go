@@ -1,6 +1,8 @@
 package example
 
 import (
+	"math/big"
+
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/block"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -108,6 +110,34 @@ func (e example_blocknonheader) GetBlockNonHeaders(blocknumbers []uint64) ([]*bl
 func (e example_blocknonheader) GetBlockNonHeadersRange(start, end uint64) ([]*block.NonHeaders, error) {
 	return nil, nil
 }
+
+type example_accountmanager struct{}
+
+func (e example_blockinfo) NewAccountManager() types.AccountManager {
+	return example_accountmanager{}
+}
+
+func (e example_accountmanager) GetAccountBalance(address string) (*big.Int, uint64, error) {
+	return nil, 0, nil
+}
+
+func (e example_accountmanager) GetTransactionsForAccount(accountAddress string) ([]types.DBTransaction, error) {
+	return nil, nil
+}
+
+func (e example_accountmanager) CreateAccount(address string, balance *big.Int, nonce uint64) error {
+	return nil
+}
+
+func (e example_accountmanager) UpdateAccountBalance(address string, balance *big.Int, nonce uint64) error {
+	return nil
+}
+
+func (e example_accountmanager) BatchUpdateAccounts(updates []types.AccountUpdate) error {
+	return nil
+}
+
+
 
 
 func GetBlockDetailsDummy() types.PriorSync {
