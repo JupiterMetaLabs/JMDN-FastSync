@@ -3,17 +3,18 @@ package wal
 type WALType string
 
 const (
-	HeaderSync WALType = "wal:headersync"
-	MerkleSync WALType = "wal:merklesync"
-	PriorSync  WALType = "wal:priorsync"
-	DataSync   WALType = "wal:datasync"
+	HeaderSync     WALType = "wal:headersync"
+	MerkleSync     WALType = "wal:merklesync"
+	PriorSync      WALType = "wal:priorsync"
+	DataSync       WALType = "wal:datasync"
+	Reconciliation WALType = "wal:reconciliation"
 )
 
 const (
 	DefaultBatchSize = 1000
 	DefaultDir       = "./internal/WAL/.tmp/wal"
 	SegmentSizeLimit = 100 * 1024 * 1024 // 100MB
-	MaxSnapshotLimit = 10	             // Keep 10 most recent checkpoints
+	MaxSnapshotLimit = 10                // Keep 10 most recent checkpoints
 	CheckpointDir    = "checkpoint"
 )
 

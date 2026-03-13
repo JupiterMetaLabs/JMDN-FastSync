@@ -277,7 +277,6 @@ func (s *Sync) HandleDataSync(ctx context.Context, node host.Host) error {
 			Multiaddr: []multiaddr.Multiaddr{str.Conn().RemoteMultiaddr()},
 		}
 
-
 		// ── Start heartbeat goroutine ──────────────────────────────────
 		computeCtx, computeCancel := context.WithCancel(ctx)
 		defer computeCancel()
@@ -330,7 +329,11 @@ func (s *Sync) HandleDataSync(ctx context.Context, node host.Host) error {
 
 		mu.Lock()
 		_ = str.SetWriteDeadline(time.Now().Add(constants.StreamDeadline))
-		_ = pbstream.WriteDelimited(str, final)
+		err := pbstream.WriteDelimited(str, final)
+		if err != nil {
+			logging.Logger(logging.Sync).Warn(ctx, "failed to write final datasync response",
+				ion.Err(err))
+		}
 		mu.Unlock()
 	})
 	return nil
