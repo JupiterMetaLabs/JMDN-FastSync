@@ -5,11 +5,13 @@ import (
 	"errors"
 	"sync"
 
+	"github.com/JupiterMetaLabs/JMDN-FastSync/common/WAL"
 	availabilitypb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/availability"
 	merklepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/merkle"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/constants"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/communication"
+	"github.com/libp2p/go-libp2p/core/host"
 )
 
 type Availability struct {
@@ -21,8 +23,22 @@ func NewAvailability() Availability_router {
 	return &Availability{}
 }
 
-func (a *Availability) SetSyncVars(syncVars *types.Syncvars) {
-	a.SyncVars = syncVars
+func (a *Availability) SetSyncVars(ctx context.Context, protocolVersion uint16, nodeInfo types.Nodeinfo, node host.Host, wal *WAL.WAL) Availability_router {
+	if a.SyncVars == nil {
+		a.SyncVars = &types.Syncvars{}
+	}
+	a.Comm = communication.NewCommunication(node, protocolVersion)
+	a.SyncVars.Version = protocolVersion
+	a.SyncVars.NodeInfo = nodeInfo
+	a.SyncVars.Ctx = ctx
+	a.SyncVars.WAL = wal
+	a.SyncVars.Node = node
+	return a
+}
+
+func (a *Availability) SetSyncVarsConfig(ctx context.Context, syncVars types.Syncvars) {
+	a.SyncVars = &syncVars
+	a.SyncVars.Ctx = ctx
 }
 
 func (a *Availability) SendAvailabilityRequest(ctx context.Context, syncVars *types.Syncvars, peerNode types.Nodeinfo, startBlock, endBlock uint64) (*availabilitypb.AvailabilityResponse, error) {
@@ -111,4 +127,13 @@ func (a *Availability) SendMultipleAvailabilityRequest(ctx context.Context, sync
 	}
 
 	return responses, nil
+}
+
+func (a *Availability) Close() {
+	if a.SyncVars != nil {
+		a.SyncVars = nil
+	}
+	if a.Comm != nil {
+		a.Comm = nil
+	}
 }

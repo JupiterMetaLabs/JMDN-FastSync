@@ -91,7 +91,6 @@ func (ds *DataSync) DataSync(datasyncrequest *datasyncpb.DataSyncRequest, remote
 	}
 
 	ctx := ds.SyncVars.Ctx
-	dataWriter := ds.SyncVars.NodeInfo.BlockInfo.NewDataWriter()
 	ds.ServerAuth = datasyncrequest.Phase.GetAuth()
 
 	// ---------------------------------------------------------------
@@ -106,7 +105,7 @@ func (ds *DataSync) DataSync(datasyncrequest *datasyncpb.DataSyncRequest, remote
 	// ---------------------------------------------------------------
 	// Process the queue concurrently
 	// ---------------------------------------------------------------
-	tags, err := processDataQueue(ctx, ds, queue, remotes, dataWriter)
+	tags, err := processDataQueue(ctx, ds, queue, remotes)
 	if err != nil {
 		return nil, fmt.Errorf("datasync failed: %w", err)
 	}
@@ -116,17 +115,20 @@ func (ds *DataSync) DataSync(datasyncrequest *datasyncpb.DataSyncRequest, remote
 }
 
 // processDataQueue concurrently fetches non-header batches using a worker pool
-// and writes the results to the DB via a single writer to preserve ordering.
+// and writes the results to the DB via a writer to preserve ordering.
 func processDataQueue(
 	ctx context.Context,
 	ds *DataSync,
 	queue []*datasyncpb.DataSyncRequest,
 	remotes []*availabilitypb.AvailabilityResponse,
-	dataWriter types.WriteData,
 ) (*taggingpb.TaggedAccounts, error) {
 	if len(queue) == 0 {
 		return nil, nil
 	}
+
+	// Create a cancellable context for early termination on error
+	workerCtx, cancelWorkers := context.WithCancel(ctx)
+	defer cancelWorkers() // Always clean up
 
 	// Size the worker pool: min(maxWorkers, num batches)
 	// We do not cap by len(remotes) because a single remote can handle multiple concurrent batch requests.
@@ -151,7 +153,7 @@ func processDataQueue(
 		workerWg.Add(1)
 		go func(workerID int) {
 			defer workerWg.Done()
-			dataFetchWorker(ctx, workerID, ds, remotes, workCh, resultCh)
+			dataFetchWorker(workerCtx, workerID, ds, remotes, workCh, resultCh)
 		}(w + 1)
 	}
 
@@ -161,95 +163,117 @@ func processDataQueue(
 		close(resultCh)
 	}()
 
-	// ---- Collect results ----
-	var results []dataBatchResult
+	// ---- Collect and Stream Results ----
+	expectedBatchID := 1
+	outOfOrderBatches := make(map[int]dataBatchResult)
 	aggregatedTags := tagging.NewTagging()
-	for r := range resultCh {
-		results = append(results, r)
-		if r.TaggedAccounts != nil && r.TaggedAccounts.Accounts != nil {
-			for addr := range r.TaggedAccounts.Accounts {
-				aggregatedTags.TagAccounts(addr)
-			}
-		}
-	}
 
-	// ---- Check for errors ----
-	for _, r := range results {
+	for r := range resultCh {
 		if r.Err != nil {
+			// Cancel workers immediately to stop ongoing fetches
+			cancelWorkers()
 			return nil, fmt.Errorf("batch %d failed: %w", r.BatchID, r.Err)
 		}
-	}
 
-	// ---- Sort by first block number and write sequentially ----
-	sort.Slice(results, func(i, j int) bool {
-		if len(results[i].NonHeaders) == 0 {
-			return true
-		}
-		if len(results[j].NonHeaders) == 0 {
-			return false
-		}
-		return results[i].NonHeaders[0].BlockNumber < results[j].NonHeaders[0].BlockNumber
-	})
-
-	for _, r := range results {
-		if len(r.NonHeaders) == 0 {
-			continue
-		}
-
-		// Write to WAL before DB — ensures crash recoverability
-		if ds.SyncVars.WAL != nil {
-			event := &WAL.DataSyncEvent{
-				BaseEvent: wal_types.BaseEvent{Operation: wal_types.OpAppend},
-				Response:  &datasyncpb.DataSyncResponse{Data: r.NonHeaders},
+		if r.BatchID == expectedBatchID {
+			// Expected sequence batch -> Process & Write directly
+			if err := ds.processAndWriteBatch(ctx, r, aggregatedTags); err != nil {
+				// Cancel workers on processing error
+				cancelWorkers()
+				return nil, err
 			}
-			lsn, err := ds.SyncVars.WAL.WriteEvent(event)
-			if err != nil {
-				return nil, fmt.Errorf("batch %d: WAL write failed: %w", r.BatchID, err)
-			}
-			Log.Logger(Log.DataSync).Info(ctx, "WAL event written",
-				ion.Int("batch", r.BatchID),
-				ion.Int64("lsn", int64(lsn)),
-				ion.Int("nonheaders", len(r.NonHeaders)))
+			expectedBatchID++
 
-			if err := ds.SyncVars.WAL.Flush(); err != nil {
-				return nil, fmt.Errorf("batch %d: WAL flush failed: %w", r.BatchID, err)
+			// Drain map loop incrementally if following items are queued
+			for {
+				if nextBatch, queued := outOfOrderBatches[expectedBatchID]; queued {
+					if err := ds.processAndWriteBatch(ctx, nextBatch, aggregatedTags); err != nil {
+						cancelWorkers()
+						return nil, err
+					}
+					// Remove to immediately dereference objects allowing Memory GC!
+					delete(outOfOrderBatches, expectedBatchID)
+					expectedBatchID++
+				} else {
+					break
+				}
 			}
-			Log.Logger(Log.DataSync).Info(ctx, "WAL flushed",
-				ion.Int("batch", r.BatchID),
-				ion.Int64("last_flushed_lsn", int64(ds.SyncVars.WAL.GetLastFlushedLSN())))
 		} else {
-			Log.Logger(Log.DataSync).Warn(ctx, "WAL is nil — skipping WAL write",
-				ion.Int("batch", r.BatchID))
+			// Buffer the out of order batch since it has completed faster than an earlier item
+			outOfOrderBatches[r.BatchID] = r
 		}
-
-		if err := dataWriter.WriteData(r.NonHeaders); err != nil {
-			return nil, fmt.Errorf("batch %d: failed to write non-headers to DB: %w", r.BatchID, err)
-		}
-
-		if ds.SyncVars.WAL != nil {
-			checkpointCreationTime := time.Now()
-			if _, err := ds.SyncVars.WAL.CreateCheckpoint(); err != nil {
-				checkpointEndTime := time.Now()
-				Log.Logger(Log.DataSync).Warn(ctx, "failed to create WAL checkpoint",
-					ion.Int("batch", r.BatchID),
-					ion.Err(err),
-					ion.String("duration", checkpointCreationTime.Sub(checkpointEndTime).String()))
-			} else {
-				checkpointEndTime := time.Now()
-				Log.Logger(Log.DataSync).Info(ctx, "WAL checkpoint created",
-					ion.Int("batch", r.BatchID),
-					ion.String("duration", checkpointCreationTime.Sub(checkpointEndTime).String()))
-			}
-		}
-
-		Log.Logger(Log.DataSync).Info(ctx, "Batch written to DB",
-			ion.Int("batch", r.BatchID),
-			ion.Int("nonheaders_written", len(r.NonHeaders)),
-			ion.Int64("first_block", int64(r.NonHeaders[0].BlockNumber)),
-			ion.Int64("last_block", int64(r.NonHeaders[len(r.NonHeaders)-1].BlockNumber)))
 	}
 
 	return aggregatedTags.GetAccountTag(), nil
+}
+
+// processAndWriteBatch performs the extraction and storage of a particular dataSync batch iteration natively.
+func (ds *DataSync) processAndWriteBatch(ctx context.Context, r dataBatchResult, aggregatedTags *tagging.Tagging) error {
+	// Aggregate tags mapping natively
+	if r.TaggedAccounts != nil && r.TaggedAccounts.Accounts != nil {
+		for addr := range r.TaggedAccounts.Accounts {
+			aggregatedTags.TagAccounts(addr)
+		}
+	}
+
+	if len(r.NonHeaders) == 0 {
+		return nil
+	}
+
+	// Write to WAL before DB — ensures crash recoverability
+	if ds.SyncVars.WAL != nil {
+		event := &WAL.DataSyncEvent{
+			BaseEvent: wal_types.BaseEvent{Operation: wal_types.OpAppend},
+			Response:  &datasyncpb.DataSyncResponse{Data: r.NonHeaders},
+		}
+		lsn, err := ds.SyncVars.WAL.WriteEvent(event)
+		if err != nil {
+			return fmt.Errorf("batch %d: WAL write failed: %w", r.BatchID, err)
+		}
+		Log.Logger(Log.DataSync).Info(ctx, "WAL event written",
+			ion.Int("batch", r.BatchID),
+			ion.Int64("lsn", int64(lsn)),
+			ion.Int("nonheaders", len(r.NonHeaders)))
+
+		if err := ds.SyncVars.WAL.Flush(); err != nil {
+			return fmt.Errorf("batch %d: WAL flush failed: %w", r.BatchID, err)
+		}
+		Log.Logger(Log.DataSync).Info(ctx, "WAL flushed",
+			ion.Int("batch", r.BatchID),
+			ion.Int64("last_flushed_lsn", int64(ds.SyncVars.WAL.GetLastFlushedLSN())))
+	} else {
+		Log.Logger(Log.DataSync).Warn(ctx, "WAL is nil — skipping WAL write",
+			ion.Int("batch", r.BatchID))
+	}
+
+	if err := ds.SyncVars.NodeInfo.BlockInfo.NewDataWriter().WriteData(r.NonHeaders); err != nil {
+		return fmt.Errorf("batch %d: failed to write non-headers to DB: %w", r.BatchID, err)
+	}
+
+	// Immediate WAL checkpoint sequence!
+	if ds.SyncVars.WAL != nil {
+		checkpointStartTime := time.Now()
+		if _, err := ds.SyncVars.WAL.CreateCheckpoint(); err != nil {
+			checkpointEndTime := time.Now()
+			Log.Logger(Log.DataSync).Warn(ctx, "failed to create WAL checkpoint",
+				ion.Int("batch", r.BatchID),
+				ion.Err(err),
+				ion.String("duration", checkpointEndTime.Sub(checkpointStartTime).String()))
+		} else {
+			checkpointEndTime := time.Now()
+			Log.Logger(Log.DataSync).Info(ctx, "WAL checkpoint created",
+				ion.Int("batch", r.BatchID),
+				ion.String("duration", checkpointEndTime.Sub(checkpointStartTime).String()))
+		}
+	}
+
+	Log.Logger(Log.DataSync).Info(ctx, "Batch written to DB",
+		ion.Int("batch", r.BatchID),
+		ion.Int("nonheaders_written", len(r.NonHeaders)),
+		ion.Int64("first_block", int64(r.NonHeaders[0].BlockNumber)),
+		ion.Int64("last_block", int64(r.NonHeaders[len(r.NonHeaders)-1].BlockNumber)))
+
+	return nil
 }
 
 // dataFetchWorker pulls jobs from workCh, tries each remote with retries, and
@@ -277,10 +301,17 @@ func dataFetchWorker(
 				continue
 			}
 			childctx, cancel := context.WithCancel(ctx)
+			defer cancel()
 
-			// Set the auth from the availability response for this specific remote
-			if job.Request.Phase != nil {
-				job.Request.Phase.Auth = availResp.Auth
+			// Create a copy of the request with the auth from the availability response for this specific remote
+			batchRequest := job.Request
+			if batchRequest.Phase != nil && availResp.Auth != nil {
+				// Create a shallow copy of the request to avoid mutation races
+				requestCopy := *batchRequest
+				phaseCopy := *batchRequest.Phase
+				phaseCopy.Auth = availResp.Auth
+				requestCopy.Phase = &phaseCopy
+				batchRequest = &requestCopy
 			}
 
 			for attempt := 1; attempt <= maxRetries; attempt++ {
@@ -290,7 +321,7 @@ func dataFetchWorker(
 					ion.Int("attempt", attempt),
 					ion.String("peer", remoteNodeInfo.PeerID.String()))
 
-				resp, err := ds.Comm.SendDataSyncRequest(childctx, *remoteNodeInfo, job.Request)
+				resp, err := ds.Comm.SendDataSyncRequest(childctx, *remoteNodeInfo, batchRequest)
 				if err != nil {
 					lastErr = fmt.Errorf("worker %d, batch %d, remote %s, attempt %d: %w",
 						workerID, job.BatchID, remoteNodeInfo.PeerID.String(), attempt, err)
@@ -339,8 +370,6 @@ func dataFetchWorker(
 					ion.Int64("last_block", int64(nonHeaders[len(nonHeaders)-1].BlockNumber)))
 				break
 			}
-
-			cancel()
 		}
 
 		if success {
@@ -453,7 +482,14 @@ func makeDataBatchRequest(tag *taggingpb.Tag, version uint16, auth *authpb.Auth)
 }
 
 func (ds *DataSync) Close() {
-	ds.SyncVars.Ctx.Done()
-	ds.SyncVars = nil
-	ds.Comm = nil
+	// Note: Context cancellation should be handled by the caller who created the context
+	// We only clean up our local references here
+	if ds.SyncVars != nil {
+		ds.SyncVars = nil
+	}
+	if ds.Comm != nil {
+		ds.Comm = nil
+	}
+	
+	ds.ServerAuth = nil
 }
