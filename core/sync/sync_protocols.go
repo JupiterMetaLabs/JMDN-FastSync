@@ -341,7 +341,7 @@ func (s *Sync) HandleDataSync(ctx context.Context, node host.Host) error {
 
 func (s *Sync) Debug(ctx context.Context, protocol protocol.ID, node host.Host, remote *types.Nodeinfo) {
 	if s.debug && remote != nil {
-		logging.Logger(logging.Sync).Info(ctx, "Sync Protocols Debug",
+		logging.Logger(logging.Sync).Debug(ctx, "Sync Protocols Debug",
 			ion.String("protocol", string(protocol)),
 			ion.String("peerID", remote.PeerID.String()),
 			ion.String("multiaddr", remote.Multiaddr[0].String()))

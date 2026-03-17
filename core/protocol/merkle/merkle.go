@@ -293,7 +293,7 @@ func (m *MerkleProof) ReconstructTree(logger_ctx context.Context, snap *merkletr
 		return nil, fmt.Errorf("failed to restore builder from snapshot: %w", err)
 	}
 
-	logging.Logger(logging.MerkleTree).Info(logger_ctx, "Merkle Tree restored from snapshot",
+	logging.Logger(logging.MerkleTree).Debug(logger_ctx, "Merkle Tree restored from snapshot",
 		ion.String("function", "DB_OPs.merkletree.ReconstructTree"),
 	)
 

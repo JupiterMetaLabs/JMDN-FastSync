@@ -111,7 +111,7 @@ func (hs *HeaderSync) HeaderSync(headersyncrequest *headersyncpb.HeaderSyncReque
 		// When the successive phase is DATA_SYNC_REQUEST, it confirms
 		// that the server verified both Merkle trees match.
 		if headersyncrequest.Phase != nil && headersyncrequest.Phase.SuccessivePhase == constants.DATA_SYNC_REQUEST {
-			Log.Logger(Log.HeaderSync).Info(hs.SyncVars.Ctx, "Headers already in sync — proceeding to data sync",
+			Log.Logger(Log.HeaderSync).Debug(hs.SyncVars.Ctx, "Headers already in sync — proceeding to data sync",
 				ion.String("successive_phase", headersyncrequest.Phase.SuccessivePhase))
 		}
 		return nil, nil
@@ -126,7 +126,7 @@ func (hs *HeaderSync) HeaderSync(headersyncrequest *headersyncpb.HeaderSyncReque
 	// ---------------------------------------------------------------
 	queue := buildBatches(originalTag, hs.ServerAuth)
 
-	Log.Logger(Log.HeaderSync).Info(ctx, "HeaderSync starting",
+	Log.Logger(Log.HeaderSync).Debug(ctx, "HeaderSync starting",
 		ion.Int("initial_batches", len(queue)),
 		ion.Int("total_remotes", len(remotes)))
 
@@ -136,7 +136,7 @@ func (hs *HeaderSync) HeaderSync(headersyncrequest *headersyncpb.HeaderSyncReque
 	// enqueued and the next round begins.
 	// ---------------------------------------------------------------
 	for round := 1; round <= maxSyncRounds; round++ {
-		Log.Logger(Log.HeaderSync).Info(ctx, "Starting sync round",
+		Log.Logger(Log.HeaderSync).Debug(ctx, "Starting sync round",
 			ion.Int("round", round),
 			ion.Int("queue_size", len(queue)))
 
@@ -148,7 +148,7 @@ func (hs *HeaderSync) HeaderSync(headersyncrequest *headersyncpb.HeaderSyncReque
 		// -------------------------------------------------------
 		// Sync confirmation — compare Merkle trees with a remote
 		// -------------------------------------------------------
-		Log.Logger(Log.HeaderSync).Info(ctx, "Running sync confirmation",
+		Log.Logger(Log.HeaderSync).Debug(ctx, "Running sync confirmation",
 			ion.Int("round", round))
 
 		newTag, synced, err := hs.SyncConfirmation(ctx, remotes)
@@ -275,7 +275,7 @@ func processQueue(
 			if err != nil {
 				return fmt.Errorf("batch %d: WAL write failed: %w", r.BatchID, err)
 			}
-			Log.Logger(Log.HeaderSync).Info(ctx, "WAL event written",
+			Log.Logger(Log.HeaderSync).Debug(ctx, "WAL event written",
 				ion.Int("batch", r.BatchID),
 				ion.Int64("lsn", int64(lsn)),
 				ion.Int("headers", len(r.Headers)))
@@ -283,7 +283,7 @@ func processQueue(
 			if err := hs.SyncVars.WAL.Flush(); err != nil {
 				return fmt.Errorf("batch %d: WAL flush failed: %w", r.BatchID, err)
 			}
-			Log.Logger(Log.HeaderSync).Info(ctx, "WAL flushed",
+			Log.Logger(Log.HeaderSync).Debug(ctx, "WAL flushed",
 				ion.Int("batch", r.BatchID),
 				ion.Int64("last_flushed_lsn", int64(hs.SyncVars.WAL.GetLastFlushedLSN())))
 		} else {
@@ -300,6 +300,14 @@ func processQueue(
 			ion.Int("headers_written", len(r.Headers)),
 			ion.Int64("first_block", int64(r.Headers[0].BlockNumber)),
 			ion.Int64("last_block", int64(r.Headers[len(r.Headers)-1].BlockNumber)))
+
+		if hs.SyncVars.WAL != nil {
+			if _, err := hs.SyncVars.WAL.CreateCheckpoint(); err != nil {
+				Log.Logger(Log.HeaderSync).Warn(ctx, "WAL checkpoint failed after header batch write",
+					ion.Int("batch", r.BatchID),
+					ion.Err(err))
+			}
+		}
 	}
 
 	return nil
@@ -382,7 +390,7 @@ func fetchWorker(
 				headers = resp.Header
 				success = true
 
-				Log.Logger(Log.HeaderSync).Info(childctx, "Batch fetched successfully",
+				Log.Logger(Log.HeaderSync).Debug(childctx, "Batch fetched successfully",
 					ion.Int("worker", workerID),
 					ion.Int("batch", job.BatchID),
 					ion.Int("headers_received", len(headers)),
@@ -472,7 +480,7 @@ func (hs *HeaderSync) SyncConfirmation(ctx context.Context, remotes []*availabil
 		syncMsg.Priorsync.Metadata.Checksum = checksum
 		syncMsg.Priorsync.Metadata.Version = uint32(localDetails.Metadata.Version)
 
-		Log.Logger(Log.HeaderSync).Info(ctx, "Sending sync confirmation",
+		Log.Logger(Log.HeaderSync).Debug(ctx, "Sending sync confirmation",
 			ion.String("peer", remoteNodeInfo.PeerID.String()),
 			ion.Uint64("blocknumber", localDetails.Blocknumber),
 			ion.String("UUID", syncMsg.Phase.GetAuth().GetUUID()))

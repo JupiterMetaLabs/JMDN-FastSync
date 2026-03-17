@@ -47,7 +47,7 @@ func (ps *PriorSync) SetSyncVars(ctx context.Context, protocolVersion uint16, ch
 	}
 
 	// Debugging
-	logging.Logger(logging.PriorSync).Info(ctx, "Setting sync vars",
+	logging.Logger(logging.PriorSync).Debug(ctx, "Setting sync vars",
 		ion.Int64("protocolVersion", int64(protocolVersion)),
 		ion.String("peerID", nodeInfo.PeerID.String()),
 		ion.String("multiaddr", nodeInfo.Multiaddr[0].String()),
@@ -206,7 +206,7 @@ func (ps *PriorSync) PriorSync(local_start, local_end, remote_start, remote_end 
 		return nil, fmt.Errorf("PriorSync request failed: %w", err)
 	}
 
-	logging.Logger(logging.PriorSync).Info(ctx, "PriorSync response received",
+	logging.Logger(logging.PriorSync).Debug(ctx, "PriorSync response received",
 		ion.String("remote", remote.PeerID.String()))
 
 	event := &WAL.PriorSyncEvent{

@@ -323,43 +323,26 @@ func (w *WAL) TruncateBefore(lsn uint64) error {
 	return w.truncateBeforeUnlocked(lsn)
 }
 
-// truncateBeforeUnlocked is the non-locking version of TruncateBefore
+// truncateBeforeUnlocked is the non-locking version of TruncateBefore.
+// LSN is used directly as the tidwall/wal index (see WriteEvent), so we can
+// call TruncateFront(lsn) directly — O(1) instead of the former O(n) scan.
 func (w *WAL) truncateBeforeUnlocked(lsn uint64) error {
+	if lsn == 0 {
+		return nil
+	}
 
-	// Find the corresponding index for the LSN
 	firstIndex, err := w.Log.FirstIndex()
 	if err != nil {
 		return fmt.Errorf("failed to get first index: %w", err)
 	}
 
-	lastIndex, err := w.Log.LastIndex()
-	if err != nil {
-		return fmt.Errorf("failed to get last index: %w", err)
+	// Nothing to truncate if the target LSN is at or before the current front.
+	if lsn <= firstIndex {
+		return nil
 	}
 
-	// Find the index to truncate to
-	var truncateIndex uint64
-	for index := firstIndex; index <= lastIndex; index++ {
-		data, err := w.Log.Read(index)
-		if err != nil {
-			continue
-		}
-
-		var entry WALEntry
-		if err := json.Unmarshal(data, &entry); err != nil {
-			continue
-		}
-
-		if entry.LSN >= lsn {
-			truncateIndex = index
-			break
-		}
-	}
-
-	if truncateIndex > 0 {
-		if err := w.Log.TruncateFront(truncateIndex); err != nil {
-			return fmt.Errorf("failed to truncate: %w", err)
-		}
+	if err := w.Log.TruncateFront(lsn); err != nil {
+		return fmt.Errorf("failed to truncate WAL before LSN %d: %w", lsn, err)
 	}
 
 	return nil
@@ -383,7 +366,7 @@ func (w *WAL) CreateCheckpoint() (uint64, error) {
 	newCheckpointFile := filepath.Join(checkpointPath, fmt.Sprintf("lsn_%020d", lsn))
 
 	// 2. Create the new checkpoint marker
-	if err := os.WriteFile(newCheckpointFile, []byte(fmt.Sprintf("%d", lsn)), 0644); err != nil {
+	if err := os.WriteFile(newCheckpointFile, fmt.Appendf(nil, "%d", lsn), 0644); err != nil {
 		return 0, fmt.Errorf("failed to create checkpoint marker: %w", err)
 	}
 
