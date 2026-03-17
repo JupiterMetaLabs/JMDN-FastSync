@@ -82,31 +82,17 @@ func (r *Reconciliation) GetHeaderCache() LRUCache.LRUCacheInterface {
 }
 
 func (r *Reconciliation) GetBlockFromLRUCache(blockNumber uint64) (*blockpb.Header, bool) {
-	/*
-		1. Try to get the block from the LRU Cache
-		2. if not found then get from the database using r.SyncVars.NodeInfo.BlockInfo.GetBlockHeaders([]int{int(blockNumber)})
-		3. Add the block to the LRU Cache
-	*/
-	Log.Logger(namedlogger).Info(r.SyncVars.Ctx, "Getting block from LRU cache",
-		ion.Uint64("block_number", blockNumber))
-
 	if r.headerCache == nil {
 		return nil, false
 	}
 
 	block, exist := r.headerCache.Get(blockNumber)
 	if exist {
-		Log.Logger(namedlogger).Info(r.SyncVars.Ctx, "Cache hit for block",
-			ion.Uint64("block_number", blockNumber))
 		return block, true
 	}
 
-	// 2. Cache miss - get from database using BlockInfo.GetBlockHeaders
-	Log.Logger(namedlogger).Info(r.SyncVars.Ctx, "Cache miss - fetching from DB",
-		ion.Uint64("block_number", blockNumber))
-
+	// Cache miss — fetch from DB
 	if r.SyncVars == nil || r.SyncVars.NodeInfo.BlockInfo == nil {
-		Log.Logger(namedlogger).Warn(r.SyncVars.Ctx, "Cannot fetch from DB - no BlockInfo configured")
 		return nil, false
 	}
 
@@ -119,17 +105,11 @@ func (r *Reconciliation) GetBlockFromLRUCache(blockNumber uint64) (*blockpb.Head
 	}
 
 	if len(headers) == 0 {
-		Log.Logger(namedlogger).Warn(r.SyncVars.Ctx, "Block not found in DB",
-			ion.Uint64("block_number", blockNumber))
 		return nil, false
 	}
 
 	header := headers[0]
-
-	// 3. Add the block to the LRU Cache
 	r.headerCache.Put(blockNumber, header)
-	Log.Logger(namedlogger).Info(r.SyncVars.Ctx, "Added block to cache",
-		ion.Uint64("block_number", blockNumber))
 
 	return header, true
 }
@@ -195,12 +175,26 @@ func (r *Reconciliation) Reconcile(taggedAccounts *taggingpb.TaggedAccounts) (in
 	var failedAccounts []string
 	var computeErrs []error
 
+	// Log every 10% of total accounts
+	logInterval := numAccounts / 10
+	if logInterval == 0 {
+		logInterval = 1
+	}
+	collected := 0
+
 	for res := range resultCh {
 		if res.err != nil {
 			failedAccounts = append(failedAccounts, res.addr)
 			computeErrs = append(computeErrs, res.err)
 		} else {
 			updates = append(updates, res.update)
+		}
+		collected++
+		if collected%logInterval == 0 {
+			Log.Logger(namedlogger).Info(ctx, "Phase 1 progress — computing account states",
+				ion.Int("collected", collected),
+				ion.Int("total", numAccounts),
+				ion.Int("failed_so_far", len(computeErrs)))
 		}
 	}
 
@@ -212,40 +206,57 @@ func (r *Reconciliation) Reconcile(taggedAccounts *taggingpb.TaggedAccounts) (in
 			len(computeErrs), computeErrs)
 	}
 
-	Log.Logger(namedlogger).Info(ctx, "Computation phase complete — all account states ready",
+	Log.Logger(namedlogger).Info(ctx, "Phase 1 complete — all account states ready",
 		ion.Int("accounts_ready", len(updates)))
 
 	// ----------------------------------------------------------------
-	// Phase 2: Write all planned changes to WAL and flush
+	// Phase 2: Write all planned changes to WAL as a single batch event.
+	// Writing one ReconciliationBatchEvent instead of N individual events
+	// avoids N mutex acquisitions, N JSON marshals, and N*BatchSize disk
+	// writes — critical when account count is in the hundreds of thousands.
 	// ----------------------------------------------------------------
 	if r.SyncVars.WAL != nil {
-		for _, u := range updates {
-			walEvent := &WAL.ReconciliationEvent{
+		walStart := time.Now()
+		Log.Logger(namedlogger).Info(ctx, "Phase 2 starting — writing WAL batch event",
+			ion.Int("accounts", len(updates)))
+
+		entries := make([]WAL.ReconciliationBatchEntry, len(updates))
+		for i, u := range updates {
+			entries[i] = WAL.ReconciliationBatchEntry{
 				AccountAddress: u.Address,
 				NewBalance:     u.NewBalance.String(),
 				Nonce:          u.Nonce,
-				Timestamp:      time.Now().Unix(),
 			}
-			if _, err := r.SyncVars.WAL.WriteEvent(walEvent); err != nil {
-				return 0, nil, fmt.Errorf("WAL write failed for account %s — aborting commit: %w", u.Address, err)
-			}
+		}
+		batchEvent := &WAL.ReconciliationBatchEvent{
+			Accounts:  entries,
+			Timestamp: time.Now().Unix(),
+		}
+		if _, err := r.SyncVars.WAL.WriteEvent(batchEvent); err != nil {
+			return 0, nil, fmt.Errorf("WAL batch write failed — aborting commit: %w", err)
 		}
 		if err := r.SyncVars.WAL.Flush(); err != nil {
 			return 0, nil, fmt.Errorf("WAL flush failed — aborting commit: %w", err)
 		}
-		Log.Logger(namedlogger).Info(ctx, "WAL phase complete — all events flushed",
-			ion.Int("wal_events", len(updates)))
+		Log.Logger(namedlogger).Info(ctx, "Phase 2 complete — WAL flushed",
+			ion.Int("accounts_in_batch", len(updates)),
+			ion.String("duration", time.Since(walStart).String()))
 	}
 
 	// ----------------------------------------------------------------
 	// Phase 3: Atomic DB commit — all or none
 	// ----------------------------------------------------------------
+	dbStart := time.Now()
+	Log.Logger(namedlogger).Info(ctx, "Phase 3 starting — atomic DB commit",
+		ion.Int("accounts_to_commit", len(updates)))
+
 	if err := accountManager.BatchUpdateAccounts(updates); err != nil {
 		return 0, nil, fmt.Errorf("atomic DB commit failed — no accounts were updated: %w", err)
 	}
 
-	Log.Logger(namedlogger).Info(ctx, "Reconciliation committed successfully",
-		ion.Int("accounts_committed", len(updates)))
+	Log.Logger(namedlogger).Info(ctx, "Phase 3 complete — reconciliation committed",
+		ion.Int("accounts_committed", len(updates)),
+		ion.String("duration", time.Since(dbStart).String()))
 
 	return len(updates), nil, nil
 }
@@ -254,6 +265,12 @@ func (r *Reconciliation) Reconcile(taggedAccounts *taggingpb.TaggedAccounts) (in
 // the new balance/nonce, and returns a ready-to-commit AccountUpdate.
 // This is a read-only operation — it does not touch the DB.
 func (r *Reconciliation) computeAccountUpdate(accountManager types.AccountManager, accountAddress string) (types.AccountUpdate, error) {
+	// Normalize address to 0x-prefixed lowercase so calculateAccountState comparisons
+	// against tx.From.Hex() / tx.To.Hex() (which always carry the 0x prefix) are correct.
+	if !strings.HasPrefix(accountAddress, "0x") {
+		accountAddress = "0x" + accountAddress
+	}
+
 	transactions, err := accountManager.GetTransactionsForAccount(accountAddress)
 	if err != nil {
 		return types.AccountUpdate{}, fmt.Errorf("failed to get transactions for account %s: %w", accountAddress, err)
@@ -266,7 +283,9 @@ func (r *Reconciliation) computeAccountUpdate(accountManager types.AccountManage
 		return types.AccountUpdate{}, fmt.Errorf("failed to get current balance for account %s: %w", accountAddress, err)
 	}
 
-	// Guard against nil balance for accounts not yet in the DB
+	// GetAccountBalance returns nil when the account does not exist in the DB.
+	// A zero balance on an existing account must not be confused with "not found".
+	isNewAccount := currentBalance == nil
 	if currentBalance == nil {
 		currentBalance = big.NewInt(0)
 	}
@@ -280,7 +299,7 @@ func (r *Reconciliation) computeAccountUpdate(accountManager types.AccountManage
 		Address:      accountAddress,
 		NewBalance:   newBalance,
 		Nonce:        state.Nonce,
-		IsNewAccount: currentBalance.Sign() == 0,
+		IsNewAccount: isNewAccount,
 	}, nil
 }
 
@@ -415,16 +434,17 @@ func (r *Reconciliation) calculateGasCostFromTx(tx *types.DBTransaction) *big.In
 
 // Close releases resources and cleans up.
 func (r *Reconciliation) Close() {
-	if r.SyncVars != nil {
-		r.SyncVars = nil
-
-	}
 	if r.headerCache != nil {
-		err := r.headerCache.Close()
-		if err != nil {
-			ctx, cancel := context.WithTimeout(r.SyncVars.Ctx, 3*time.Second)
+		if err := r.headerCache.Close(); err != nil {
+			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			defer cancel()
+
+			if r.SyncVars != nil {
+				ctx = r.SyncVars.Ctx
+			}
 			Log.Logger(namedlogger).Error(ctx, "Failed to close header cache", err)
 		}
+		r.headerCache = nil
 	}
+	r.SyncVars = nil
 }

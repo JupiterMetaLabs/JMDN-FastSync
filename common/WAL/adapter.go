@@ -221,6 +221,39 @@ func (e *ReconciliationEvent) Deserialize(data []byte) error {
 	return json.Unmarshal(data, e)
 }
 
+// ReconciliationBatchEntry is a single account record inside a batch WAL event.
+type ReconciliationBatchEntry struct {
+	AccountAddress string `json:"a"`
+	NewBalance     string `json:"b"`
+	Nonce          uint64 `json:"n"`
+}
+
+// ReconciliationBatchEvent writes all reconciled accounts as a single WAL entry.
+// This is far more efficient than writing one ReconciliationEvent per account when
+// the account count is in the hundreds of thousands.
+type ReconciliationBatchEvent struct {
+	wal_types.BaseEvent
+	Accounts  []ReconciliationBatchEntry `json:"accounts"`
+	Timestamp int64                      `json:"timestamp"`
+}
+
+func (e *ReconciliationBatchEvent) GetType() wal_types.WALType {
+	return wal_types.Reconciliation
+}
+
+func (e *ReconciliationBatchEvent) GetOperation() wal_types.EventOperation {
+	return wal_types.OpUpdate
+}
+
+func (e *ReconciliationBatchEvent) Serialize() ([]byte, error) {
+	e.Type = wal_types.Reconciliation
+	return json.Marshal(e)
+}
+
+func (e *ReconciliationBatchEvent) Deserialize(data []byte) error {
+	return json.Unmarshal(data, e)
+}
+
 // EventFactory creates the appropriate event adapter based on WAL type
 func EventFactory(walType wal_types.WALType) (wal_types.EventAdapter, error) {
 	switch walType {
