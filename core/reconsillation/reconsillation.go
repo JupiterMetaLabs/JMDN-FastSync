@@ -265,6 +265,12 @@ func (r *Reconciliation) Reconcile(taggedAccounts *taggingpb.TaggedAccounts) (in
 // the new balance/nonce, and returns a ready-to-commit AccountUpdate.
 // This is a read-only operation — it does not touch the DB.
 func (r *Reconciliation) computeAccountUpdate(accountManager types.AccountManager, accountAddress string) (types.AccountUpdate, error) {
+	// Normalize address to 0x-prefixed lowercase so calculateAccountState comparisons
+	// against tx.From.Hex() / tx.To.Hex() (which always carry the 0x prefix) are correct.
+	if !strings.HasPrefix(accountAddress, "0x") {
+		accountAddress = "0x" + accountAddress
+	}
+
 	transactions, err := accountManager.GetTransactionsForAccount(accountAddress)
 	if err != nil {
 		return types.AccountUpdate{}, fmt.Errorf("failed to get transactions for account %s: %w", accountAddress, err)
@@ -277,7 +283,9 @@ func (r *Reconciliation) computeAccountUpdate(accountManager types.AccountManage
 		return types.AccountUpdate{}, fmt.Errorf("failed to get current balance for account %s: %w", accountAddress, err)
 	}
 
-	// Guard against nil balance for accounts not yet in the DB
+	// GetAccountBalance returns nil when the account does not exist in the DB.
+	// A zero balance on an existing account must not be confused with "not found".
+	isNewAccount := currentBalance == nil
 	if currentBalance == nil {
 		currentBalance = big.NewInt(0)
 	}
@@ -291,7 +299,7 @@ func (r *Reconciliation) computeAccountUpdate(accountManager types.AccountManage
 		Address:      accountAddress,
 		NewBalance:   newBalance,
 		Nonce:        state.Nonce,
-		IsNewAccount: currentBalance.Sign() == 0,
+		IsNewAccount: isNewAccount,
 	}, nil
 }
 
