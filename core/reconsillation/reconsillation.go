@@ -134,7 +134,7 @@ func (r *Reconciliation) Reconcile(taggedAccounts *taggingpb.TaggedAccounts) (in
 	defer cancel()
 
 	numAccounts := len(taggedAccounts.Accounts)
-	Log.Logger(namedlogger).Info(ctx, "Starting reconciliation",
+	Log.Logger(namedlogger).Debug(ctx, "Starting reconciliation",
 		ion.Int("tagged_accounts_count", numAccounts))
 
 	// ----------------------------------------------------------------
@@ -191,7 +191,7 @@ func (r *Reconciliation) Reconcile(taggedAccounts *taggingpb.TaggedAccounts) (in
 		}
 		collected++
 		if collected%logInterval == 0 {
-			Log.Logger(namedlogger).Info(ctx, "Phase 1 progress — computing account states",
+			Log.Logger(namedlogger).Debug(ctx, "Phase 1 progress — computing account states",
 				ion.Int("collected", collected),
 				ion.Int("total", numAccounts),
 				ion.Int("failed_so_far", len(computeErrs)))
@@ -217,7 +217,7 @@ func (r *Reconciliation) Reconcile(taggedAccounts *taggingpb.TaggedAccounts) (in
 	// ----------------------------------------------------------------
 	if r.SyncVars.WAL != nil {
 		walStart := time.Now()
-		Log.Logger(namedlogger).Info(ctx, "Phase 2 starting — writing WAL batch event",
+		Log.Logger(namedlogger).Debug(ctx, "Phase 2 starting — writing WAL batch event",
 			ion.Int("accounts", len(updates)))
 
 		entries := make([]WAL.ReconciliationBatchEntry, len(updates))
@@ -247,7 +247,7 @@ func (r *Reconciliation) Reconcile(taggedAccounts *taggingpb.TaggedAccounts) (in
 	// Phase 3: Atomic DB commit — all or none
 	// ----------------------------------------------------------------
 	dbStart := time.Now()
-	Log.Logger(namedlogger).Info(ctx, "Phase 3 starting — atomic DB commit",
+	Log.Logger(namedlogger).Debug(ctx, "Phase 3 starting — atomic DB commit",
 		ion.Int("accounts_to_commit", len(updates)))
 
 	if err := accountManager.BatchUpdateAccounts(updates); err != nil {
@@ -257,6 +257,12 @@ func (r *Reconciliation) Reconcile(taggedAccounts *taggingpb.TaggedAccounts) (in
 	Log.Logger(namedlogger).Info(ctx, "Phase 3 complete — reconciliation committed",
 		ion.Int("accounts_committed", len(updates)),
 		ion.String("duration", time.Since(dbStart).String()))
+
+	if r.SyncVars.WAL != nil {
+		if _, err := r.SyncVars.WAL.CreateCheckpoint(); err != nil {
+			Log.Logger(namedlogger).Warn(ctx, "WAL checkpoint failed after reconciliation commit", ion.Err(err))
+		}
+	}
 
 	return len(updates), nil, nil
 }

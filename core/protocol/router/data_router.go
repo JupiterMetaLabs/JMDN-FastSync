@@ -919,7 +919,7 @@ func (router *Datarouter) SYNC_REQUEST(ctx context.Context, req *priorsyncpb.Pri
 	// Log bisection results safely (Tag.Range may be empty if only block-level tags exist).
 	numRangeTags := len(header_sync_req.Tag.Range)
 	numBlockTags := len(header_sync_req.Tag.BlockNumber)
-	Log.Logger(namedlogger).Info(ctx, "Bisect Success - LOG",
+	Log.Logger(namedlogger).Debug(ctx, "Bisect Success - LOG",
 		ion.Int("num_range_tags", numRangeTags),
 		ion.Int("num_block_tags", numBlockTags),
 		ion.String("function", "SYNC_REQUEST"))

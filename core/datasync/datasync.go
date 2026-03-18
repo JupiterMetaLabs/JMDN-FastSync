@@ -98,7 +98,7 @@ func (ds *DataSync) DataSync(datasyncrequest *datasyncpb.DataSyncRequest, remote
 	// ---------------------------------------------------------------
 	queue := buildDataBatches(datasyncrequest.Tag, ds.SyncVars.Version, ds.ServerAuth)
 
-	Log.Logger(Log.DataSync).Info(ctx, "DataSync starting",
+	Log.Logger(Log.DataSync).Debug(ctx, "DataSync starting",
 		ion.Int("initial_batches", len(queue)),
 		ion.Int("total_remotes", len(remotes)))
 
@@ -134,7 +134,7 @@ func processDataQueue(
 	// We do not cap by len(remotes) because a single remote can handle multiple concurrent batch requests.
 	numWorkers := min(maxWorkers, len(queue))
 
-	Log.Logger(Log.DataSync).Info(ctx, "Worker pool starting",
+	Log.Logger(Log.DataSync).Debug(ctx, "Worker pool starting",
 		ion.Int("workers", numWorkers),
 		ion.Int("batches", len(queue)))
 
@@ -230,7 +230,7 @@ func (ds *DataSync) processAndWriteBatch(ctx context.Context, r dataBatchResult,
 		if err != nil {
 			return fmt.Errorf("batch %d: WAL write failed: %w", r.BatchID, err)
 		}
-		Log.Logger(Log.DataSync).Info(ctx, "WAL event written",
+		Log.Logger(Log.DataSync).Debug(ctx, "WAL event written",
 			ion.Int("batch", r.BatchID),
 			ion.Int64("lsn", int64(lsn)),
 			ion.Int("nonheaders", len(r.NonHeaders)))
@@ -238,7 +238,7 @@ func (ds *DataSync) processAndWriteBatch(ctx context.Context, r dataBatchResult,
 		if err := ds.SyncVars.WAL.Flush(); err != nil {
 			return fmt.Errorf("batch %d: WAL flush failed: %w", r.BatchID, err)
 		}
-		Log.Logger(Log.DataSync).Info(ctx, "WAL flushed",
+		Log.Logger(Log.DataSync).Debug(ctx, "WAL flushed",
 			ion.Int("batch", r.BatchID),
 			ion.Int64("last_flushed_lsn", int64(ds.SyncVars.WAL.GetLastFlushedLSN())))
 	} else {
@@ -261,7 +261,7 @@ func (ds *DataSync) processAndWriteBatch(ctx context.Context, r dataBatchResult,
 				ion.String("duration", checkpointEndTime.Sub(checkpointStartTime).String()))
 		} else {
 			checkpointEndTime := time.Now()
-			Log.Logger(Log.DataSync).Info(ctx, "WAL checkpoint created",
+			Log.Logger(Log.DataSync).Debug(ctx, "WAL checkpoint created",
 				ion.Int("batch", r.BatchID),
 				ion.String("duration", checkpointEndTime.Sub(checkpointStartTime).String()))
 		}
@@ -362,7 +362,7 @@ func dataFetchWorker(
 				taggedAccounts = resp.Taggedaccounts
 				success = true
 
-				Log.Logger(Log.DataSync).Info(childctx, "Batch fetched successfully",
+				Log.Logger(Log.DataSync).Debug(childctx, "Batch fetched successfully",
 					ion.Int("worker", workerID),
 					ion.Int("batch", job.BatchID),
 					ion.Int("nonheaders_received", len(nonHeaders)),

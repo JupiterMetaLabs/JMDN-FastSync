@@ -266,7 +266,7 @@ func EventFactory(walType wal_types.WALType) (wal_types.EventAdapter, error) {
 	case wal_types.DataSync:
 		return &DataSyncEvent{}, nil
 	case wal_types.Reconciliation:
-		return &ReconciliationEvent{}, nil
+		return &ReconciliationBatchEvent{}, nil
 	default:
 		return nil, fmt.Errorf("unknown WAL type: %s", walType)
 	}

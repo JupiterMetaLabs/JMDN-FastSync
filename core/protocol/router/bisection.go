@@ -105,12 +105,12 @@ func (router *Datarouter) dataBisect(
 	remote *types.Nodeinfo,
 ) (*headersyncpb.HeaderSyncRequest, error) {
 
-	Log.Logger(namedlogger).Info(ctx, "Starting data bisection",
+	Log.Logger(namedlogger).Debug(ctx, "Starting data bisection",
 		ion.String("function", "dataBisect"))
 
 	// Register with client first to get UUID for authentication
 	if !router.IsRegistered() {
-		Log.Logger(namedlogger).Info(ctx, "Registering with client for merkle subtree requests",
+		Log.Logger(namedlogger).Debug(ctx, "Registering with client for merkle subtree requests",
 			ion.String("function", "dataBisect"))
 
 		if err := router.registerWithClient(ctx, remote); err != nil {
@@ -160,7 +160,7 @@ func (router *Datarouter) dataBisect(
 		return &headersyncpb.HeaderSyncRequest{Tag: tag.Tag}, nil
 	}
 
-	Log.Logger(namedlogger).Info(ctx, "Initial diffs found",
+	Log.Logger(namedlogger).Debug(ctx, "Initial diffs found",
 		ion.Int("num_diffs", len(diffs)),
 		ion.String("function", "dataBisect"))
 
@@ -192,7 +192,7 @@ func (router *Datarouter) dataBisect(
 	// and comparing them with TreeDiff again.
 	for len(currentLayer) > 0 {
 		if currentLayer[0].layer >= LAYER_THRESHOLD {
-			Log.Logger(namedlogger).Info(ctx, "Reached layer threshold, tagging remaining ranges",
+			Log.Logger(namedlogger).Debug(ctx, "Reached layer threshold, tagging remaining ranges",
 				ion.Int("layer", currentLayer[0].layer),
 				ion.Int("remaining_ranges", len(currentLayer)),
 				ion.String("function", "dataBisect"))
@@ -247,7 +247,7 @@ func (router *Datarouter) dataBisect(
 			}
 		}
 
-		Log.Logger(namedlogger).Info(ctx, "Making batch network request for sub-trees",
+		Log.Logger(namedlogger).Debug(ctx, "Making batch network request for sub-trees",
 			ion.Int("num_requests", len(batchRequests)),
 			ion.Int("layer", itemsToProcess[0].layer),
 			ion.String("function", "dataBisect"))
@@ -326,7 +326,7 @@ func (router *Datarouter) dataBisect(
 
 	// Tag any remaining items that hit the layer threshold.
 	for _, item := range currentLayer {
-		Log.Logger(namedlogger).Info(ctx, "Tagging range at layer threshold",
+		Log.Logger(namedlogger).Debug(ctx, "Tagging range at layer threshold",
 			ion.Uint64("start", item.start),
 			ion.Int("count", int(item.count)),
 			ion.Int("layer", item.layer),
