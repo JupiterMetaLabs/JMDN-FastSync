@@ -254,6 +254,29 @@ func (e *ReconciliationBatchEvent) Deserialize(data []byte) error {
 	return json.Unmarshal(data, e)
 }
 
+// PoTSBlockEvent stores a single finalised block received during the PoTS collection
+// window. BlockData holds the JSON-encoded ZKBlock so this package stays free of
+// a dependency on common/types (which already imports common/WAL).
+type PoTSBlockEvent struct {
+	wal_types.BaseEvent
+	BlockNumber uint64 `json:"block_number"` // denormalised for fast index rebuilds
+	BlockData   []byte `json:"block_data"`   // JSON-encoded types.ZKBlock
+	Timestamp   int64  `json:"timestamp"`
+}
+
+func (e *PoTSBlockEvent) GetType() wal_types.WALType { return wal_types.PoTS }
+
+func (e *PoTSBlockEvent) GetOperation() wal_types.EventOperation { return e.Operation }
+
+func (e *PoTSBlockEvent) Serialize() ([]byte, error) {
+	e.Type = wal_types.PoTS
+	return json.Marshal(e)
+}
+
+func (e *PoTSBlockEvent) Deserialize(data []byte) error {
+	return json.Unmarshal(data, e)
+}
+
 // EventFactory creates the appropriate event adapter based on WAL type
 func EventFactory(walType wal_types.WALType) (wal_types.EventAdapter, error) {
 	switch walType {
@@ -267,6 +290,8 @@ func EventFactory(walType wal_types.WALType) (wal_types.EventAdapter, error) {
 		return &DataSyncEvent{}, nil
 	case wal_types.Reconciliation:
 		return &ReconciliationBatchEvent{}, nil
+	case wal_types.PoTS:
+		return &PoTSBlockEvent{}, nil
 	default:
 		return nil, fmt.Errorf("unknown WAL type: %s", walType)
 	}
