@@ -27,16 +27,11 @@ type PoTSWAL struct {
 	latestBlock uint64
 }
 
-// NewPoTSWAL opens (or creates) a WAL at dir and replays existing entries to
-// rebuild the in-memory index. Returns a ready-to-use PoTSWAL.
-func NewPoTSWAL(ctx context.Context, dir string) (*PoTSWAL, error) {
-	w, err := WAL.NewWAL(dir, wal_types.DefaultBatchSize)
-	if err != nil {
-		return nil, fmt.Errorf("pots WAL open failed at %q: %w", dir, err)
-	}
-
+// NewPoTSWAL creates a PoTSWAL wrapper around the provided WAL instance and
+// replays existing entries to rebuild the in-memory index. Returns a ready-to-use PoTSWAL.
+func NewPoTSWAL(ctx context.Context, wal *WAL.WAL) (*PoTSWAL, error) {
 	pw := &PoTSWAL{
-		wal:        w,
+		wal:        wal,
 		blockIndex: make(map[uint64]uint64),
 	}
 
@@ -49,7 +44,23 @@ func NewPoTSWAL(ctx context.Context, dir string) (*PoTSWAL, error) {
 }
 
 // rebuildIndex replays all PoTS WAL entries and reconstructs blockIndex and lsnOrder.
+// Handles empty WALs gracefully (no error on first startup).
 func (pw *PoTSWAL) rebuildIndex() error {
+	// Check if WAL has any entries at all
+	firstIndex, err := pw.wal.Log.FirstIndex()
+	if err != nil {
+		return fmt.Errorf("failed to get first index: %w", err)
+	}
+	lastIndex, err := pw.wal.Log.LastIndex()
+	if err != nil {
+		return fmt.Errorf("failed to get last index: %w", err)
+	}
+
+	// Empty WAL - nothing to rebuild
+	if firstIndex == 0 && lastIndex == 0 {
+		return nil
+	}
+
 	return pw.wal.ReplayEventsByType(wal_types.PoTS, func(entry WAL.WALEntry) error {
 		ev := &WAL.PoTSBlockEvent{}
 		if err := ev.Deserialize(entry.Data); err != nil {

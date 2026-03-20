@@ -2,6 +2,7 @@ package pots
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -20,9 +21,10 @@ const namedlogger = "log:pots"
 type PoTS struct {
 	SyncVars  *types.Syncvars
 	PoTSState *types.PoTS
-
-	mu     sync.Mutex
-	cancel context.CancelFunc
+	PoTS_WAL  PoTS_WAL
+	mu        sync.Mutex
+	ctx       context.Context
+	cancel    context.CancelFunc
 }
 
 // NewPoTS returns a zero-value PoTS ready for SetSyncVars.
@@ -36,11 +38,11 @@ func (p *PoTS) SetSyncVars(
 	ctx context.Context,
 	protocolVersion uint16,
 	nodeInfo types.Nodeinfo,
-	wal *WAL.WAL,
 ) PoTS_router {
 	ctx, cancel := context.WithCancel(ctx)
 
 	p.mu.Lock()
+	p.ctx = ctx
 	p.cancel = cancel
 	p.mu.Unlock()
 
@@ -49,12 +51,10 @@ func (p *PoTS) SetSyncVars(
 	}
 	p.SyncVars.Version = protocolVersion
 	p.SyncVars.NodeInfo = nodeInfo
-	p.SyncVars.WAL = wal
 	p.SyncVars.Ctx = ctx
 
 	p.PoTSState = &types.PoTS{
 		SyncStartTime:   time.Now().UTC(),
-		WAL:             wal,
 		ProtocolVersion: protocolVersion,
 	}
 
@@ -64,22 +64,58 @@ func (p *PoTS) SetSyncVars(
 	return p
 }
 
-// SetWAL creates a dedicated PoTS WAL at dir and returns a PoTS_WAL handle.
+func (p *PoTS) StartPoTS(ctx context.Context, pots *types.PoTS) PoTS_router {
+	if p.SyncVars == nil {
+		return p
+	}
+	p.mu.Lock()
+	p.PoTSState = pots
+	p.mu.Unlock()
+	return p
+}
+
+// SetWAL creates a dedicated PoTS WAL wrapper and returns a PoTS_WAL handle.
 // The WAL is isolated from the main FastSync WAL — different directory, same
 // implementation. Any blocks buffered during the FastSync window are stored here.
-func (p *PoTS) SetWAL(dir string) PoTS_WAL {
-	potsWAL, err := NewPoTSWAL(p.SyncVars.Ctx, dir)
+func (p *PoTS) SetWAL(ctx context.Context, wal *WAL.WAL) PoTS_router {
+	if p.SyncVars == nil {
+		return p
+	}
+
+	if p.PoTS_WAL != nil {
+		return p
+	}
+	
+	potsWAL, err := NewPoTSWAL(p.SyncVars.Ctx, wal)
 	if err != nil {
 		Log.Logger(namedlogger).Warn(p.SyncVars.Ctx, "Failed to create PoTS WAL",
-			ion.String("dir", dir),
+			ion.String("dir", wal.Dir),
 			ion.Err(err))
 		return nil
 	}
 
-	Log.Logger(namedlogger).Info(p.SyncVars.Ctx, "PoTS WAL created",
-		ion.String("dir", dir))
+	// Set the WAL to the types.PoTSState
+	// This is safe to do while holding the lock since the WAL is not being read from
+	p.mu.Lock()
+	p.PoTS_WAL = potsWAL
+	p.mu.Unlock()
 
-	return potsWAL
+	Log.Logger(namedlogger).Info(p.SyncVars.Ctx, "PoTS WAL created",
+		ion.String("dir", wal.Dir))
+
+	return p
+}
+
+// GetWAL returns the PoTS WAL interface.
+func (p *PoTS) GetWAL() (PoTS_WAL, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	
+	if p.PoTS_WAL == nil {
+		return nil, errors.New("PoTS WAL not initialized")
+	}
+	
+	return p.PoTS_WAL, nil
 }
 
 // GetSyncVars returns the current sync configuration.
