@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/checksum/checksum_priorsync"
+	potspb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/pots"
 	ackpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/ack"
 	availabilitypb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/availability"
 	authpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/availability/auth"
@@ -477,6 +478,11 @@ func (router *Datarouter) HandleAvailability(ctx context.Context, req *availabil
 
 	template.Phase.Error = "Not available at this moment"
 	return template
+}
+
+func (router *Datarouter) HandlePoTSync(ctx context.Context, req *potspb.PoTSRequest, remote *types.Nodeinfo) *potspb.PoTSResponse {
+	// TODO: Implement PoTS sync logic
+	return nil
 }
 
 func (router *Datarouter) SYNC_REQUEST_V2(ctx context.Context, req *priorsyncpb.PriorSync) *priorsyncpb.PriorSyncMessage {

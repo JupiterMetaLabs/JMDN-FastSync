@@ -158,6 +158,133 @@ func (x *PoTSResponse) GetLatestBlockNumber() uint64 {
 	return 0
 }
 
+// Heartbeat is sent periodically by Node 1 during computation to keep the stream alive.
+type PoTSHeartbeat struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Timestamp     int64                  `protobuf:"varint,1,opt,name=timestamp,proto3" json:"timestamp,omitempty"` // Unix nanoseconds — for observability only
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PoTSHeartbeat) Reset() {
+	*x = PoTSHeartbeat{}
+	mi := &file_pots_pots_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PoTSHeartbeat) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PoTSHeartbeat) ProtoMessage() {}
+
+func (x *PoTSHeartbeat) ProtoReflect() protoreflect.Message {
+	mi := &file_pots_pots_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PoTSHeartbeat.ProtoReflect.Descriptor instead.
+func (*PoTSHeartbeat) Descriptor() ([]byte, []int) {
+	return file_pots_pots_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *PoTSHeartbeat) GetTimestamp() int64 {
+	if x != nil {
+		return x.Timestamp
+	}
+	return 0
+}
+
+type PoTSStreamMessage struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Payload:
+	//
+	//	*PoTSStreamMessage_Response
+	//	*PoTSStreamMessage_Heartbeat
+	Payload       isPoTSStreamMessage_Payload `protobuf_oneof:"payload"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *PoTSStreamMessage) Reset() {
+	*x = PoTSStreamMessage{}
+	mi := &file_pots_pots_proto_msgTypes[3]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *PoTSStreamMessage) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*PoTSStreamMessage) ProtoMessage() {}
+
+func (x *PoTSStreamMessage) ProtoReflect() protoreflect.Message {
+	mi := &file_pots_pots_proto_msgTypes[3]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use PoTSStreamMessage.ProtoReflect.Descriptor instead.
+func (*PoTSStreamMessage) Descriptor() ([]byte, []int) {
+	return file_pots_pots_proto_rawDescGZIP(), []int{3}
+}
+
+func (x *PoTSStreamMessage) GetPayload() isPoTSStreamMessage_Payload {
+	if x != nil {
+		return x.Payload
+	}
+	return nil
+}
+
+func (x *PoTSStreamMessage) GetResponse() *PoTSResponse {
+	if x != nil {
+		if x, ok := x.Payload.(*PoTSStreamMessage_Response); ok {
+			return x.Response
+		}
+	}
+	return nil
+}
+
+func (x *PoTSStreamMessage) GetHeartbeat() *PoTSHeartbeat {
+	if x != nil {
+		if x, ok := x.Payload.(*PoTSStreamMessage_Heartbeat); ok {
+			return x.Heartbeat
+		}
+	}
+	return nil
+}
+
+type isPoTSStreamMessage_Payload interface {
+	isPoTSStreamMessage_Payload()
+}
+
+type PoTSStreamMessage_Response struct {
+	Response *PoTSResponse `protobuf:"bytes,1,opt,name=response,proto3,oneof"`
+}
+
+type PoTSStreamMessage_Heartbeat struct {
+	Heartbeat *PoTSHeartbeat `protobuf:"bytes,2,opt,name=heartbeat,proto3,oneof"`
+}
+
+func (*PoTSStreamMessage_Response) isPoTSStreamMessage_Payload() {}
+
+func (*PoTSStreamMessage_Heartbeat) isPoTSStreamMessage_Payload() {}
+
 var File_pots_pots_proto protoreflect.FileDescriptor
 
 const file_pots_pots_proto_rawDesc = "" +
@@ -175,7 +302,13 @@ const file_pots_pots_proto_rawDesc = "" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x1e\n" +
 	"\x03tag\x18\x02 \x01(\v2\f.tagging.TagR\x03tag\x12#\n" +
 	"\rerror_message\x18\x03 \x01(\tR\ferrorMessage\x12.\n" +
-	"\x13latest_block_number\x18\x04 \x01(\x04R\x11latestBlockNumberB<Z:github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/potsb\x06proto3"
+	"\x13latest_block_number\x18\x04 \x01(\x04R\x11latestBlockNumber\"-\n" +
+	"\rPoTSHeartbeat\x12\x1c\n" +
+	"\ttimestamp\x18\x01 \x01(\x03R\ttimestamp\"\x85\x01\n" +
+	"\x11PoTSStreamMessage\x120\n" +
+	"\bresponse\x18\x01 \x01(\v2\x12.pots.PoTSResponseH\x00R\bresponse\x123\n" +
+	"\theartbeat\x18\x02 \x01(\v2\x13.pots.PoTSHeartbeatH\x00R\theartbeatB\t\n" +
+	"\apayloadB<Z:github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/potsb\x06proto3"
 
 var (
 	file_pots_pots_proto_rawDescOnce sync.Once
@@ -189,23 +322,27 @@ func file_pots_pots_proto_rawDescGZIP() []byte {
 	return file_pots_pots_proto_rawDescData
 }
 
-var file_pots_pots_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_pots_pots_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
 var file_pots_pots_proto_goTypes = []any{
-	(*PoTSRequest)(nil),  // 0: pots.PoTSRequest
-	(*PoTSResponse)(nil), // 1: pots.PoTSResponse
-	nil,                  // 2: pots.PoTSRequest.BlocksEntry
-	(*auth.Auth)(nil),    // 3: auth.Auth
-	(*tagging.Tag)(nil),  // 4: tagging.Tag
+	(*PoTSRequest)(nil),       // 0: pots.PoTSRequest
+	(*PoTSResponse)(nil),      // 1: pots.PoTSResponse
+	(*PoTSHeartbeat)(nil),     // 2: pots.PoTSHeartbeat
+	(*PoTSStreamMessage)(nil), // 3: pots.PoTSStreamMessage
+	nil,                       // 4: pots.PoTSRequest.BlocksEntry
+	(*auth.Auth)(nil),         // 5: auth.Auth
+	(*tagging.Tag)(nil),       // 6: tagging.Tag
 }
 var file_pots_pots_proto_depIdxs = []int32{
-	2, // 0: pots.PoTSRequest.blocks:type_name -> pots.PoTSRequest.BlocksEntry
-	3, // 1: pots.PoTSRequest.auth:type_name -> auth.Auth
-	4, // 2: pots.PoTSResponse.tag:type_name -> tagging.Tag
-	3, // [3:3] is the sub-list for method output_type
-	3, // [3:3] is the sub-list for method input_type
-	3, // [3:3] is the sub-list for extension type_name
-	3, // [3:3] is the sub-list for extension extendee
-	0, // [0:3] is the sub-list for field type_name
+	4, // 0: pots.PoTSRequest.blocks:type_name -> pots.PoTSRequest.BlocksEntry
+	5, // 1: pots.PoTSRequest.auth:type_name -> auth.Auth
+	6, // 2: pots.PoTSResponse.tag:type_name -> tagging.Tag
+	1, // 3: pots.PoTSStreamMessage.response:type_name -> pots.PoTSResponse
+	2, // 4: pots.PoTSStreamMessage.heartbeat:type_name -> pots.PoTSHeartbeat
+	5, // [5:5] is the sub-list for method output_type
+	5, // [5:5] is the sub-list for method input_type
+	5, // [5:5] is the sub-list for extension type_name
+	5, // [5:5] is the sub-list for extension extendee
+	0, // [0:5] is the sub-list for field type_name
 }
 
 func init() { file_pots_pots_proto_init() }
@@ -213,13 +350,17 @@ func file_pots_pots_proto_init() {
 	if File_pots_pots_proto != nil {
 		return
 	}
+	file_pots_pots_proto_msgTypes[3].OneofWrappers = []any{
+		(*PoTSStreamMessage_Response)(nil),
+		(*PoTSStreamMessage_Heartbeat)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_pots_pots_proto_rawDesc), len(file_pots_pots_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   3,
+			NumMessages:   5,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

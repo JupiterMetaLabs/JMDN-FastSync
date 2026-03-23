@@ -28,3 +28,15 @@ message PoTSResponse{
     string error_message = 3;  // Optional: for failure cases
     uint64 latest_block_number = 4;  // Optional: server's latest known block
 }
+
+// Heartbeat is sent periodically by Node 1 during computation to keep the stream alive.
+message PoTSHeartbeat {
+    int64 timestamp = 1; // Unix nanoseconds — for observability only
+}
+
+message PoTSStreamMessage {
+    oneof payload {
+        PoTSResponse response = 1;
+        PoTSHeartbeat heartbeat = 2;
+    }
+}
