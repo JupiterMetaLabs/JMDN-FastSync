@@ -8,6 +8,7 @@ const (
 	PriorSync      WALType = "wal:priorsync"
 	DataSync       WALType = "wal:datasync"
 	Reconciliation WALType = "wal:reconciliation"
+	PoTS           WALType = "wal:pots"
 )
 
 const (
