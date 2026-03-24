@@ -5,6 +5,7 @@ import (
 	gosync "sync"
 	"time"
 
+	potspb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/pots"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/logging"
 	"github.com/JupiterMetaLabs/ion"
 
@@ -36,6 +37,7 @@ type sync_interface interface {
 	HandleMerkle(ctx context.Context, node host.Host) error
 	HandleHeaderSync(ctx context.Context, node host.Host) error
 	HandleDataSync(ctx context.Context, node host.Host) error
+	HandlePoTSSync(ctx context.Context, node host.Host) error
 	Debug(ctx context.Context, protocol protocol.ID, node host.Host, remote *types.Nodeinfo)
 }
 
@@ -332,6 +334,93 @@ func (s *Sync) HandleDataSync(ctx context.Context, node host.Host) error {
 		err := pbstream.WriteDelimited(str, final)
 		if err != nil {
 			logging.Logger(logging.Sync).Warn(ctx, "failed to write final datasync response",
+				ion.Err(err))
+		}
+		mu.Unlock()
+	})
+	return nil
+}
+
+func (s *Sync) HandlePoTSSync(ctx context.Context, node host.Host) error {
+	node.SetStreamHandler(constants.PoTSProtocol, func(str network.Stream) {
+		defer str.Close()
+
+		// refuse work if shutting down
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		_ = str.SetReadDeadline(time.Now().Add(10 * time.Second))
+		defer str.SetReadDeadline(time.Time{})
+
+		req := &potspb.PoTSRequest{}
+		if err := pbstream.ReadDelimited(str, req); err != nil {
+			return
+		}
+
+		var remoteNodeInfo *types.Nodeinfo
+		remoteNodeInfo = &types.Nodeinfo{
+			PeerID:    str.Conn().RemotePeer(),
+			Multiaddr: []multiaddr.Multiaddr{str.Conn().RemoteMultiaddr()},
+		}
+
+		// ── Start heartbeat goroutine ──────────────────────────────────
+		computeCtx, computeCancel := context.WithCancel(ctx)
+		defer computeCancel()
+
+		done := make(chan struct{})
+		var mu gosync.Mutex
+
+		go func() {
+			ticker := time.NewTicker(constants.HeartbeatInterval)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-done:
+					return
+				case <-computeCtx.Done():
+					return
+				case <-ticker.C:
+					hb := &potspb.PoTSStreamMessage{
+						Payload: &potspb.PoTSStreamMessage_Heartbeat{
+							Heartbeat: &potspb.PoTSHeartbeat{
+								Timestamp: time.Now().UnixNano(),
+							},
+						},
+					}
+					mu.Lock()
+					_ = str.SetWriteDeadline(time.Now().Add(constants.StreamDeadline))
+					err := pbstream.WriteDelimited(str, hb)
+					mu.Unlock()
+
+					if err != nil {
+						logging.Logger(logging.Sync).Warn(computeCtx, "PoTS heartbeat write failed, cancelling computation",
+							ion.Err(err))
+						computeCancel()
+						return
+					}
+				}
+			}
+		}()
+
+		// ── Run the (potentially long) computation ────────────────────
+		resp := s.Datarouter.HandlePoTSync(computeCtx, req, remoteNodeInfo)
+		s.Debug(ctx, constants.PoTSProtocol, node, remoteNodeInfo)
+
+		// ── Stop heartbeats and send final response ───────────────────
+		close(done)
+
+		final := &potspb.PoTSStreamMessage{
+			Payload: &potspb.PoTSStreamMessage_Response{Response: resp},
+		}
+
+		mu.Lock()
+		_ = str.SetWriteDeadline(time.Now().Add(constants.StreamDeadline))
+		err := pbstream.WriteDelimited(str, final)
+		if err != nil {
+			logging.Logger(logging.Sync).Warn(ctx, "failed to write final PoTS response",
 				ion.Err(err))
 		}
 		mu.Unlock()

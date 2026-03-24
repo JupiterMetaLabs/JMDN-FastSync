@@ -92,7 +92,7 @@ func (hs *HeaderSync) GetSyncVars() *types.Syncvars {
 6. Add the headers to the local database after successful receival. using nodeinfo.WriteHeaders.WriteHeaders(headers []*block.Header).
 7. atlast we have to execute PRIORSYNC with the server to get to know are we fully synced or not.
 */
-func (hs *HeaderSync) HeaderSync(headersyncrequest *headersyncpb.HeaderSyncRequest, remotes []*availabilitypb.AvailabilityResponse) (*datasyncpb.DataSyncRequest, error) {
+func (hs *HeaderSync) HeaderSync(headersyncrequest *headersyncpb.HeaderSyncRequest, remotes []*availabilitypb.AvailabilityResponse, syncConfirmation bool) (*datasyncpb.DataSyncRequest, error) {
 	if headersyncrequest == nil {
 		return nil, fmt.Errorf("headersync request or tag is nil")
 	}
@@ -130,10 +130,36 @@ func (hs *HeaderSync) HeaderSync(headersyncrequest *headersyncpb.HeaderSyncReque
 		ion.Int("initial_batches", len(queue)),
 		ion.Int("total_remotes", len(remotes)))
 
+	if !syncConfirmation {
+		// PoTS path: the server already identified exactly which blocks are
+		// missing, so there is no need for a Merkle round-trip. Fetch the
+		// headers once and return the DataSyncRequest immediately.
+		if err := processQueue(ctx, hs, queue, remotes, headerWriter); err != nil {
+			return nil, fmt.Errorf("header fetch failed: %w", err)
+		}
+
+		Log.Logger(Log.HeaderSync).Info(ctx, "HeaderSync completed — sync confirmation skipped (PoTS path)")
+
+		return &datasyncpb.DataSyncRequest{
+			Tag:     originalTag,
+			Version: uint32(hs.SyncVars.Version),
+			Ack: &ackpb.Ack{
+				Ok:    true,
+				Error: "",
+			},
+			Phase: &phasepb.Phase{
+				PresentPhase:    constants.HEADER_SYNC_RESPONSE,
+				SuccessivePhase: constants.DATA_SYNC_REQUEST,
+				Success:         true,
+				Error:           "",
+				Auth:            hs.ServerAuth,
+			},
+		}, nil
+	}
+
 	// ---------------------------------------------------------------
-	// Process queue in rounds. Each round drains the queue, then
-	// runs sync_confirmation. If still out of sync, new batches are
-	// enqueued and the next round begins.
+	// Normal FastSync path: process queue in rounds, then run
+	// SyncConfirmation to compare Merkle trees. Repeat until synced.
 	// ---------------------------------------------------------------
 	for round := 1; round <= maxSyncRounds; round++ {
 		Log.Logger(Log.HeaderSync).Debug(ctx, "Starting sync round",

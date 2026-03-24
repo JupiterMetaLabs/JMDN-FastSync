@@ -19,7 +19,11 @@ type Headersync_router interface {
 	// HeaderSync is the main function that will be called by the user to sync headers
 	// remotes[0] would be primary always - following nodes would be the extra nodes for data sourcing
 	// Reason for taking availabilityresponse is it have both nodeinfo and the auth info.
-	HeaderSync(headersyncrequest *headersyncpb.HeaderSyncRequest, remotes []*availabilitypb.AvailabilityResponse) (*datasyncpb.DataSyncRequest, error)
+	// syncConfirmation: when true, runs a Merkle tree comparison after each batch round to
+	// verify convergence (normal FastSync path). When false, skips the Merkle check and
+	// returns the DataSyncRequest immediately after fetching — used for PoTS where the
+	// server has already identified exactly which blocks are missing.
+	HeaderSync(headersyncrequest *headersyncpb.HeaderSyncRequest, remotes []*availabilitypb.AvailabilityResponse, syncConfirmation bool) (*datasyncpb.DataSyncRequest, error)
 
 	// SyncConfirmation is the function that will be called by the HeaderSync function to confirm the sync
 	// remotes[0] would be primary always - following nodes would be the extra nodes for data sourcing

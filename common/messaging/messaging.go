@@ -7,6 +7,7 @@ import (
 	"time"
 
 	datasyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/datasync"
+	potspb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/pots"
 	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/priorsync"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/constants"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/pbstream"
@@ -443,3 +444,42 @@ func SendDataSyncProtoDelimitedWithHeartbeat(
 		},
 	)
 }
+
+// SendPoTSProtoDelimitedWithHeartbeat is a heartbeat-aware variant of SendProtoDelimited,
+// designed for the PoTS (Proof of Time Sync) protocol.
+func SendPoTSProtoDelimitedWithHeartbeat(
+	ctx context.Context,
+	version uint16,
+	host host.Host,
+	peerInfo peer.AddrInfo,
+	protocolID protocol.ID,
+	request proto.Message,
+	response *potspb.PoTSResponse,
+) error {
+	if response == nil {
+		return errors.New("response message is nil")
+	}
+	return sendProtoDelimitedWithHeartbeatGeneric(ctx, version, host, peerInfo, protocolID, request,
+		streamConfig[*potspb.PoTSStreamMessage]{
+			newEnvelope: func() *potspb.PoTSStreamMessage {
+				return &potspb.PoTSStreamMessage{}
+			},
+			isHeartbeat: func(e *potspb.PoTSStreamMessage) bool {
+				_, ok := e.Payload.(*potspb.PoTSStreamMessage_Heartbeat)
+				return ok
+			},
+			mergeResponse: func(e *potspb.PoTSStreamMessage) error {
+				p, ok := e.Payload.(*potspb.PoTSStreamMessage_Response)
+				if !ok {
+					return fmt.Errorf("unexpected StreamMessage payload type: %T", e.Payload)
+				}
+				if p.Response != nil {
+					proto.Merge(response, p.Response)
+				}
+				return nil
+			},
+		},
+	)
+}
+
+
