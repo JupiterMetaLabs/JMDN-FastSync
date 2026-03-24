@@ -1,4 +1,4 @@
-package helper
+package potshelper
 
 import (
 	potspb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/pots"

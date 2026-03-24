@@ -11,3 +11,8 @@ const (
 	DataSyncProtocol           protocol.ID = "/fastsync/v1/datasync"
 	PoTSProtocol               protocol.ID = "/fastsync/v1/pots"
 )
+
+// This protocol is for the pubsub implementation
+const(
+	BlocksPUBSUB protocol.ID = "/fastsync/v1/pubsub/blocks"
+)

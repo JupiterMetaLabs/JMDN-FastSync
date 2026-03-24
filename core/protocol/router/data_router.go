@@ -98,13 +98,13 @@ func (router *Datarouter) HandlePriorSync(ctx context.Context, req *priorsyncpb.
 			Priorsync: req.Priorsync,
 			Ack: &ackpb.Ack{
 				Ok:    false,
-				Error: "authentication failed",
+				Error: errors.AuthenticationFailed.Error(),
 			},
 			Phase: &phasepb.Phase{
 				PresentPhase:    constants.UNKNOWN,
 				SuccessivePhase: constants.FAILURE,
 				Success:         false,
-				Error:           "authentication failed",
+				Error:           errors.AuthenticationFailed.Error(),
 				Auth:            req.Phase.Auth,
 			},
 		}
@@ -199,13 +199,13 @@ func (router *Datarouter) HandleMerkle(ctx context.Context, merkleReq *merklepb.
 		return &merklepb.MerkleMessage{
 			Ack: &ackpb.Ack{
 				Ok:    false,
-				Error: "authentication required",
+				Error: errors.AuthRequired.Error(),
 			},
 			Phase: &phasepb.Phase{
 				PresentPhase:    constants.REQUEST_MERKLE,
 				SuccessivePhase: constants.FAILURE,
 				Success:         false,
-				Error:           "authentication required",
+				Error:           errors.AuthRequired.Error(),
 				Auth:            merkleReq.Phase.Auth,
 			},
 		}
@@ -216,13 +216,13 @@ func (router *Datarouter) HandleMerkle(ctx context.Context, merkleReq *merklepb.
 		return &merklepb.MerkleMessage{
 			Ack: &ackpb.Ack{
 				Ok:    false,
-				Error: "authentication failed",
+				Error: errors.AuthenticationFailed.Error(),
 			},
 			Phase: &phasepb.Phase{
 				PresentPhase:    constants.REQUEST_MERKLE,
 				SuccessivePhase: constants.FAILURE,
 				Success:         false,
-				Error:           "authentication failed",
+				Error:           errors.AuthenticationFailed.Error(),
 				Auth:            merkleReq.Phase.Auth,
 			},
 		}
@@ -270,13 +270,13 @@ func (router *Datarouter) HandleHeaderSync(ctx context.Context, headerSyncReq *h
 		return &headerpb.HeaderSyncResponse{
 			Ack: &ackpb.Ack{
 				Ok:    false,
-				Error: "authentication failed",
+				Error: errors.AuthenticationFailed.Error(),
 			},
 			Phase: &phasepb.Phase{
 				PresentPhase:    constants.UNKNOWN,
 				SuccessivePhase: constants.FAILURE,
 				Success:         false,
-				Error:           "authentication failed",
+				Error:           errors.AuthenticationFailed.Error(),
 				Auth:            headerSyncReq.Phase.Auth,
 			},
 		}
@@ -350,13 +350,13 @@ func (router *Datarouter) HandleDataSync(ctx context.Context, req *datasyncpb.Da
 		return &datasyncpb.DataSyncResponse{
 			Ack: &ackpb.Ack{
 				Ok:    false,
-				Error: "authentication failed",
+				Error: errors.AuthenticationFailed.Error(),
 			},
 			Phase: &phasepb.Phase{
 				PresentPhase:    constants.UNKNOWN,
 				SuccessivePhase: constants.FAILURE,
 				Success:         false,
-				Error:           "authentication failed",
+				Error:           errors.AuthenticationFailed.Error(),
 				Auth:            req.Phase.Auth,
 			},
 		}
@@ -481,6 +481,31 @@ func (router *Datarouter) HandleAvailability(ctx context.Context, req *availabil
 }
 
 func (router *Datarouter) HandlePoTSync(ctx context.Context, req *potspb.PoTSRequest, remote *types.Nodeinfo) *potspb.PoTSResponse {
+	template := &potspb.PoTSResponse{
+		Success: false,
+		Tag: nil,
+		ErrorMessage: "",
+		LatestBlockNumber: math.MaxUint64,
+	}
+
+	if req.Auth == nil || req.Auth.UUID == "" {
+		template.ErrorMessage = errors.AuthRequired.Error()
+		return template
+	}
+
+	// Authenticate the request
+	authenticated, err := router.Authenticate(ctx, req.Auth, remote)
+	if err != nil || !authenticated {
+		template.ErrorMessage = errors.AuthenticationFailed.Error()
+		return template
+	}
+
+	// Defer TTL reset
+	defer func() {
+		if resetErr := router.ResetTTL(ctx, req.Auth, remote); resetErr != nil {
+			Log.Logger(namedlogger).Error(ctx, "Failed to reset TTL", resetErr)
+		}
+	}()
 	// TODO: Implement PoTS sync logic
 	return nil
 }
