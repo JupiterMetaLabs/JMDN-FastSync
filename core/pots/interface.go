@@ -2,26 +2,38 @@ package pots
 
 import (
 	"context"
+
+	potspb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/pots"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/WAL"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
+	"github.com/libp2p/go-libp2p/core/host"
 )
 
 // PoTS_router defines the interface for the Proof of Time Sync router,
 // which manages synchronization variables, WAL setup, and PoTS lifecycle.
 type PoTS_router interface {
 	// SetSyncVars initializes synchronization variables including protocol version,
-	// node information, and WAL reference, returning the router for chaining.
-	SetSyncVars(ctx context.Context, protocolversion uint16, nodeInfo types.Nodeinfo) PoTS_router
+	// node information, and host reference, returning the router for chaining.
+	SetSyncVars(ctx context.Context, protocolversion uint16, nodeInfo types.Nodeinfo, node host.Host) PoTS_router
+
 	// StartPoTS begins the Proof of Time Sync process using the provided PoTS configuration.
 	StartPoTS(ctx context.Context, pots *types.PoTS) PoTS_router
+
+	// SendPoTSRequest sends a PoTS request to the remote node and returns the response.
+	SendPoTSRequest(ctx context.Context, PoTSRequest *potspb.PoTSRequest, remote types.Nodeinfo) (*potspb.PoTSResponse, error)
+
 	// SetWAL initializes and returns a WAL interface for the given directory path.
 	SetWAL(ctx context.Context, wal *WAL.WAL) PoTS_router
+
 	// GetWAL return the PoTS_WAL Interface 
 	GetWAL() (PoTS_WAL, error)
+	
 	// GetSyncVars returns the current synchronization variables.
 	GetSyncVars() *types.Syncvars
+
 	// GetPoTS returns the current Proof of Time Sync configuration.
 	GetPoTS() *types.PoTS
+
 	// Close shuts down the router and releases any held resources.
 	Close()
 }

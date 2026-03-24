@@ -6,6 +6,7 @@ import (
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/messaging"
 	availabilitypb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/availability"
+	potspb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/pots"
 	datasyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/datasync"
 	headersyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/headersync"
 	merklepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/merkle"
@@ -36,6 +37,8 @@ type Communicator interface {
 	SendDataSyncRequest(ctx context.Context, peerNode types.Nodeinfo, req *datasyncpb.DataSyncRequest) (*datasyncpb.DataSyncResponse, error)
 
 	SendAvailabilityRequest(ctx context.Context, peerNode types.Nodeinfo, req *availabilitypb.AvailabilityRequest) (*availabilitypb.AvailabilityResponse, error)
+
+	SendPoTSRequest(ctx context.Context, peerNode types.Nodeinfo, req *potspb.PoTSRequest) (*potspb.PoTSResponse, error)
 }
 
 func NewCommunication(host host.Host, protocolVersion uint16) Communicator {
@@ -261,6 +264,40 @@ func (c *communication) SendAvailabilityRequest(
 		resp,
 	); err != nil {
 		return nil, errors.New("failed to send availability request: " + err.Error())
+	}
+
+	return resp, nil
+}
+
+func (c *communication) SendPoTSRequest(
+	ctx context.Context,
+	peerNode types.Nodeinfo,
+	req *potspb.PoTSRequest,
+) (*potspb.PoTSResponse, error) {
+	if c.host == nil {
+		return nil, errors.New("host is nil")
+	}
+
+	// Prepare peer.AddrInfo from types.Nodeinfo
+	peerInfo := libp2p_peer.AddrInfo{
+		ID:    peerNode.PeerID,
+		Addrs: peerNode.Multiaddr,
+	}
+
+	// Prepare response container
+	resp := &potspb.PoTSResponse{}
+
+	// Send using SendProtoDelimited
+	if err := messaging.SendPoTSProtoDelimitedWithHeartbeat(
+		ctx,
+		c.protocolVersion,
+		c.host,
+		peerInfo,
+		constants.PoTSProtocol,
+		req,
+		resp,
+	); err != nil {
+		return nil, errors.New("failed to send pots request: " + err.Error())
 	}
 
 	return resp, nil

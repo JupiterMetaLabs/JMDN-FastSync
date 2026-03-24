@@ -7,11 +7,15 @@ import (
 	"sync"
 	"time"
 
+	potspb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/pots"
+
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/WAL"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
 	wal_types "github.com/JupiterMetaLabs/JMDN-FastSync/common/types/wal"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/communication"
 	Log "github.com/JupiterMetaLabs/JMDN-FastSync/logging"
 	"github.com/JupiterMetaLabs/ion"
+	"github.com/libp2p/go-libp2p/core/host"
 )
 
 const namedlogger = "log:pots"
@@ -20,6 +24,7 @@ const namedlogger = "log:pots"
 // lives until the node transitions to live consensus.
 type PoTS struct {
 	SyncVars  *types.Syncvars
+	Comm      communication.Communicator
 	PoTSState *types.PoTS
 	PoTS_WAL  PoTS_WAL
 	mu        sync.Mutex
@@ -38,6 +43,7 @@ func (p *PoTS) SetSyncVars(
 	ctx context.Context,
 	protocolVersion uint16,
 	nodeInfo types.Nodeinfo,
+	node host.Host,
 ) PoTS_router {
 	ctx, cancel := context.WithCancel(ctx)
 
@@ -49,9 +55,11 @@ func (p *PoTS) SetSyncVars(
 	if p.SyncVars == nil {
 		p.SyncVars = &types.Syncvars{}
 	}
+	p.Comm = communication.NewCommunication(node, protocolVersion)
 	p.SyncVars.Version = protocolVersion
 	p.SyncVars.NodeInfo = nodeInfo
 	p.SyncVars.Ctx = ctx
+	p.SyncVars.Node = node
 
 	p.PoTSState = &types.PoTS{
 		SyncStartTime:   time.Now().UTC(),
@@ -72,6 +80,47 @@ func (p *PoTS) StartPoTS(ctx context.Context, pots *types.PoTS) PoTS_router {
 	p.PoTSState = pots
 	p.mu.Unlock()
 	return p
+}
+
+func (p *PoTS) SendPoTSRequest(ctx context.Context, PoTSRequest *potspb.PoTSRequest, remote types.Nodeinfo) (*potspb.PoTSResponse, error) {
+	if PoTSRequest == nil {
+		return nil, errors.New("PoTS request is nil")
+	}
+	if p.Comm == nil {
+		return nil, errors.New("communicator not set")
+	}
+
+	Log.Logger(namedlogger).Debug(ctx, "Sending PoTS request",
+		ion.String("peer", remote.PeerID.String()),
+		ion.Uint64("pots_timestamp", PoTSRequest.PotsTimestamp),
+		ion.Int("blocks_count", len(PoTSRequest.Blocks)))
+
+	// Send the PoTS request using the communicator
+	resp, err := p.Comm.SendPoTSRequest(ctx, remote, PoTSRequest)
+	if err != nil {
+		Log.Logger(namedlogger).Warn(ctx, "PoTS request failed",
+			ion.String("peer", remote.PeerID.String()),
+			ion.Err(err))
+		return nil, fmt.Errorf("failed to send PoTS request: %w", err)
+	}
+
+	// Validate response
+	if !resp.Success {
+		errMsg := resp.ErrorMessage
+		if errMsg == "" {
+			errMsg = "unknown error"
+		}
+		Log.Logger(namedlogger).Warn(ctx, "PoTS response indicates failure",
+			ion.String("peer", remote.PeerID.String()),
+			ion.String("error", errMsg))
+		return nil, fmt.Errorf("PoTS request failed: %s", errMsg)
+	}
+
+	Log.Logger(namedlogger).Info(ctx, "PoTS request successful",
+		ion.String("peer", remote.PeerID.String()),
+		ion.Uint64("latest_block", resp.LatestBlockNumber))
+
+	return resp, nil
 }
 
 // SetWAL creates a dedicated PoTS WAL wrapper and returns a PoTS_WAL handle.
