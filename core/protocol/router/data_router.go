@@ -483,30 +483,38 @@ func (router *Datarouter) HandleAvailability(ctx context.Context, req *availabil
 
 func (router *Datarouter) HandlePoTSync(ctx context.Context, req *potspb.PoTSRequest, remote *types.Nodeinfo) *potspb.PoTSResponse {
 	template := &potspb.PoTSResponse{
-		Success:           false,
 		Tag:               nil,
-		ErrorMessage:      "",
 		LatestBlockNumber: math.MaxUint64,
+		Phase: &phasepb.Phase{
+			PresentPhase:    constants.PoTS_RESPONSE,
+			SuccessivePhase: constants.FAILURE,
+			Success:         false,
+			Error:           "",
+			Auth:            nil,
+		},
 	}
 
-	if req.Auth == nil || req.Auth.UUID == "" {
-		template.ErrorMessage = errors.AuthRequired.Error()
+	if req.Phase == nil || req.Phase.Auth == nil || req.Phase.Auth.UUID == "" {
+		template.Phase.Error = errors.AuthRequired.Error()
 		return template
 	}
 
 	// Authenticate the request
-	authenticated, err := router.Authenticate(ctx, req.Auth, remote)
+	authenticated, err := router.Authenticate(ctx, req.Phase.Auth, remote)
 	if err != nil || !authenticated {
-		template.ErrorMessage = errors.AuthenticationFailed.Error()
+		template.Phase.Error = errors.AuthenticationFailed.Error()
+		template.Phase.Auth = req.Phase.Auth
 		return template
 	}
 
 	// Defer TTL reset
 	defer func() {
-		if resetErr := router.ResetTTL(ctx, req.Auth, remote); resetErr != nil {
+		if resetErr := router.ResetTTL(ctx, req.Phase.Auth, remote); resetErr != nil {
 			Log.Logger(namedlogger).Error(ctx, "Failed to reset TTL", resetErr)
 		}
 	}()
+
+	serverLatestBlock := router.Nodeinfo.BlockInfo.GetBlockNumber()
 
 	// Log the PoTS request
 	Log.Logger(namedlogger).Info(ctx, "Processing PoTS request",
@@ -520,10 +528,20 @@ func (router *Datarouter) HandlePoTSync(ctx context.Context, req *potspb.PoTSReq
 	if err != nil {
 		Log.Logger(namedlogger).Error(ctx, "Failed to process PoTS request", err)
 		return &potspb.PoTSResponse{
-			Success:           false,
-			ErrorMessage:      fmt.Sprintf("failed to process PoTS request: %v", err),
-			LatestBlockNumber: router.Nodeinfo.BlockInfo.GetBlockNumber(),
+			LatestBlockNumber: serverLatestBlock,
+			Phase: &phasepb.Phase{
+				PresentPhase:    constants.PoTS_RESPONSE,
+				SuccessivePhase: constants.FAILURE,
+				Success:         false,
+				Error:           fmt.Sprintf("failed to process PoTS request: %v", err),
+				Auth:            req.Phase.Auth,
+			},
 		}
+	}
+
+	// Set auth in response phase
+	if response.Phase != nil {
+		response.Phase.Auth = req.Phase.Auth
 	}
 
 	// Log successful response

@@ -7,6 +7,7 @@ import (
 	potspb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/pots"
 	tagpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/tagging"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/constants"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/tagging"
 )
 
@@ -38,6 +39,7 @@ func (ph *PoTSHelper) ProcessPoTSRequest(request *potspb.PoTSRequest) (*potspb.P
 		return NewPoTSResponseBuilder().
 			AddStatus(false).
 			AddErrorMessage("request is nil").
+			AddSuccesivePhase(constants.FAILURE).
 			Build(), fmt.Errorf("request is nil")
 	}
 
@@ -45,6 +47,7 @@ func (ph *PoTSHelper) ProcessPoTSRequest(request *potspb.PoTSRequest) (*potspb.P
 		return NewPoTSResponseBuilder().
 			AddStatus(false).
 			AddErrorMessage("nodeinfo or blockinfo not initialized").
+			AddSuccesivePhase(constants.FAILURE).
 			Build(), fmt.Errorf("nodeinfo not initialized")
 	}
 
@@ -60,6 +63,7 @@ func (ph *PoTSHelper) ProcessPoTSRequest(request *potspb.PoTSRequest) (*potspb.P
 			AddStatus(true).
 			AddLatestBlockNumber(serverLatestBlock).
 			AddTag(&tagpb.Tag{}). // Empty tag - nothing to sync
+			AddSuccesivePhase(constants.HEADER_SYNC_REQUEST).
 			Build(), nil
 	}
 
@@ -74,6 +78,7 @@ func (ph *PoTSHelper) ProcessPoTSRequest(request *potspb.PoTSRequest) (*potspb.P
 			AddStatus(false).
 			AddErrorMessage(fmt.Sprintf("failed to query block headers: %v", err)).
 			AddLatestBlockNumber(serverLatestBlock).
+			AddSuccesivePhase(constants.FAILURE).
 			Build(), fmt.Errorf("failed to query headers: %w", err)
 	}
 
@@ -83,6 +88,7 @@ func (ph *PoTSHelper) ProcessPoTSRequest(request *potspb.PoTSRequest) (*potspb.P
 			AddStatus(false).
 			AddErrorMessage(fmt.Sprintf("no headers found in range %d-%d", clientLatestBlock+1, serverLatestBlock)).
 			AddLatestBlockNumber(serverLatestBlock).
+			AddSuccesivePhase(constants.FAILURE).
 			Build(), fmt.Errorf("no headers returned for range %d-%d", clientLatestBlock+1, serverLatestBlock)
 	}
 
@@ -107,6 +113,7 @@ func (ph *PoTSHelper) ProcessPoTSRequest(request *potspb.PoTSRequest) (*potspb.P
 		AddStatus(true).
 		AddTag(tags).
 		AddLatestBlockNumber(serverLatestBlock).
+		AddSuccesivePhase(constants.HEADER_SYNC_REQUEST).
 		Build(), nil
 }
 

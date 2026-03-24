@@ -105,8 +105,8 @@ func (p *PoTS) SendPoTSRequest(ctx context.Context, PoTSRequest *potspb.PoTSRequ
 	}
 
 	// Validate response
-	if !resp.Success {
-		errMsg := resp.ErrorMessage
+	if !resp.Phase.Success {
+		errMsg := resp.Phase.Error
 		if errMsg == "" {
 			errMsg = "unknown error"
 		}

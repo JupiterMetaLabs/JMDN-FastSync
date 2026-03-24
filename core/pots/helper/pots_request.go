@@ -2,7 +2,9 @@ package helper
 
 import (
 	authpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/availability/auth"
+	phasepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/phase"
 	potspb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/pots"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/constants"
 )
 
 type potsrequest_builder struct {
@@ -11,7 +13,12 @@ type potsrequest_builder struct {
 
 func NewPoTSRequestBuilder() *potsrequest_builder {
 	return &potsrequest_builder{
-		PoTSRequest: &potspb.PoTSRequest{},
+		PoTSRequest: &potspb.PoTSRequest{
+			Phase: &phasepb.Phase{
+				PresentPhase:    constants.PoTS_REQUEST,
+				SuccessivePhase: constants.PoTS_RESPONSE,
+			},
+		},
 	}
 }
 
@@ -31,7 +38,7 @@ func (p *potsrequest_builder) AddLatestBlock(blocknumber uint64) *potsrequest_bu
 }
 
 func (p *potsrequest_builder) AddAuth(auth *authpb.Auth) *potsrequest_builder {
-	p.PoTSRequest.Auth = auth
+	p.PoTSRequest.Phase.Auth = auth
 	return p
 }
 
