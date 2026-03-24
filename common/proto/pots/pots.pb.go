@@ -7,7 +7,7 @@
 package pots
 
 import (
-	auth "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/availability/auth"
+	phase "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/phase"
 	tagging "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/tagging"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
@@ -31,7 +31,7 @@ type PoTSRequest struct {
 	state             protoimpl.MessageState `protogen:"open.v1"`
 	Blocks            map[uint64][]byte      `protobuf:"bytes,1,rep,name=blocks,proto3" json:"blocks,omitempty" protobuf_key:"varint,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	LatestBlockNumber uint64                 `protobuf:"varint,2,opt,name=latest_block_number,json=latestBlockNumber,proto3" json:"latest_block_number,omitempty"`
-	Auth              *auth.Auth             `protobuf:"bytes,3,opt,name=auth,proto3" json:"auth,omitempty"`
+	Phase             *phase.Phase           `protobuf:"bytes,3,opt,name=phase,proto3" json:"phase,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -80,9 +80,9 @@ func (x *PoTSRequest) GetLatestBlockNumber() uint64 {
 	return 0
 }
 
-func (x *PoTSRequest) GetAuth() *auth.Auth {
+func (x *PoTSRequest) GetPhase() *phase.Phase {
 	if x != nil {
-		return x.Auth
+		return x.Phase
 	}
 	return nil
 }
@@ -92,10 +92,9 @@ func (x *PoTSRequest) GetAuth() *auth.Auth {
 // then that tagging will be given to headersync and data sync eventually.
 type PoTSResponse struct {
 	state             protoimpl.MessageState `protogen:"open.v1"`
-	Success           bool                   `protobuf:"varint,1,opt,name=success,proto3" json:"success,omitempty"`
-	Tag               *tagging.Tag           `protobuf:"bytes,2,opt,name=tag,proto3" json:"tag,omitempty"`
-	ErrorMessage      string                 `protobuf:"bytes,3,opt,name=error_message,json=errorMessage,proto3" json:"error_message,omitempty"`                   // Optional: for failure cases
-	LatestBlockNumber uint64                 `protobuf:"varint,4,opt,name=latest_block_number,json=latestBlockNumber,proto3" json:"latest_block_number,omitempty"` // Optional: server's latest known block
+	Tag               *tagging.Tag           `protobuf:"bytes,1,opt,name=tag,proto3" json:"tag,omitempty"`
+	LatestBlockNumber uint64                 `protobuf:"varint,2,opt,name=latest_block_number,json=latestBlockNumber,proto3" json:"latest_block_number,omitempty"` // Optional: server's latest known block
+	Phase             *phase.Phase           `protobuf:"bytes,3,opt,name=phase,proto3" json:"phase,omitempty"`
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -130,13 +129,6 @@ func (*PoTSResponse) Descriptor() ([]byte, []int) {
 	return file_pots_pots_proto_rawDescGZIP(), []int{1}
 }
 
-func (x *PoTSResponse) GetSuccess() bool {
-	if x != nil {
-		return x.Success
-	}
-	return false
-}
-
 func (x *PoTSResponse) GetTag() *tagging.Tag {
 	if x != nil {
 		return x.Tag
@@ -144,18 +136,18 @@ func (x *PoTSResponse) GetTag() *tagging.Tag {
 	return nil
 }
 
-func (x *PoTSResponse) GetErrorMessage() string {
-	if x != nil {
-		return x.ErrorMessage
-	}
-	return ""
-}
-
 func (x *PoTSResponse) GetLatestBlockNumber() uint64 {
 	if x != nil {
 		return x.LatestBlockNumber
 	}
 	return 0
+}
+
+func (x *PoTSResponse) GetPhase() *phase.Phase {
+	if x != nil {
+		return x.Phase
+	}
+	return nil
 }
 
 // Heartbeat is sent periodically by Node 1 during computation to keep the stream alive.
@@ -289,20 +281,18 @@ var File_pots_pots_proto protoreflect.FileDescriptor
 
 const file_pots_pots_proto_rawDesc = "" +
 	"\n" +
-	"\x0fpots/pots.proto\x12\x04pots\x1a\x1cavailability/auth/auth.proto\x1a\x11tagging/tag.proto\"\xcf\x01\n" +
+	"\x0fpots/pots.proto\x12\x04pots\x1a\x11tagging/tag.proto\x1a\x11phase/phase.proto\"\xd3\x01\n" +
 	"\vPoTSRequest\x125\n" +
 	"\x06blocks\x18\x01 \x03(\v2\x1d.pots.PoTSRequest.BlocksEntryR\x06blocks\x12.\n" +
-	"\x13latest_block_number\x18\x02 \x01(\x04R\x11latestBlockNumber\x12\x1e\n" +
-	"\x04auth\x18\x03 \x01(\v2\n" +
-	".auth.AuthR\x04auth\x1a9\n" +
+	"\x13latest_block_number\x18\x02 \x01(\x04R\x11latestBlockNumber\x12\"\n" +
+	"\x05phase\x18\x03 \x01(\v2\f.phase.PhaseR\x05phase\x1a9\n" +
 	"\vBlocksEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\x04R\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\fR\x05value:\x028\x01\"\x9d\x01\n" +
-	"\fPoTSResponse\x12\x18\n" +
-	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x1e\n" +
-	"\x03tag\x18\x02 \x01(\v2\f.tagging.TagR\x03tag\x12#\n" +
-	"\rerror_message\x18\x03 \x01(\tR\ferrorMessage\x12.\n" +
-	"\x13latest_block_number\x18\x04 \x01(\x04R\x11latestBlockNumber\"-\n" +
+	"\x05value\x18\x02 \x01(\fR\x05value:\x028\x01\"\x82\x01\n" +
+	"\fPoTSResponse\x12\x1e\n" +
+	"\x03tag\x18\x01 \x01(\v2\f.tagging.TagR\x03tag\x12.\n" +
+	"\x13latest_block_number\x18\x02 \x01(\x04R\x11latestBlockNumber\x12\"\n" +
+	"\x05phase\x18\x03 \x01(\v2\f.phase.PhaseR\x05phase\"-\n" +
 	"\rPoTSHeartbeat\x12\x1c\n" +
 	"\ttimestamp\x18\x01 \x01(\x03R\ttimestamp\"\x85\x01\n" +
 	"\x11PoTSStreamMessage\x120\n" +
@@ -329,20 +319,21 @@ var file_pots_pots_proto_goTypes = []any{
 	(*PoTSHeartbeat)(nil),     // 2: pots.PoTSHeartbeat
 	(*PoTSStreamMessage)(nil), // 3: pots.PoTSStreamMessage
 	nil,                       // 4: pots.PoTSRequest.BlocksEntry
-	(*auth.Auth)(nil),         // 5: auth.Auth
+	(*phase.Phase)(nil),       // 5: phase.Phase
 	(*tagging.Tag)(nil),       // 6: tagging.Tag
 }
 var file_pots_pots_proto_depIdxs = []int32{
 	4, // 0: pots.PoTSRequest.blocks:type_name -> pots.PoTSRequest.BlocksEntry
-	5, // 1: pots.PoTSRequest.auth:type_name -> auth.Auth
+	5, // 1: pots.PoTSRequest.phase:type_name -> phase.Phase
 	6, // 2: pots.PoTSResponse.tag:type_name -> tagging.Tag
-	1, // 3: pots.PoTSStreamMessage.response:type_name -> pots.PoTSResponse
-	2, // 4: pots.PoTSStreamMessage.heartbeat:type_name -> pots.PoTSHeartbeat
-	5, // [5:5] is the sub-list for method output_type
-	5, // [5:5] is the sub-list for method input_type
-	5, // [5:5] is the sub-list for extension type_name
-	5, // [5:5] is the sub-list for extension extendee
-	0, // [0:5] is the sub-list for field type_name
+	5, // 3: pots.PoTSResponse.phase:type_name -> phase.Phase
+	1, // 4: pots.PoTSStreamMessage.response:type_name -> pots.PoTSResponse
+	2, // 5: pots.PoTSStreamMessage.heartbeat:type_name -> pots.PoTSHeartbeat
+	6, // [6:6] is the sub-list for method output_type
+	6, // [6:6] is the sub-list for method input_type
+	6, // [6:6] is the sub-list for extension type_name
+	6, // [6:6] is the sub-list for extension extendee
+	0, // [0:6] is the sub-list for field type_name
 }
 
 func init() { file_pots_pots_proto_init() }
