@@ -28,6 +28,7 @@ import (
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/communication"
 	merkle "github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/merkle"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/router/helper"
+	potshelper "github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/router/helper/pots"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/tagging"
 	merkle_types "github.com/JupiterMetaLabs/JMDN-FastSync/helper/merkle"
 	Log "github.com/JupiterMetaLabs/JMDN-FastSync/logging"
@@ -482,9 +483,9 @@ func (router *Datarouter) HandleAvailability(ctx context.Context, req *availabil
 
 func (router *Datarouter) HandlePoTSync(ctx context.Context, req *potspb.PoTSRequest, remote *types.Nodeinfo) *potspb.PoTSResponse {
 	template := &potspb.PoTSResponse{
-		Success: false,
-		Tag: nil,
-		ErrorMessage: "",
+		Success:           false,
+		Tag:               nil,
+		ErrorMessage:      "",
 		LatestBlockNumber: math.MaxUint64,
 	}
 
@@ -506,8 +507,36 @@ func (router *Datarouter) HandlePoTSync(ctx context.Context, req *potspb.PoTSReq
 			Log.Logger(namedlogger).Error(ctx, "Failed to reset TTL", resetErr)
 		}
 	}()
-	// TODO: Implement PoTS sync logic
-	return nil
+
+	// Log the PoTS request
+	Log.Logger(namedlogger).Info(ctx, "Processing PoTS request",
+		ion.String("remote_peer", remote.PeerID.String()),
+		ion.Uint64("client_latest_block", req.LatestBlockNumber),
+		ion.Int("client_blocks_count", len(req.Blocks)))
+
+	// Process PoTS request using the helper
+	helper := potshelper.NewPoTSHelper(router.Nodeinfo)
+	response, err := helper.ProcessPoTSRequest(req)
+	if err != nil {
+		Log.Logger(namedlogger).Error(ctx, "Failed to process PoTS request", err)
+		return &potspb.PoTSResponse{
+			Success:           false,
+			ErrorMessage:      fmt.Sprintf("failed to process PoTS request: %v", err),
+			LatestBlockNumber: router.Nodeinfo.BlockInfo.GetBlockNumber(),
+		}
+	}
+
+	// Log successful response
+	tagInfo := ""
+	if response.Tag != nil {
+		tagInfo = fmt.Sprintf("ranges=%d, blocks=%d", len(response.Tag.Range), len(response.Tag.BlockNumber))
+	}
+	Log.Logger(namedlogger).Info(ctx, "PoTS request processed successfully",
+		ion.String("remote_peer", remote.PeerID.String()),
+		ion.Uint64("server_latest_block", response.LatestBlockNumber),
+		ion.String("tags", tagInfo))
+
+	return response
 }
 
 func (router *Datarouter) SYNC_REQUEST_V2(ctx context.Context, req *priorsyncpb.PriorSync) *priorsyncpb.PriorSyncMessage {

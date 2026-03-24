@@ -31,6 +31,9 @@ const (
 
 	AVAILABILITY_REQUEST = "state:availability:availabilityrequest"
 	AVAILABILITY_RESPONSE = "state:availability:availabilityresponse"
+
+	PoTS_REQUEST = "state:pots:potsrequest"
+	PoTS_RESPONSE = "state:pots:potsresponse"
 )
 
 const (

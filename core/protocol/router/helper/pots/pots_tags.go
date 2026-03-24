@@ -77,6 +77,15 @@ func (ph *PoTSHelper) ProcessPoTSRequest(request *potspb.PoTSRequest) (*potspb.P
 			Build(), fmt.Errorf("failed to query headers: %w", err)
 	}
 
+	// Safety check: ensure we got headers when we expected them
+	if len(headers) == 0 {
+		return NewPoTSResponseBuilder().
+			AddStatus(false).
+			AddErrorMessage(fmt.Sprintf("no headers found in range %d-%d", clientLatestBlock+1, serverLatestBlock)).
+			AddLatestBlockNumber(serverLatestBlock).
+			Build(), fmt.Errorf("no headers returned for range %d-%d", clientLatestBlock+1, serverLatestBlock)
+	}
+
 	// 3. Generate hashmap of block_number -> block_hash from server's DB
 	// Time complexity: O(N)
 	serverMap := make(map[uint64][]byte, len(headers))
