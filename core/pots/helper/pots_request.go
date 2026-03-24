@@ -25,8 +25,8 @@ func (p *potsrequest_builder) AddBlock(blockNumber uint64, blockHash []byte) *po
 	return p
 }
 
-func (p *potsrequest_builder) AddTime(timestamp uint64) *potsrequest_builder {
-	p.PoTSRequest.PotsTimestamp = timestamp
+func (p *potsrequest_builder) AddLatestBlock(blocknumber uint64) *potsrequest_builder {
+	p.PoTSRequest.LatestBlockNumber = blocknumber
 	return p
 }
 

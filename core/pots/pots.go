@@ -92,7 +92,7 @@ func (p *PoTS) SendPoTSRequest(ctx context.Context, PoTSRequest *potspb.PoTSRequ
 
 	Log.Logger(namedlogger).Debug(ctx, "Sending PoTS request",
 		ion.String("peer", remote.PeerID.String()),
-		ion.Uint64("pots_timestamp", PoTSRequest.PotsTimestamp),
+		ion.Uint64("latest_block_number", PoTSRequest.LatestBlockNumber),
 		ion.Int("blocks_count", len(PoTSRequest.Blocks)))
 
 	// Send the PoTS request using the communicator
