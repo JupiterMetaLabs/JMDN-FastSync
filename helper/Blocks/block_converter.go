@@ -82,3 +82,70 @@ func bytesToBigInt(b []byte) *big.Int {
 	}
 	return new(big.Int).SetBytes(b)
 }
+
+// bigIntToBytes converts a *big.Int to a big-endian byte slice.
+// Returns nil for nil values (proto zero value).
+func bigIntToBytes(n *big.Int) []byte {
+	if n == nil {
+		return nil
+	}
+	return n.Bytes()
+}
+
+// ZKBlockToProto converts a types.ZKBlock to a proto block.ZKBlock.
+func ZKBlockToProto(b *types.ZKBlock) *blockpb.ZKBlock {
+	pb := &blockpb.ZKBlock{
+		StarkProof:  b.StarkProof,
+		Commitment:  b.Commitment,
+		ProofHash:   b.ProofHash,
+		Status:      b.Status,
+		TxnsRoot:    b.TxnsRoot,
+		Timestamp:   b.Timestamp,
+		ExtraData:   b.ExtraData,
+		StateRoot:   b.StateRoot.Bytes(),
+		LogsBloom:   b.LogsBloom,
+		PrevHash:    b.PrevHash.Bytes(),
+		BlockHash:   b.BlockHash.Bytes(),
+		GasLimit:    b.GasLimit,
+		GasUsed:     b.GasUsed,
+		BlockNumber: b.BlockNumber,
+	}
+	if b.CoinbaseAddr != nil {
+		pb.CoinbaseAddr = b.CoinbaseAddr.Bytes()
+	}
+	if b.ZKVMAddr != nil {
+		pb.ZkvmAddr = b.ZKVMAddr.Bytes()
+	}
+	pb.Transactions = make([]*blockpb.Transaction, len(b.Transactions))
+	for i, tx := range b.Transactions {
+		pb.Transactions[i] = transactionToProto(tx)
+	}
+	return pb
+}
+
+// transactionToProto converts a types.Transaction to a proto block.Transaction.
+func transactionToProto(tx types.Transaction) *blockpb.Transaction {
+	t := &blockpb.Transaction{
+		Hash:           tx.Hash.Bytes(),
+		Type:           uint32(tx.Type),
+		Timestamp:      tx.Timestamp,
+		Nonce:          tx.Nonce,
+		GasLimit:       tx.GasLimit,
+		Data:           tx.Data,
+		Value:          bigIntToBytes(tx.Value),
+		ChainId:        bigIntToBytes(tx.ChainID),
+		GasPrice:       bigIntToBytes(tx.GasPrice),
+		MaxFee:         bigIntToBytes(tx.MaxFee),
+		MaxPriorityFee: bigIntToBytes(tx.MaxPriorityFee),
+		V:              bigIntToBytes(tx.V),
+		R:              bigIntToBytes(tx.R),
+		S:              bigIntToBytes(tx.S),
+	}
+	if tx.From != nil {
+		t.From = tx.From.Bytes()
+	}
+	if tx.To != nil {
+		t.To = tx.To.Bytes()
+	}
+	return t
+}
