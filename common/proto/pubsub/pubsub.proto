@@ -1,0 +1,32 @@
+syntax = "proto3";
+
+package pubsub;
+
+import "block/block.proto";
+
+option go_package = "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/pubsub";
+
+// SubscribeRequest is sent by the client when opening the stream.
+message SubscribeRequest {
+  string peer_id = 1;
+}
+
+// SubscribeResponse is sent by the server to accept or reject the subscription.
+message SubscribeResponse {
+  bool   accepted = 1;
+  string error    = 2;
+}
+
+// PubSubDone signals the client that the server has stopped publishing.
+message PubSubDone {
+  string reason = 1;
+}
+
+// BlockPubSubMessage is the streaming envelope pushed from server to client.
+// Exactly one of the oneof fields will be set per message.
+message BlockPubSubMessage {
+  oneof payload {
+    block.ZKBlock block = 1;
+    PubSubDone    done  = 2;
+  }
+}
