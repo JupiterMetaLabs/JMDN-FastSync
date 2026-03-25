@@ -16,6 +16,8 @@ import (
 	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/priorsync"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/constants"
+	pubsubpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/pubsub"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/core/availability"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/communication"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/router"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/pbstream"
@@ -23,12 +25,15 @@ import (
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/multiformats/go-multiaddr"
+
+	"github.com/JupiterMetaLabs/JMDN-FastSync/core/pubsub/publisher"
 )
 
 type Sync struct {
 	debug      bool
 	nodeinfo   *types.Nodeinfo
 	Datarouter *router.Datarouter
+	pubsub     publisher.Publisher_router
 }
 
 type sync_interface interface {
@@ -38,6 +43,7 @@ type sync_interface interface {
 	HandleHeaderSync(ctx context.Context, node host.Host) error
 	HandleDataSync(ctx context.Context, node host.Host) error
 	HandlePoTSSync(ctx context.Context, node host.Host) error
+	HandlePubsub(ctx context.Context, node host.Host) error
 	Debug(ctx context.Context, protocol protocol.ID, node host.Host, remote *types.Nodeinfo)
 }
 
@@ -424,6 +430,62 @@ func (s *Sync) HandlePoTSSync(ctx context.Context, node host.Host) error {
 				ion.Err(err))
 		}
 		mu.Unlock()
+	})
+	return nil
+}
+
+func (s *Sync) HandlePubsub(ctx context.Context, node host.Host) error {
+	if s.pubsub == nil {
+		s.pubsub = publisher.NewPublisher().SetPublisher(ctx, node).StartPublisher()
+	}
+	node.SetStreamHandler(constants.BlocksPUBSUB, func(str network.Stream) {
+		// refuse work if shutting down
+		select {
+		case <-ctx.Done():
+			str.Reset()
+			return
+		default:
+		}
+
+		_ = str.SetReadDeadline(time.Now().Add(10 * time.Second))
+		defer str.SetReadDeadline(time.Time{})
+
+		req := &pubsubpb.SubscribeRequest{}
+		if err := pbstream.ReadDelimited(str, req); err != nil {
+			str.Reset()
+			return
+		}
+
+		remoteNodeInfo := &types.Nodeinfo{
+			PeerID:    str.Conn().RemotePeer(),
+			Multiaddr: []multiaddr.Multiaddr{str.Conn().RemoteMultiaddr()},
+		}
+
+		s.Debug(ctx, constants.BlocksPUBSUB, node, remoteNodeInfo)
+
+		// Check availability and build response.
+		// If accepted, hand the stream to the publisher — it keeps it open
+		// and pushes BlockPubSubMessage frames via Publish() later.
+		// If rejected, send the response and close the stream.
+		var resp *pubsubpb.SubscribeResponse
+		if !availability.FastsyncReady().AmIAvailable() {
+			resp = &pubsubpb.SubscribeResponse{
+				Accepted: false,
+				Error:    "fastsync not available",
+			}
+		} else {
+			s.pubsub.AddStream(str)
+			resp = &pubsubpb.SubscribeResponse{Accepted: true}
+		}
+
+		_ = str.SetWriteDeadline(time.Now().Add(10 * time.Second))
+		defer str.SetWriteDeadline(time.Time{})
+
+		_ = pbstream.WriteDelimited(str, resp)
+
+		if !resp.Accepted {
+			str.Close()
+		}
 	})
 	return nil
 }
