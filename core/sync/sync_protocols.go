@@ -14,9 +14,10 @@ import (
 	headerpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/headersync"
 	merklepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/merkle"
 	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/priorsync"
+	pubsubpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/pubsub"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/constants"
-	pubsubpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/pubsub"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/errors"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/availability"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/communication"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/router"
@@ -470,28 +471,28 @@ func (s *Sync) HandlePubsub(ctx context.Context, node host.Host) error {
 
 		s.Debug(ctx, constants.BlocksPUBSUB, node, remoteNodeInfo)
 
-		// Check availability and build response.
-		// If accepted, hand the stream to the publisher — it keeps it open
-		// and pushes BlockPubSubMessage frames via Publish() later.
-		// If rejected, send the response and close the stream.
-		var resp *pubsubpb.SubscribeResponse
-		if !availability.FastsyncReady().AmIAvailable() {
-			resp = &pubsubpb.SubscribeResponse{
-				Accepted: false,
-				Error:    "fastsync not available",
+		// Decide whether to accept the subscription.
+		// Each guard returns immediately on failure — no chained conditions.
+		accepted, rejectReason := func() (bool, string) {
+			if !availability.FastsyncReady().AmIAvailable() {
+				return false, errors.FastsyncNotAvailable.Error()
 			}
-		} else if ok, err := s.Datarouter.Authenticate(ctx, req.GetAuth(), remoteNodeInfo); err != nil || !ok {
-			errMsg := "unauthorized"
+			ok, err := s.Datarouter.Authenticate(ctx, req.GetAuth(), remoteNodeInfo)
 			if err != nil {
-				errMsg = err.Error()
+				return false, err.Error()
 			}
-			resp = &pubsubpb.SubscribeResponse{
-				Accepted: false,
-				Error:    errMsg,
+			if !ok {
+				return false, errors.AuthenticationFailed.Error()
 			}
-		} else {
+			return true, ""
+		}()
+
+		var resp *pubsubpb.SubscribeResponse
+		if accepted {
 			s.pubsub.AddStream(str)
 			resp = &pubsubpb.SubscribeResponse{Accepted: true}
+		} else {
+			resp = &pubsubpb.SubscribeResponse{Accepted: false, Error: rejectReason}
 		}
 
 		_ = str.SetWriteDeadline(time.Now().Add(10 * time.Second))
