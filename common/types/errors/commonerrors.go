@@ -11,4 +11,6 @@ var(
 	BlockInfoNil = errors.New("block info is nil")
 	AuthRequired = errors.New("authentication is required")
 	AuthenticationFailed = errors.New("authentication failed")
+	RateLimitExceeded = errors.New("status 429: rate limit exceeded: too many requests")
+	FastsyncNotAvailable = errors.New("fastsync not available")
 )

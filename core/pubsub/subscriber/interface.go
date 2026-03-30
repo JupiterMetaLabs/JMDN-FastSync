@@ -10,17 +10,18 @@ import (
 
 type SubscriberConfig struct {
 	isConnected bool
-	LocalNode host.Host
-	NodeInfo  types.Nodeinfo
+	LocalNode  host.Host
+	NodeInfo   types.Nodeinfo
 	RemoteNode host.Host
-	Topic     string
-	WAL       potsiface.PoTS_WAL
+	Topic      string
+	WAL        potsiface.PoTS_WAL
+	UUID       string // auth token obtained from HandleAvailability
 }
 
 // Subscriber_router is the client-side pubsub interface.
 type Subscriber_router interface {
-	// Set Subscriber 
-	SetSubscriber(ctx context.Context, localNode host.Host, NodeInfo types.Nodeinfo, remotenode host.Host, topic string, WAL potsiface.PoTS_WAL)
+	// Set Subscriber
+	SetSubscriber(ctx context.Context, localNode host.Host, NodeInfo types.Nodeinfo, remotenode host.Host, topic string, WAL potsiface.PoTS_WAL, uuid string)
 
 	// Subscribe opens a stream to the server, receives live blocks for the
 	// duration of fastsync, and writes each block to the PoTS WAL.

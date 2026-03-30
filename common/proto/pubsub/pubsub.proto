@@ -3,12 +3,14 @@ syntax = "proto3";
 package pubsub;
 
 import "block/block.proto";
+import "availability/auth/auth.proto";
 
 option go_package = "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/pubsub";
 
 // SubscribeRequest is sent by the client when opening the stream.
 message SubscribeRequest {
-  string peer_id = 1;
+  string    peer_id = 1;
+  auth.Auth auth    = 2;
 }
 
 // SubscribeResponse is sent by the server to accept or reject the subscription.

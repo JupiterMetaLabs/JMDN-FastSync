@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	authpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/availability/auth"
 	pubsubpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/pubsub"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
 	potsiface "github.com/JupiterMetaLabs/JMDN-FastSync/core/pots"
@@ -36,6 +37,8 @@ func NewSubscriber() *Subscriber {
 
 // SetSubscriber stores the configuration needed for Subscribe.
 // topic should be the protocol ID string (e.g. constants.BlocksPUBSUB).
+// uuid is the auth token obtained from HandleAvailability and is required
+// for the server to accept the subscription.
 func (s *Subscriber) SetSubscriber(
 	ctx context.Context,
 	localNode host.Host,
@@ -43,6 +46,7 @@ func (s *Subscriber) SetSubscriber(
 	remoteNode host.Host,
 	topic string,
 	wal potsiface.PoTS_WAL,
+	uuid string,
 ) {
 	s.config = SubscriberConfig{
 		LocalNode:  localNode,
@@ -50,6 +54,7 @@ func (s *Subscriber) SetSubscriber(
 		RemoteNode: remoteNode,
 		Topic:      topic,
 		WAL:        wal,
+		UUID:       uuid,
 	}
 }
 
@@ -82,7 +87,10 @@ func (s *Subscriber) Subscribe(ctx context.Context) error {
 
 	// ── Handshake ────────────────────────────────────────────────────────
 	_ = str.SetWriteDeadline(time.Now().Add(10 * time.Second))
-	req := &pubsubpb.SubscribeRequest{PeerId: s.config.NodeInfo.PeerID.String()}
+	req := &pubsubpb.SubscribeRequest{
+		PeerId: s.config.NodeInfo.PeerID.String(),
+		Auth:   &authpb.Auth{UUID: s.config.UUID},
+	}
 	if err := pbstream.WriteDelimited(str, req); err != nil {
 		str.Reset()
 		cancel()

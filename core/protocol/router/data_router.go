@@ -6,7 +6,10 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math"
+	"sync"
 	"time"
+
+	"golang.org/x/time/rate"
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/checksum/checksum_priorsync"
 	potspb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/pots"
@@ -43,9 +46,10 @@ const (
 )
 
 type Datarouter struct {
-	Nodeinfo            *types.Nodeinfo
-	Comm                communication.Communicator
-	clientGeneratedUUID string
+	Nodeinfo             *types.Nodeinfo
+	Comm                 communication.Communicator
+	clientGeneratedUUID  string
+	availabilityLimiters sync.Map // libp2p_peer.ID -> *rate.Limiter
 }
 
 func NewDatarouter(nodeinfo *types.Nodeinfo, comm communication.Communicator) *Datarouter {
@@ -54,6 +58,13 @@ func NewDatarouter(nodeinfo *types.Nodeinfo, comm communication.Communicator) *D
 		Comm:                comm,
 		clientGeneratedUUID: "",
 	}
+}
+
+// getAvailabilityLimiter returns the per-peer rate limiter for HandleAvailability,
+// creating one on first call. Allows burst of 3 then 2 request per minute per peer.
+func (router *Datarouter) getAvailabilityLimiter(peerID libp2p_peer.ID) *rate.Limiter {
+	v, _ := router.availabilityLimiters.LoadOrStore(peerID, rate.NewLimiter(rate.Every(30*time.Second), 3))
+	return v.(*rate.Limiter)
 }
 
 func (router *Datarouter) HandlePriorSync(ctx context.Context, req *priorsyncpb.PriorSyncMessage, remote *types.Nodeinfo) *priorsyncpb.PriorSyncMessage {
@@ -425,6 +436,11 @@ func (router *Datarouter) HandleAvailability(ctx context.Context, req *availabil
 			Error:           "",
 			Success:         false,
 		},
+	}
+
+	if !router.getAvailabilityLimiter(remote.PeerID).Allow() {
+		template.Phase.Error = errors.RateLimitExceeded.Error()
+		return template
 	}
 
 	if req.Range == nil {

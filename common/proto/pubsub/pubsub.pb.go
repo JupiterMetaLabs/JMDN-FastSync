@@ -7,6 +7,7 @@
 package pubsub
 
 import (
+	auth "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/availability/auth"
 	block "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/block"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
@@ -26,6 +27,7 @@ const (
 type SubscribeRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	PeerId        string                 `protobuf:"bytes,1,opt,name=peer_id,json=peerId,proto3" json:"peer_id,omitempty"`
+	Auth          *auth.Auth             `protobuf:"bytes,2,opt,name=auth,proto3" json:"auth,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -65,6 +67,13 @@ func (x *SubscribeRequest) GetPeerId() string {
 		return x.PeerId
 	}
 	return ""
+}
+
+func (x *SubscribeRequest) GetAuth() *auth.Auth {
+	if x != nil {
+		return x.Auth
+	}
+	return nil
 }
 
 // SubscribeResponse is sent by the server to accept or reject the subscription.
@@ -253,9 +262,11 @@ var File_pubsub_pubsub_proto protoreflect.FileDescriptor
 
 const file_pubsub_pubsub_proto_rawDesc = "" +
 	"\n" +
-	"\x13pubsub/pubsub.proto\x12\x06pubsub\x1a\x11block/block.proto\"+\n" +
+	"\x13pubsub/pubsub.proto\x12\x06pubsub\x1a\x11block/block.proto\x1a\x1cavailability/auth/auth.proto\"K\n" +
 	"\x10SubscribeRequest\x12\x17\n" +
-	"\apeer_id\x18\x01 \x01(\tR\x06peerId\"E\n" +
+	"\apeer_id\x18\x01 \x01(\tR\x06peerId\x12\x1e\n" +
+	"\x04auth\x18\x02 \x01(\v2\n" +
+	".auth.AuthR\x04auth\"E\n" +
 	"\x11SubscribeResponse\x12\x1a\n" +
 	"\baccepted\x18\x01 \x01(\bR\baccepted\x12\x14\n" +
 	"\x05error\x18\x02 \x01(\tR\x05error\"$\n" +
@@ -285,16 +296,18 @@ var file_pubsub_pubsub_proto_goTypes = []any{
 	(*SubscribeResponse)(nil),  // 1: pubsub.SubscribeResponse
 	(*PubSubDone)(nil),         // 2: pubsub.PubSubDone
 	(*BlockPubSubMessage)(nil), // 3: pubsub.BlockPubSubMessage
-	(*block.ZKBlock)(nil),      // 4: block.ZKBlock
+	(*auth.Auth)(nil),          // 4: auth.Auth
+	(*block.ZKBlock)(nil),      // 5: block.ZKBlock
 }
 var file_pubsub_pubsub_proto_depIdxs = []int32{
-	4, // 0: pubsub.BlockPubSubMessage.block:type_name -> block.ZKBlock
-	2, // 1: pubsub.BlockPubSubMessage.done:type_name -> pubsub.PubSubDone
-	2, // [2:2] is the sub-list for method output_type
-	2, // [2:2] is the sub-list for method input_type
-	2, // [2:2] is the sub-list for extension type_name
-	2, // [2:2] is the sub-list for extension extendee
-	0, // [0:2] is the sub-list for field type_name
+	4, // 0: pubsub.SubscribeRequest.auth:type_name -> auth.Auth
+	5, // 1: pubsub.BlockPubSubMessage.block:type_name -> block.ZKBlock
+	2, // 2: pubsub.BlockPubSubMessage.done:type_name -> pubsub.PubSubDone
+	3, // [3:3] is the sub-list for method output_type
+	3, // [3:3] is the sub-list for method input_type
+	3, // [3:3] is the sub-list for extension type_name
+	3, // [3:3] is the sub-list for extension extendee
+	0, // [0:3] is the sub-list for field type_name
 }
 
 func init() { file_pubsub_pubsub_proto_init() }
