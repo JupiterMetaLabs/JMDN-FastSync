@@ -236,18 +236,19 @@ func (ps *PriorSync) PriorSync(local_start, local_end, remote_start, remote_end 
 func (ps *PriorSync) Close() {
 	ps.mu.Lock()
 	cancel := ps.cancel
+	node := ps.SyncVars.Node
 	ps.mu.Unlock()
 
 	if cancel != nil {
 		cancel() // stops the HandlePriorSync wait + makes handler exit quickly
 	}
-	if ps.SyncVars.Node != nil {
-		ps.SyncVars.Node.RemoveStreamHandler(constants.PriorSyncProtocol)
-		ps.SyncVars.Node.RemoveStreamHandler(constants.MerkleProtocol)
-		ps.SyncVars.Node.RemoveStreamHandler(constants.HeaderSyncProtocol)
-		ps.SyncVars.Node.RemoveStreamHandler(constants.DataSyncProtocol)
-		ps.SyncVars.Node.RemoveStreamHandler(constants.AvailabilityProtocol)
-		ps.SyncVars.Node.RemoveStreamHandler(constants.PoTSProtocol)
-		ps.SyncVars.Node.RemoveStreamHandler(constants.BlocksPUBSUB)
+	if node != nil {
+		node.RemoveStreamHandler(constants.PriorSyncProtocol)
+		node.RemoveStreamHandler(constants.MerkleProtocol)
+		node.RemoveStreamHandler(constants.HeaderSyncProtocol)
+		node.RemoveStreamHandler(constants.DataSyncProtocol)
+		node.RemoveStreamHandler(constants.AvailabilityProtocol)
+		node.RemoveStreamHandler(constants.PoTSProtocol)
+		node.RemoveStreamHandler(constants.BlocksPUBSUB)
 	}
 }
