@@ -78,6 +78,7 @@ func (s *Sync) HandleAvailability(ctx context.Context, node host.Host) error {
 		remoteNodeInfo := &types.Nodeinfo{
 			PeerID:    str.Conn().RemotePeer(),
 			Multiaddr: []multiaddr.Multiaddr{str.Conn().RemoteMultiaddr()},
+			Version:   s.nodeinfo.Version,
 		}
 
 		// Route to Datarouter
@@ -117,6 +118,7 @@ func (s *Sync) HandlePriorSync(ctx context.Context, node host.Host) error {
 		remoteNodeInfo := &types.Nodeinfo{
 			PeerID:    str.Conn().RemotePeer(),
 			Multiaddr: []multiaddr.Multiaddr{str.Conn().RemoteMultiaddr()},
+			Version:   s.nodeinfo.Version,
 		}
 
 		// ── 2. Start heartbeat goroutine ──────────────────────────────────
@@ -207,6 +209,7 @@ func (s *Sync) HandleMerkle(ctx context.Context, node host.Host) error {
 		remoteNodeInfo := &types.Nodeinfo{
 			PeerID:    str.Conn().RemotePeer(),
 			Multiaddr: []multiaddr.Multiaddr{str.Conn().RemoteMultiaddr()},
+			Version:   s.nodeinfo.Version,
 		}
 
 		// Route to Datarouter
@@ -245,6 +248,7 @@ func (s *Sync) HandleHeaderSync(ctx context.Context, node host.Host) error {
 		remoteNodeInfo := &types.Nodeinfo{
 			PeerID:    str.Conn().RemotePeer(),
 			Multiaddr: []multiaddr.Multiaddr{str.Conn().RemoteMultiaddr()},
+			Version:   s.nodeinfo.Version,
 		}
 
 		// Route to Datarouter
@@ -283,6 +287,7 @@ func (s *Sync) HandleDataSync(ctx context.Context, node host.Host) error {
 		remoteNodeInfo = &types.Nodeinfo{
 			PeerID:    str.Conn().RemotePeer(),
 			Multiaddr: []multiaddr.Multiaddr{str.Conn().RemoteMultiaddr()},
+			Version:   s.nodeinfo.Version,
 		}
 
 		// ── Start heartbeat goroutine ──────────────────────────────────
@@ -370,6 +375,7 @@ func (s *Sync) HandlePoTSSync(ctx context.Context, node host.Host) error {
 		remoteNodeInfo = &types.Nodeinfo{
 			PeerID:    str.Conn().RemotePeer(),
 			Multiaddr: []multiaddr.Multiaddr{str.Conn().RemoteMultiaddr()},
+			Version:   s.nodeinfo.Version,
 		}
 
 		// ── Start heartbeat goroutine ──────────────────────────────────
@@ -459,6 +465,7 @@ func (s *Sync) HandlePubsub(ctx context.Context, node host.Host) error {
 		remoteNodeInfo := &types.Nodeinfo{
 			PeerID:    str.Conn().RemotePeer(),
 			Multiaddr: []multiaddr.Multiaddr{str.Conn().RemoteMultiaddr()},
+			Version:   s.nodeinfo.Version,
 		}
 
 		s.Debug(ctx, constants.BlocksPUBSUB, node, remoteNodeInfo)
