@@ -480,6 +480,15 @@ func (s *Sync) HandlePubsub(ctx context.Context, node host.Host) error {
 				Accepted: false,
 				Error:    "fastsync not available",
 			}
+		} else if ok, err := s.Datarouter.Authenticate(ctx, req.GetAuth(), remoteNodeInfo); err != nil || !ok {
+			errMsg := "unauthorized"
+			if err != nil {
+				errMsg = err.Error()
+			}
+			resp = &pubsubpb.SubscribeResponse{
+				Accepted: false,
+				Error:    errMsg,
+			}
 		} else {
 			s.pubsub.AddStream(str)
 			resp = &pubsubpb.SubscribeResponse{Accepted: true}
