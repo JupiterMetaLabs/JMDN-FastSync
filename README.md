@@ -11,13 +11,15 @@ A peer-to-peer block synchronization protocol built on **libp2p** for the Jupite
   - [Phase 1 — PriorSync](#phase-1--priorsync)
   - [Phase 2 — HeaderSync](#phase-2--headersync)
   - [Phase 3 — DataSync](#phase-3--datasync)
-  - [Phase 4 — SyncConfirmation](#phase-4--syncconfirmation)
+  - [Phase 4 — PoTS](#phase-4--pots-point-of-time-sync)
+  - [SyncConfirmation](#syncconfirmation-part-of-headersync)
 - [Protocols](#protocols)
 - [Key Components](#key-components)
   - [Communication Layer](#communication-layer)
   - [Data Router](#data-router)
   - [Merkle Tree Comparison](#merkle-tree-comparison)
   - [Write-Ahead Log (WAL)](#write-ahead-log-wal)
+  - [Pubsub (Block Streaming)](#pubsub-block-streaming)
   - [Checksum Verification](#checksum-verification)
 - [Types & Interfaces](#types--interfaces)
 - [Usage](#usage)
@@ -148,7 +150,45 @@ if resp.Headersync != nil && resp.Headersync.Tag != nil {
 
 ---
 
-### Phase 4 — SyncConfirmation
+### Phase 4 — PoTS (Point-of-Time-Sync)
+
+**Purpose**: Buffer new blocks produced by the network during phases 1–3, then hydrate them into the local database so the node can join live consensus without gaps.
+
+**State constants**: `POTS_REQUEST` → `POTS_RESPONSE`
+
+**How it works**:
+
+1. `SetSyncVars` captures `SyncStartTime` at the exact moment FastSync begins — this timestamp is later sent to the remote to identify which blocks were produced after sync started.
+2. The **Subscriber** opens a pubsub stream to the publisher node, performs a handshake, and enters a read loop that writes every received `ZKBlock` directly to the **PoTS WAL** (a separate WAL instance under `<base>/pots`).
+3. An in-memory `blockIndex` (`blockNumber → LSN`) is maintained in the `PoTSWAL` for O(1) deduplication — no WAL scan needed during Phase 2 filtering.
+4. After phases 1–3 complete, `SendPoTSRequest` sends the `SyncStartTime` and locally-known block list to the remote, which responds with any blocks the requester is still missing.
+5. Missing blocks are written via `WriteBatch` (single `Flush` per batch), then drained to the database and reconciled.
+
+```go
+// Initialise at FastSync T=0
+pots := pots.NewPoTS()
+pots.SetSyncVars(ctx, protocolVersion, nodeinfo, host)
+pots.SetWAL(ctx, wal)
+
+// Start subscriber to buffer live blocks
+subscriber := subscriber.NewSubscriber()
+subscriber.SetSubscriber(ctx, localNode, nodeInfo, remoteNode, constants.BlocksPUBSUB, potsWAL)
+go subscriber.Subscribe(ctx)
+
+// After phases 1–3: request any remaining missing blocks
+resp, err := pots.SendPoTSRequest(ctx, req, remote)
+```
+
+**PoTS WAL features**:
+- Separate WAL directory (`<base>/pots`) isolated from the main FastSync WAL
+- In-memory `blockIndex` rebuilt from WAL on startup (crash recovery)
+- `HasBlock(blockNumber)` for O(1) dedup during hydration
+- `Read(offset, limit)` for paginated drain to DB
+- `ReadByRange(start, end)` for block-number-targeted access
+
+---
+
+### SyncConfirmation (part of HeaderSync)
 
 **Purpose**: Verify that HeaderSync has converged — both nodes should now have identical Merkle trees.
 
@@ -174,12 +214,14 @@ if inSync {
 
 All protocols are registered as libp2p stream handlers under the `/priorsync/v1` namespace:
 
-| Protocol ID                | Purpose                              | Handler            |
-| -------------------------- | ------------------------------------ | ------------------ |
-| `/priorsync/v1`            | PriorSync request/response           | `HandlePriorSync`  |
-| `/priorsync/v1/merkle`     | Merkle sub-tree requests (bisection) | `HandleMerkle`     |
-| `/priorsync/v1/headersync` | Header batch requests                | `HandleHeaderSync` |
-| `/priorsync/v1/datasync`   | Full block data requests             | `HandleDataSync`   |
+| Protocol ID                        | Purpose                              | Handler              |
+| ---------------------------------- | ------------------------------------ | -------------------- |
+| `/priorsync/v1`                    | PriorSync request/response           | `HandlePriorSync`    |
+| `/priorsync/v1/merkle`             | Merkle sub-tree requests (bisection) | `HandleMerkle`       |
+| `/priorsync/v1/headersync`         | Header batch requests                | `HandleHeaderSync`   |
+| `/priorsync/v1/datasync`           | Full block data requests             | `HandleDataSync`     |
+| `/priorsync/v1/pots`               | PoTS tag + missing block requests    | `HandlePoTS`         |
+| `/fastsync/v1/pubsub/blocks`       | Live block streaming (pubsub)        | Publisher/Subscriber |
 
 ---
 
@@ -240,6 +282,48 @@ Event-sourced WAL backed by [`tidwall/wal`](https://github.com/tidwall/wal) for 
 | `ReplayEvents()`              | Recovers uncommitted events after crash |
 
 Events are typed via the `EventAdapter` interface (`HeaderSyncEvent`, `PriorSyncEvent`, `MerkleSyncEvent`).
+
+### Pubsub (Block Streaming)
+
+**Package**: `core/pubsub`
+
+A lightweight 1:N live block streaming layer used during PoTS to buffer blocks produced while FastSync phases 1–3 are running. It operates on its own protocol (`/fastsync/v1/pubsub/blocks`) and is separate from the main sync protocols.
+
+**Publisher** (`core/pubsub/publisher`):
+
+| Method           | Description                                                              |
+| ---------------- | ------------------------------------------------------------------------ |
+| `SetPublisher()` | Initialise with context and libp2p host                                  |
+| `StartPublisher()` | Start background goroutine watching fastsync availability              |
+| `AddStream()`    | Hand an accepted subscriber stream to the publisher                     |
+| `Publish()`      | Push a `ZKBlock` to all connected subscribers (fire-and-forget, no ACK) |
+| `Close()`        | Send `PubSubDone` to all streams and release resources                  |
+
+The publisher watches `availability.FastsyncReady()` every 100 ms. When FastSync is no longer available, it sends a `PubSubDone` message to all subscribers and closes their streams. Failed writes silently drop the stream — missed blocks are recovered via PoTS.
+
+**Subscriber** (`core/pubsub/subscriber`):
+
+| Method              | Description                                                            |
+| ------------------- | ---------------------------------------------------------------------- |
+| `SetSubscriber()`   | Configure with local/remote node, topic, and PoTS WAL handle          |
+| `Subscribe()`       | Connect, handshake, then enter read loop writing blocks to PoTS WAL   |
+| `EndSubscription()` | Cancel context and close the stream                                    |
+
+The subscriber opens a stream, sends a `SubscribeRequest{PeerId}`, waits for `SubscribeResponse{Accepted: true}`, then reads `BlockPubSubMessage` envelopes. Each received block is written immediately to the **PoTS WAL** via `wal.Write()`. On `PubSubDone`, `Subscribe` returns `nil` (clean termination).
+
+**Message flow**:
+
+```
+Publisher (server)                          Subscriber (client)
+     │                                              │
+     │←── SubscribeRequest{peer_id} ───────────────│
+     │─── SubscribeResponse{accepted: true} ───────→│
+     │─── BlockPubSubMessage{block: ZKBlock} ──────→│  WAL.Write(block)
+     │─── BlockPubSubMessage{block: ZKBlock} ──────→│  WAL.Write(block)
+     │─── BlockPubSubMessage{done: PubSubDone} ────→│  return nil
+```
+
+---
 
 ### Checksum Verification
 
@@ -362,4 +446,39 @@ See [`JMDN-Fastsync-Testsuite/Sync/sync.go`](https://github.com/JupiterMetaLabs/
 5. Confirms sync convergence via Merkle tree comparison
 
 ---
+
+## Project Structure
+
+```
+JMDN-FastSync/
+├── core/
+│   ├── priorsync/          # Phase 1: PriorSync router + SetupNetworkHandlers
+│   ├── headersync/         # Phase 2: Concurrent header fetching + SyncConfirmation
+│   ├── datasync/           # Phase 3: Full block data sync (in progress)
+│   ├── pots/               # Phase 4: PoTS state machine, PoTS WAL, request helpers
+│   ├── pubsub/
+│   │   ├── publisher/      # 1:N live block push over /fastsync/v1/pubsub/blocks
+│   │   └── subscriber/     # Block receive loop → PoTS WAL writer
+│   ├── availability/       # Global fastsync availability flag
+│   ├── reconsillation/     # Account balance reconciliation (with LRU cache)
+│   └── protocol/
+│       ├── router/         # Server-side dispatcher (DataRouter) + bisection algorithm
+│       ├── communication/  # Client-side libp2p sends, heartbeat-aware reads
+│       ├── merkle/         # MMR Merkle tree building and comparison
+│       └── tagging/        # Block range encoding (Tag / RangeTag)
+│
+├── common/
+│   ├── proto/              # 14 Protocol Buffer definitions (priorsync, headersync, block, pots, pubsub, …)
+│   ├── types/              # Core Go types: ZKBlock, Header, Nodeinfo, BlockInfo interface, constants
+│   ├── WAL/                # Write-Ahead Log: event adapters, write/replay/flush operations
+│   ├── messaging/          # Length-delimited protobuf framing for libp2p streams
+│   └── checksum/           # Two-version checksum for PriorSync payload integrity
+│
+├── logging/                # Async structured logging (Zap + Loki), builder pattern
+├── helper/                 # Block conversion helpers, Merkle tree utilities
+├── internal/               # Legacy pbstream framing (used by pubsub)
+├── tests/                  # Test suites and interactive CLI demo
+├── docs/                   # WAL.md, POTS.md architecture documentation
+└── cli.go                  # Interactive two-node CLI entry point
+```
 
