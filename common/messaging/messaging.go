@@ -11,6 +11,8 @@ import (
 	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/priorsync"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/constants"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/pbstream"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/logging"
+	"github.com/JupiterMetaLabs/ion"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
@@ -209,7 +211,8 @@ func SendProtoDelimited(
 
 	// V2: If primary (QUIC) failed and we have TCP fallback, try it
 	if connectErr != nil && version >= 2 && fallbackAddr != nil {
-		fmt.Printf("Primary transport failed (err=%v), attempting TCP fallback...\n", connectErr)
+		logging.Logger(logging.Transport).Warn(ctx, "primary transport failed, attempting TCP fallback",
+			ion.Err(connectErr))
 		targetPeer.Addrs = []multiaddr.Multiaddr{fallbackAddr}
 		// Reset timeout for fallback attempt
 		fallbackCtx, fallbackCancel := context.WithTimeout(ctx, constants.StreamDeadline)
@@ -317,7 +320,8 @@ func sendProtoDelimitedWithHeartbeatGeneric[E proto.Message](
 
 	// 3. Fallback to TCP if V2+ and primary (QUIC) failed
 	if connectErr != nil && version >= 2 && fallbackAddr != nil {
-		fmt.Printf("Primary transport failed (err=%v), attempting TCP fallback...\n", connectErr)
+		logging.Logger(logging.Transport).Warn(ctx, "primary transport failed, attempting TCP fallback",
+			ion.Err(connectErr))
 		targetPeer.Addrs = []multiaddr.Multiaddr{fallbackAddr}
 		fallbackCtx, fallbackCancel := context.WithTimeout(ctx, constants.StreamDeadline)
 		defer fallbackCancel()
@@ -481,5 +485,3 @@ func SendPoTSProtoDelimitedWithHeartbeat(
 		},
 	)
 }
-
-
