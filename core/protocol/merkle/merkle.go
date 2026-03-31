@@ -8,6 +8,7 @@ import (
 	"math"
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/constants"
 
 	merklepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/merkle"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/logging"
@@ -31,8 +32,8 @@ func NewMerkleProof(blockInfo types.BlockInfo) MerkleProofInterface {
 	return &MerkleProof{Blockinfo: blockInfo}
 }
 
-func (m *MerkleProof) GenerateMerkleConfig(logger_ctx context.Context, startBlock, endBlock uint64) (merkletree.Config, error){
-	
+func (m *MerkleProof) GenerateMerkleConfig(logger_ctx context.Context, startBlock, endBlock uint64) (merkletree.Config, error) {
+
 	cfg := merkletree.Config{
 		ExpectedTotal: endBlock - startBlock + 1,
 		BlockMerge:    int(math.Ceil(float64(endBlock-startBlock+1) * 0.005)),
@@ -43,7 +44,7 @@ func (m *MerkleProof) GenerateMerkleConfig(logger_ctx context.Context, startBloc
 
 func (m *MerkleProof) GenerateMerkleTree(logger_ctx context.Context, startBlock, endBlock uint64) (*merkletree.Builder, error) {
 
-	if endBlock == math.MaxUint64{
+	if endBlock == math.MaxUint64 {
 		// If the endBlock is -1, then we need to get the latest block number from the db.
 		latestBlockNumber := m.Blockinfo.GetBlockNumber()
 
@@ -67,8 +68,8 @@ func (m *MerkleProof) GenerateMerkleTree(logger_ctx context.Context, startBlock,
 		BlockMerge:    int(math.Ceil(float64(endBlock-startBlock+1) * 0.005)),
 	}
 
-	logging.Logger(logging.MerkleTree).Info(logger_ctx, "BlockMerge", 
-		ion.Int("block_merge", cfg.BlockMerge), 
+	logging.Logger(logging.MerkleTree).Info(logger_ctx, "BlockMerge",
+		ion.Int("block_merge", cfg.BlockMerge),
 		ion.String("function", "DB_OPs.merkletree.GenerateMerkleTree"))
 
 	Builder, err := merkletree.NewBuilder(cfg)
@@ -157,7 +158,9 @@ func (m *MerkleProof) GenerateMerkleTree(logger_ctx context.Context, startBlock,
 		return nil, fmt.Errorf("failed to finalize merkle tree: %w", err)
 	}
 
-	Builder.Visualize()
+	if constants.DEVELOPMENT {
+		Builder.Visualize()
+	}
 
 	return Builder, nil
 }
@@ -188,7 +191,9 @@ func (m *MerkleProof) GenerateMerkleTreeWithConfig(logger_ctx context.Context, s
 		BlockMerge:    config.BlockMerge,
 	}
 
-	fmt.Println("BlockMerge: ", cfg.BlockMerge)
+	logging.Logger(logging.MerkleTree).Debug(logger_ctx, "BlockMerge",
+		ion.Int("block_merge", cfg.BlockMerge),
+		ion.String("function", "DB_OPs.merkletree.GenerateMerkleTreeWithConfig"))
 
 	Builder, err := merkletree.NewBuilder(cfg)
 	if err != nil {
@@ -276,7 +281,9 @@ func (m *MerkleProof) GenerateMerkleTreeWithConfig(logger_ctx context.Context, s
 		return nil, fmt.Errorf("failed to finalize merkle tree: %w", err)
 	}
 
-	Builder.Visualize()
+	if constants.DEVELOPMENT {
+		Builder.Visualize()
+	}
 
 	return Builder, nil
 }
