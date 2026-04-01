@@ -92,6 +92,6 @@ govulncheck ./...
 
 | Date       | Auditor | Score  | Notes                            |
 | ---------- | ------- | ------ | -------------------------------- |
-| 2026-03-31 | Claude  | 88/100 | Open-source readiness audit        |
+| 2026-03-31 | Claude  | 95/100 | Open-source readiness audit        |
 
 See audit report in project documentation for full details.
