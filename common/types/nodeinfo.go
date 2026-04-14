@@ -40,6 +40,21 @@ type BlockInfo interface {
 	NewHeadersWriter() WriteHeaders
 	NewDataWriter() WriteData
 	NewAccountManager() AccountManager
+	// NewAccountNonceIterator returns an iterator over all server accounts,
+	// used during AccountSync diff computation to find accounts the client is missing.
+	NewAccountNonceIterator(batchSize int) AccountNonceIterator
+}
+
+// AccountNonceIterator pages through all accounts stored on the server node.
+// Used by AccountSync server-side to iterate every account and check whether
+// the client already has each one (via SwappableART nonce lookup).
+type AccountNonceIterator interface {
+	// NextBatch returns the next batch of accounts. Returns nil slice and nil error at end.
+	NextBatch() ([]*Account, error)
+	// TotalAccounts returns the total number of accounts on the server.
+	TotalAccounts() (uint64, error)
+	// Close releases any resources held by the iterator.
+	Close()
 }
 
 type BlockIterator interface {
