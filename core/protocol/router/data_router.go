@@ -36,7 +36,9 @@ import (
 	merkle_types "github.com/JupiterMetaLabs/JMDN-FastSync/helper/merkle"
 	Log "github.com/JupiterMetaLabs/JMDN-FastSync/logging"
 	"github.com/JupiterMetaLabs/JMDN_Merkletree/merkletree"
+	art "github.com/JupiterMetaLabs/JMDN_Merkletree/art"
 	"github.com/JupiterMetaLabs/ion"
+	accountspb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/accounts"
 	libp2p_peer "github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
 )
@@ -571,6 +573,84 @@ func (router *Datarouter) HandlePoTSync(ctx context.Context, req *potspb.PoTSReq
 		ion.String("tags", tagInfo))
 
 	return response
+}
+
+func (router *Datarouter) HandleAccountsSync(ctx context.Context, req *accountspb.AccountNonceSyncRequest, remote *types.Nodeinfo) *accountspb.AccountSyncEndOfStream {
+	template := &accountspb.AccountSyncEndOfStream{
+		TotalPages: 0,
+		TotalAccounts: 0,
+		Ack: &ackpb.Ack{
+			Ok:    false,
+			Error: errors.AuthRequired.Error(),
+		},
+		Phase: &phasepb.Phase{
+			PresentPhase:    constants.ACCOUNTS_SYNC_RESPONSE,
+			SuccessivePhase: constants.FAILURE,
+			Success:         false,
+			Error:           errors.AuthRequired.Error(),
+			Auth:            nil,
+		},
+	}
+
+	if req.Phase == nil || req.Phase.Auth == nil || req.Phase.Auth.UUID == "" {
+		template.Phase.Error = errors.AuthRequired.Error()
+		return template
+	}
+
+	authenticated, err := router.Authenticate(ctx, req.Phase.Auth, remote)
+	if err != nil || !authenticated {
+		template.Phase.Error = errors.AuthenticationFailed.Error()
+		template.Phase.Auth = req.Phase.Auth
+		return template
+	}
+
+	// Defer TTL reset
+	defer func() {
+		if resetErr := router.ResetTTL(ctx, req.Phase.Auth, remote); resetErr != nil {
+			Log.Logger(namedlogger).Error(ctx, "Failed to reset TTL", resetErr)
+		}
+	}()
+
+	Log.Logger(namedlogger).Info(ctx, "Processing Accounts Sync Request",
+		ion.String("remote_peer", remote.PeerID.String()),
+		ion.Uint64("total_keys", req.TotalKeys),
+		ion.Int("batch_index", int(req.BatchIndex)),
+		ion.String("keys_range", req.KeysRange.String()),
+		ion.String("phase", req.Phase.PresentPhase),
+		ion.String("is_last", fmt.Sprintf("%t", req.IsLast)),
+	)
+	
+	switch req.Phase.PresentPhase {
+	case constants.ACCOUNTS_SYNC_REQUEST:
+		if req == nil || req.KeysRange == nil {
+			return &accountspb.AccountSyncEndOfStream{
+				Ack: &ackpb.Ack{
+					Ok:    false,
+					Error: errors.AccountsSyncRequestNil.Error(),
+				},
+			}
+		}
+		AccountsSync := router.ACCOUNTS_SYNC(ctx, req)
+		AccountsSync.Phase.Auth = req.Phase.Auth
+		return AccountsSync
+
+	default:
+		return &accountspb.AccountSyncEndOfStream{
+			TotalPages: 0,
+			TotalAccounts: 0,
+			Ack: &ackpb.Ack{
+				Ok:    false,
+				Error: "unknown state: " + req.Phase.PresentPhase,
+			},
+			Phase: &phasepb.Phase{
+				PresentPhase:    req.Phase.PresentPhase,
+				SuccessivePhase: constants.FAILURE,
+				Success:         false,
+				Error:           "unknown state: " + req.Phase.PresentPhase,
+				Auth:            req.Phase.Auth,
+			},
+		}
+	}
 }
 
 func (router *Datarouter) SYNC_REQUEST_V2(ctx context.Context, req *priorsyncpb.PriorSync) *priorsyncpb.PriorSyncMessage {
@@ -1426,5 +1506,50 @@ func (router *Datarouter) FULL_SYNC(ctx context.Context, req *priorsyncpb.PriorS
 				Error:           "",
 			},
 		},
+	}
+}
+
+func(router *Datarouter) ACCOUNTS_SYNC(ctx context.Context, req *accountspb.AccountNonceSyncRequest) *accountspb.AccountSyncEndOfStream {
+	/*
+		- This is the accounts sync.
+		- Before the Headersync request, we need to get the accounts sync.
+		- The client would send the accounts of its local commit as the ART chunk.
+			* If the client have sent the ART chunk, with is_last set to true, then the server would start the diff computation.
+			* If the client have sent the ART chunk, with is_last set to false, then the server would merge the ART chunk with the client's global ART chunk. and delete the new received chunk. (we need to maintain the only one global ART of a client)
+			* Beyond the window of the ART code would automatically swap to the disk to avoid memory exhaustion.
+		- After getting the ART of whole client's data, the server would start the diff computation.
+		- Server will collect the did's whose nonces are not in global art, and send the accounts of these did's to the client.
+		- Note that we not gonna send every did in each response, we will send it by batches in the parallel responses. No ordering is required for the accounts sync.
+	*/
+	if req == nil || req.Art == nil {
+		return &accountspb.AccountSyncEndOfStream{
+			TotalPages: 0,
+			TotalAccounts: 0,
+			Ack: &ackpb.Ack{
+				Ok:    false,
+				Error: errors.AccountsSyncArtNil.Error(),
+			},
+			Phase: &phasepb.Phase{
+				PresentPhase:    constants.ACCOUNTS_SYNC_RESPONSE,
+				SuccessivePhase: constants.FAILURE,
+				Success:         false,
+				Error:           errors.AccountsSyncRequestNil.Error(),
+			},
+		}
+	}
+
+	switch req.IsLast{
+	case true:
+		// Start the diff computation.
+
+	case false:	
+		/*
+			1. ART sent would be compressed with zstd. so Need to be decompressed first.
+			2. Merge the ART chunk with the client's global ART chunk. and delete the new received chunk.
+			3. Delete the new received chunk.
+			4. Swapping to the disk is done automatically by the ART code.
+		*/
+
+		decompressedArt, err := art.Decode(req.Art)
 	}
 }
