@@ -34,6 +34,9 @@ const (
 
 	PoTS_REQUEST = "state:pots:potsrequest"
 	PoTS_RESPONSE = "state:pots:potsresponse"
+
+	ACCOUNTS_SYNC_REQUEST = "state:accountssync:accountssyncrequest"
+	ACCOUNTS_SYNC_RESPONSE = "state:accountssync:accountssyncresponse"
 )
 
 const (

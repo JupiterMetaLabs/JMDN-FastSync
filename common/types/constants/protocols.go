@@ -9,10 +9,11 @@ const (
 	MerkleProtocol             protocol.ID = "/fastsync/v1/merkle"
 	HeaderSyncProtocol         protocol.ID = "/fastsync/v1/headersync"
 	DataSyncProtocol           protocol.ID = "/fastsync/v1/datasync"
+	AccountsSyncProtocol       protocol.ID = "/fastsync/v1/accountssync"
 	PoTSProtocol               protocol.ID = "/fastsync/v1/pots"
 )
 
 // This protocol is for the pubsub implementation
 const(
-	BlocksPUBSUB protocol.ID = "/fastsync/v1/pubsub/blocks"
+	BlocksPUBSUB  			   protocol.ID = "/fastsync/v1/pubsub/blocks"
 )
