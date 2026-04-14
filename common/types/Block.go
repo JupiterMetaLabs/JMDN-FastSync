@@ -131,3 +131,22 @@ type NonHeaders struct {
 	ZKProof      ZKProof         `json:"zk_proof"`
 	L1Finality   *L1Finality     `json:"l1_finality,omitempty"` // nil until finalised on L1
 }
+
+// This will be stored in the DB
+type Account struct {
+	// Legacy DID fields (for backward compatibility)
+	DIDAddress string `json:"did,omitempty"`
+
+	// New PublicKey based fields
+	Address common.Address `json:"address"` // Derived from PublicKey
+	Balance string         `json:"balance,omitempty"`
+	Nonce   uint64         `json:"nonce"`
+
+	// Account metadata
+	AccountType string `json:"account_type"` // "did" or "publickey"
+	CreatedAt   int64  `json:"created_at"`
+	UpdatedAt   int64  `json:"updated_at"`
+
+	// Optional metadata
+	Metadata map[string]interface{} `json:"metadata,omitempty"`
+}
