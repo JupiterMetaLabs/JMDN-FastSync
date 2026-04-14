@@ -5,6 +5,7 @@ import (
 	"time"
 
 	blockpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/block"
+	art "github.com/JupiterMetaLabs/JMDN_Merkletree/art"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/multiformats/go-multiaddr"
@@ -23,6 +24,7 @@ type Nodeinfo struct {
 	Version      uint16
 	Protocol     protocol.ID
 	BlockInfo    BlockInfo
+	ART          *art.ART
 }
 
 type AUTHStructure struct {

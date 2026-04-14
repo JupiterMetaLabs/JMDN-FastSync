@@ -13,6 +13,23 @@ type example_blockinfo struct{}
 func NewExampleBlockInfo() types.BlockInfo {
 	return example_blockinfo{}
 }
+
+func (e example_blockinfo) NewAccountNonceIterator(batchSize int) types.AccountNonceIterator {
+	return &example_accountnonceiterator{}
+}
+
+type example_accountnonceiterator struct{}
+
+func (e example_accountnonceiterator) NextBatch() ([]*types.Account, error) {
+	return nil, nil
+}
+
+func (e example_accountnonceiterator) TotalAccounts() (uint64, error) {
+	return 0, nil
+}
+
+func (e example_accountnonceiterator) Close() {}
+
 type example_authhandler struct{}
 
 func (e example_blockinfo) AUTH() types.AUTHHandler {

@@ -12,7 +12,7 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/checksum/checksum_priorsync"
-	potspb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/pots"
+	accountspb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/accounts"
 	ackpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/ack"
 	availabilitypb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/availability"
 	authpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/availability/auth"
@@ -23,6 +23,7 @@ import (
 	merklepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/merkle"
 	nodeinfopb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/nodeinfo"
 	phasepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/phase"
+	potspb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/pots"
 	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/priorsync"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/constants"
@@ -35,10 +36,9 @@ import (
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/tagging"
 	merkle_types "github.com/JupiterMetaLabs/JMDN-FastSync/helper/merkle"
 	Log "github.com/JupiterMetaLabs/JMDN-FastSync/logging"
-	"github.com/JupiterMetaLabs/JMDN_Merkletree/merkletree"
 	art "github.com/JupiterMetaLabs/JMDN_Merkletree/art"
+	"github.com/JupiterMetaLabs/JMDN_Merkletree/merkletree"
 	"github.com/JupiterMetaLabs/ion"
-	accountspb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/accounts"
 	libp2p_peer "github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
 )
@@ -1510,6 +1510,20 @@ func (router *Datarouter) FULL_SYNC(ctx context.Context, req *priorsyncpb.PriorS
 }
 
 func(router *Datarouter) ACCOUNTS_SYNC(ctx context.Context, req *accountspb.AccountNonceSyncRequest) *accountspb.AccountSyncEndOfStream {
+	template := &accountspb.AccountSyncEndOfStream{
+		TotalPages: 0,
+		TotalAccounts: 0,
+		Ack: &ackpb.Ack{
+			Ok:    false,
+			Error: errors.AccountsSyncArtNil.Error(),
+		},
+		Phase: &phasepb.Phase{
+			PresentPhase:    constants.ACCOUNTS_SYNC_RESPONSE,
+			SuccessivePhase: constants.FAILURE,
+			Success:         false,
+			Error:           errors.AccountsSyncRequestNil.Error(),
+		},
+	}
 	/*
 		- This is the accounts sync.
 		- Before the Headersync request, we need to get the accounts sync.
@@ -1522,20 +1536,7 @@ func(router *Datarouter) ACCOUNTS_SYNC(ctx context.Context, req *accountspb.Acco
 		- Note that we not gonna send every did in each response, we will send it by batches in the parallel responses. No ordering is required for the accounts sync.
 	*/
 	if req == nil || req.Art == nil {
-		return &accountspb.AccountSyncEndOfStream{
-			TotalPages: 0,
-			TotalAccounts: 0,
-			Ack: &ackpb.Ack{
-				Ok:    false,
-				Error: errors.AccountsSyncArtNil.Error(),
-			},
-			Phase: &phasepb.Phase{
-				PresentPhase:    constants.ACCOUNTS_SYNC_RESPONSE,
-				SuccessivePhase: constants.FAILURE,
-				Success:         false,
-				Error:           errors.AccountsSyncRequestNil.Error(),
-			},
-		}
+		return template
 	}
 
 	switch req.IsLast{
@@ -1549,7 +1550,22 @@ func(router *Datarouter) ACCOUNTS_SYNC(ctx context.Context, req *accountspb.Acco
 			3. Delete the new received chunk.
 			4. Swapping to the disk is done automatically by the ART code.
 		*/
+		chunkART, err := art.Decode(req.GetArt())
+		if err != nil {
+			template.Ack.Error = err.Error()
+			return template
+		}
 
-		decompressedArt, err := art.Decode(req.Art)
+		router.Nodeinfo.ART.Merge(chunkART)
+		template.Ack.Ok = true
+		template.Ack.Error = ""
+		template.Phase.PresentPhase = constants.ACCOUNTS_SYNC_RESPONSE
+		// if isLast is false then SuccessivePhase would be the current phase
+		template.Phase.SuccessivePhase = constants.ACCOUNTS_SYNC_REQUEST
+		template.Phase.Success = true
+		template.Phase.Error = ""
+		return template
 	}
+
+	return template
 }
