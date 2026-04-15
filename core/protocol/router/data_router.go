@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math"
+	"os"
 	"sync"
 	"time"
 
@@ -55,6 +56,17 @@ type Datarouter struct {
 }
 
 func NewDatarouter(nodeinfo *types.Nodeinfo, comm communication.Communicator) *Datarouter {
+	// TODO: Clear the temp art directory after client gives acknowledgement of the accounts sync.
+	if nodeinfo.ART == nil {
+		swappable, err := art.NewSwappable(
+			os.TempDir()+constants.TEMP_ART_DIR,
+			art.DefaultThreshold,
+		)
+		if err != nil {
+			panic(fmt.Sprintf("failed to initialise SwappableART for AccountSync: %v", err))
+		}
+		nodeinfo.ART = swappable
+	}
 	return &Datarouter{
 		Nodeinfo:            nodeinfo,
 		Comm:                comm,

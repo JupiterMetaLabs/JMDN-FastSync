@@ -33,3 +33,7 @@ const (
 	GroLocal     = "local:accountssync:diff"
 	ParentWGName = "account-diff-parent"
 )
+
+const (
+	TEMP_ART_DIR = "/jmdn-accountsync-art"
+)
