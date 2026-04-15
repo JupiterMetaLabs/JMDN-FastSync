@@ -130,3 +130,5 @@ require (
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	lukechampine.com/blake3 v1.4.1 // indirect
 )
+//debugging
+replace github.com/JupiterMetaLabs/JMDN_Merkletree => ../JMDN_Merkletree
