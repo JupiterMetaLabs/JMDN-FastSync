@@ -26,6 +26,12 @@ const (
 // Apps
 const (
 	LoggingApp        = "app:logging"
+	AccountsSyncApp   = "app:accountssync:diff"
+)
+
+// Locals
+const (
+	AccountsSyncLocal = "local:accountssync:diff"
 )
 
 // waitgroups

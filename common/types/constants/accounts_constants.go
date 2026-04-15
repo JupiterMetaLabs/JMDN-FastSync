@@ -1,9 +1,18 @@
 package constants
 
-const(
+const (
 	MAX_ACCOUNT_NONCES = 100_000
 	// Beyond this window, Radix Trie would be swapped to disk to avoid memory exhaustion.
 	SWAP_DISK_WINDOW = 10 * 1024 // 10MB
+
+	// MaxMissingAccountsInMemory is a hard safety cap on the number of accounts
+	// that ComputeAccountDiff will hold in the in-memory Missing map at once.
+	// If the diff exceeds this count the call returns an error rather than OOM-ing.
+	//
+	// This cap is a temporary guard. The permanent fix is to replace the Missing map
+	// with a streaming channel so parent goroutines write directly to the wire;
+	// that work should be done together with the AccountSync router integration (item 1).
+	MaxMissingAccountsInMemory = 10_000_000 // ~10 M accounts ≈ ~1 GB worst-case
 )
 
 // ── Topology constants ─────────────────────────────────────────────────────────

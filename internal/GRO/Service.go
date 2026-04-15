@@ -64,5 +64,6 @@ func initApp(appName string) {
 func getAllAppNames() []string {
 	return []string{
 		LoggingApp,
+		AccountsSyncApp,
 	}
 }

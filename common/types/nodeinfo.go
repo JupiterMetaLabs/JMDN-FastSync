@@ -24,7 +24,7 @@ type Nodeinfo struct {
 	Version      uint16
 	Protocol     protocol.ID
 	BlockInfo    BlockInfo
-	ART          *art.ART
+	ART          *art.SwappableART
 }
 
 type AUTHStructure struct {
@@ -50,10 +50,16 @@ type BlockInfo interface {
 // AccountNonceIterator pages through all accounts stored on the server node.
 // Used by AccountSync server-side to iterate every account and check whether
 // the client already has each one (via SwappableART nonce lookup).
+//
+// Contract: TotalAccounts MUST be position-independent (e.g. a COUNT(*) query).
+// Calling TotalAccounts before the first NextBatch MUST NOT advance the cursor.
+// Implementations that violate this will cause ComputeAccountDiff to iterate
+// from a non-zero offset and silently return an incomplete Missing set.
 type AccountNonceIterator interface {
 	// NextBatch returns the next batch of accounts. Returns nil slice and nil error at end.
 	NextBatch() ([]*Account, error)
 	// TotalAccounts returns the total number of accounts on the server.
+	// Must be safe to call before the first NextBatch without affecting iteration order.
 	TotalAccounts() (uint64, error)
 	// Close releases any resources held by the iterator.
 	Close()

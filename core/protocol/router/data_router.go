@@ -1556,7 +1556,12 @@ func(router *Datarouter) ACCOUNTS_SYNC(ctx context.Context, req *accountspb.Acco
 			return template
 		}
 
-		router.Nodeinfo.ART.Merge(chunkART)
+		err = router.Nodeinfo.ART.Merge(chunkART)
+		if err != nil {
+			template.Ack.Error = err.Error()
+			return template
+		}
+		
 		template.Ack.Ok = true
 		template.Ack.Error = ""
 		template.Phase.PresentPhase = constants.ACCOUNTS_SYNC_RESPONSE
