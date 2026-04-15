@@ -6,11 +6,11 @@ import (
 	"maps"
 	"sync"
 
-	"github.com/JupiterMetaLabs/goroutine-orchestrator/manager/app"
-	"github.com/JupiterMetaLabs/goroutine-orchestrator/manager/local"
 	art "github.com/JupiterMetaLabs/JMDN_Merkletree/art"
+	"github.com/JupiterMetaLabs/goroutine-orchestrator/manager/local"
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/constants"
+	GROinternal "github.com/JupiterMetaLabs/JMDN-FastSync/internal/GRO"
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
 )
@@ -56,7 +56,12 @@ func ComputeAccountDiff(
 	}
 
 	// Full-sync fast path: client is more than (100-fullSyncThresholdPct)% behind.
-	if clientTotalKeys < serverTotal*constants.FullSyncThresholdPct/100 {
+	//
+	// Use scaled comparison (clientTotalKeys*100 < serverTotal*pct) instead of
+	// (clientTotalKeys < serverTotal*pct/100) to avoid integer truncation when
+	// serverTotal < 17, where serverTotal*6/100 = 0 in integer arithmetic and
+	// the threshold becomes unreachable (uint64 can never be < 0).
+	if clientTotalKeys*100 < serverTotal*constants.FullSyncThresholdPct {
 		missing, err := collectAll(ctx, iter)
 		if err != nil {
 			return nil, fmt.Errorf("accounts diff: full sync collect: %w", err)
@@ -125,10 +130,12 @@ func diffWithGRO(
 	serverTotal uint64,
 ) (map[uint64]*types.Account, error) {
 	// ── GRO setup ──────────────────────────────────────────────────────────────
-	// CreateApp / CreateLocal are idempotent — safe to call on repeated invocations.
-	appMgr := app.NewAppManager(constants.GroApp)
-	if _, err := appMgr.CreateApp(); err != nil {
-		return nil, fmt.Errorf("gro create app: %w", err)
+	// Use the process-wide singleton loaded by GRO.EagerLoading() at startup.
+	// Creating a new AppManager per call would leak manager objects in long-lived
+	// processes; the singleton avoids that and aligns with internal/GRO's pattern.
+	appGRO := GROinternal.GetApp(GROinternal.AccountsSyncApp)
+	if appGRO == nil {
+		return nil, fmt.Errorf("gro app %q not initialised — call GRO.EagerLoading() at startup", GROinternal.AccountsSyncApp)
 	}
 	localMgr := local.NewLocalManager(constants.GroApp, constants.GroLocal)
 	if _, err := localMgr.CreateLocal(constants.GroLocal); err != nil {
@@ -153,11 +160,18 @@ func diffWithGRO(
 
 	// ── Producer ───────────────────────────────────────────────────────────────
 	// Sequential iterator → workChan.  Batches are non-overlapping by construction.
+	// Iterator errors are forwarded via producerErr (buffered=1, written at most once)
+	// so a truncated result set is never silently returned to the caller.
+	producerErr := make(chan error, 1)
 	go func() {
 		defer close(workChan)
 		for {
 			batch, err := iter.NextBatch()
-			if err != nil || len(batch) == 0 {
+			if err != nil {
+				producerErr <- err
+				return
+			}
+			if len(batch) == 0 {
 				return
 			}
 			select {
@@ -169,8 +183,10 @@ func diffWithGRO(
 	}()
 
 	// ── Parent result slots ────────────────────────────────────────────────────
-	// Each parent writes exclusively to parentMaps[parentIdx]; no mutex needed here.
+	// Each parent writes exclusively to parentMaps[parentIdx] and parentErrs[parentIdx];
+	// no mutex needed — slot ownership is guaranteed by the captured parentIdx.
 	parentMaps := make([]map[uint64]*types.Account, actualParents)
+	parentErrs := make([]error, actualParents)
 
 	// ── Spawn up to NumDiffParents parent goroutines (clamped to server total) ─
 	for i := 0; i < actualParents; i++ {
@@ -184,8 +200,10 @@ func diffWithGRO(
 				for {
 					select {
 					case <-pctx.Done():
-						// Context cancelled mid-flight; commit what we have.
+						// Context cancelled mid-flight; commit what we have and
+						// record the error so diffWithGRO can surface it after wg.Wait().
 						parentMaps[parentIdx] = localMap
+						parentErrs[parentIdx] = pctx.Err()
 						return pctx.Err()
 
 					case batch, ok := <-workChan:
@@ -214,8 +232,24 @@ func diffWithGRO(
 		}
 	}
 
-	// Block until all 30 parents have committed their localMaps.
+	// Block until all parents have committed their localMaps.
 	wg.Wait()
+
+	// ── Check producer error ───────────────────────────────────────────────────
+	// Non-blocking read: the channel is buffered(1) and written at most once.
+	select {
+	case err := <-producerErr:
+		return nil, fmt.Errorf("iterator: %w", err)
+	default:
+	}
+
+	// ── Check parent errors ────────────────────────────────────────────────────
+	// Surface the first context-cancellation error from any parent goroutine.
+	for i, perr := range parentErrs {
+		if perr != nil {
+			return nil, fmt.Errorf("parent %d: %w", i, perr)
+		}
+	}
 
 	// ── Final merge ────────────────────────────────────────────────────────────
 	// All parents have returned; sequential merge is safe.
