@@ -45,6 +45,7 @@ type sync_interface interface {
 	HandleDataSync(ctx context.Context, node host.Host) error
 	HandlePoTSSync(ctx context.Context, node host.Host) error
 	HandlePubsub(ctx context.Context, node host.Host) error
+	HandleAccountsSync(ctx context.Context, node host.Host) error
 	Debug(ctx context.Context, protocol protocol.ID, node host.Host, remote *types.Nodeinfo)
 }
 
@@ -506,6 +507,8 @@ func (s *Sync) HandlePubsub(ctx context.Context, node host.Host) error {
 	})
 	return nil
 }
+
+func (s *Sync) HandleAccountsSync(ctx context.Context, node host.Host) error {}
 
 func (s *Sync) Debug(ctx context.Context, protocol protocol.ID, node host.Host, remote *types.Nodeinfo) {
 	if s.debug && remote != nil {

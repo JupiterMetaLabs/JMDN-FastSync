@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"time"
 
+	accountspb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/accounts"
 	datasyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/datasync"
 	potspb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/pots"
 	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/priorsync"
@@ -262,6 +264,12 @@ type streamConfig[E proto.Message] struct {
 	newEnvelope   func() E
 	isHeartbeat   func(E) bool
 	mergeResponse func(E) error
+	// isFinal reports whether this envelope is the last frame on the stream.
+	// nil means every non-heartbeat frame is final (correct for all single-response
+	// protocols: PriorSync, DataSync, PoTS). Set explicitly for multi-frame protocols
+	// like AccountSync where the loop must continue past batch_ack / response frames
+	// and only exit on the end-of-stream frame.
+	isFinal func(E) bool
 }
 
 // sendProtoDelimitedWithHeartbeatGeneric is the shared implementation for both
@@ -367,11 +375,14 @@ func sendProtoDelimitedWithHeartbeatGeneric[E proto.Message](
 			continue
 		}
 
-		// Final response — copy into caller's struct natively and exit.
 		if err := cfg.mergeResponse(envelope); err != nil {
 			return err
 		}
-		return nil
+		// nil isFinal → every non-heartbeat frame is final (PriorSync, DataSync, PoTS).
+		// Non-nil isFinal → only exit when the frame is the designated terminator (AccountSync end).
+		if cfg.isFinal == nil || cfg.isFinal(envelope) {
+			return nil
+		}
 	}
 }
 
@@ -479,6 +490,118 @@ func SendPoTSProtoDelimitedWithHeartbeat(
 				}
 				if p.Response != nil {
 					proto.Merge(response, p.Response)
+				}
+				return nil
+			},
+		},
+	)
+}
+
+// accountSyncStream is the minimal interface required by
+// ReadAccountsSyncServerMessageSkippingHeartbeats: a readable stream whose
+// read deadline can be reset on each heartbeat to keep the connection alive.
+// libp2p network.Stream satisfies this interface.
+type accountSyncStream interface {
+	io.Reader
+	SetReadDeadline(t time.Time) error
+}
+
+// ReadAccountsSyncServerMessageSkippingHeartbeats reads the next non-heartbeat
+// AccountSyncServerMessage from an already-open AccountSync stream.
+//
+// Heartbeat frames are silently consumed; the read deadline is reset on each one
+// to prevent the stream from timing out during long diff computations on the server.
+//
+// All other payload types are returned as-is — inspect with:
+//
+//	msg.GetBatchAck()  → AccountBatchAck       (server acked one ART batch)
+//	msg.GetResponse()  → AccountSyncResponse   (one page of missing accounts)
+//	msg.GetEnd()       → AccountSyncEndOfStream (completion signal — stop looping)
+//
+// Call this in a loop on the same stream after sending the final
+// AccountNonceSyncRequest (is_last=true) until msg.GetEnd() is non-nil or error.
+func ReadAccountsSyncServerMessageSkippingHeartbeats(stream accountSyncStream) (*accountspb.AccountSyncServerMessage, error) {
+	for {
+		if err := stream.SetReadDeadline(time.Now().Add(constants.StreamDeadline)); err != nil {
+			return nil, fmt.Errorf("accounts sync: set read deadline: %w", err)
+		}
+		msg := &accountspb.AccountSyncServerMessage{}
+		if err := pbstream.ReadDelimited(stream, msg); err != nil {
+			return nil, fmt.Errorf("accounts sync: read frame: %w", err)
+		}
+		if _, ok := msg.Payload.(*accountspb.AccountSyncServerMessage_Heartbeat); ok {
+			// Heartbeat — deadline already reset above; read the next frame.
+			continue
+		}
+		return msg, nil
+	}
+}
+
+// AccountSyncHandlers holds per-frame callbacks for SendAccountsSyncProtoDelimitedWithHeartbeat.
+// Heartbeat frames are silently consumed; no callback is needed for them.
+// Returning a non-nil error from any handler aborts the read loop immediately.
+type AccountSyncHandlers struct {
+	// OnBatchAck is called for each AccountBatchAck (one per uploaded ART batch).
+	OnBatchAck func(*accountspb.AccountBatchAck) error
+	// OnResponse is called for each AccountSyncResponse page of missing accounts.
+	// Pages may arrive out of order; use page_index to reorder if needed.
+	OnResponse func(*accountspb.AccountSyncResponse) error
+	// OnEnd is called exactly once when AccountSyncEndOfStream arrives.
+	// Use total_pages to verify all response pages were received before the
+	// function returns.
+	OnEnd func(*accountspb.AccountSyncEndOfStream) error
+}
+
+// SendAccountsSyncProtoDelimitedWithHeartbeat sends one AccountNonceSyncRequest
+// and reads all server→client frames until AccountSyncEndOfStream, dispatching
+// each to the matching handler in AccountSyncHandlers.
+//
+// Server frame sequence (AccountSyncServerMessage oneof — accounts.proto):
+//
+//	batch_ack  (AccountBatchAck)        → handlers.OnBatchAck called, loop continues
+//	heartbeat  (AccountSyncHeartbeat)   → read deadline reset, frame discarded
+//	response   (AccountSyncResponse)    → handlers.OnResponse called, loop continues
+//	end        (AccountSyncEndOfStream) → handlers.OnEnd called, function returns nil
+//
+// Any unrecognised payload type returns an error.
+func SendAccountsSyncProtoDelimitedWithHeartbeat(
+	ctx context.Context,
+	version uint16,
+	host host.Host,
+	peerInfo peer.AddrInfo,
+	protocolID protocol.ID,
+	request proto.Message,
+	handlers AccountSyncHandlers,
+) error {
+	return sendProtoDelimitedWithHeartbeatGeneric(ctx, version, host, peerInfo, protocolID, request,
+		streamConfig[*accountspb.AccountSyncServerMessage]{
+			newEnvelope: func() *accountspb.AccountSyncServerMessage {
+				return &accountspb.AccountSyncServerMessage{}
+			},
+			isHeartbeat: func(e *accountspb.AccountSyncServerMessage) bool {
+				_, ok := e.Payload.(*accountspb.AccountSyncServerMessage_Heartbeat)
+				return ok
+			},
+			isFinal: func(e *accountspb.AccountSyncServerMessage) bool {
+				_, ok := e.Payload.(*accountspb.AccountSyncServerMessage_End)
+				return ok
+			},
+			mergeResponse: func(e *accountspb.AccountSyncServerMessage) error {
+				switch p := e.Payload.(type) {
+				case *accountspb.AccountSyncServerMessage_BatchAck:
+					if handlers.OnBatchAck != nil {
+						return handlers.OnBatchAck(p.BatchAck)
+					}
+				case *accountspb.AccountSyncServerMessage_Response:
+					if handlers.OnResponse != nil {
+						return handlers.OnResponse(p.Response)
+					}
+				case *accountspb.AccountSyncServerMessage_End:
+					if handlers.OnEnd != nil {
+						return handlers.OnEnd(p.End)
+					}
+				default:
+					return fmt.Errorf("unexpected AccountSyncServerMessage payload type: %T", e.Payload)
 				}
 				return nil
 			},

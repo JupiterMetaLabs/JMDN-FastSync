@@ -77,7 +77,7 @@ func ComputeAccountDiff(
 	return &AccountDiff{Missing: missing, IsFullSync: false}, nil
 }
 
-// ── Full-sync path ─────────────────────────────────────────────────────────────
+// Full-sync path 
 
 // collectAll drains the iterator and returns every account.
 // Context cancellation is checked between batches.
@@ -103,8 +103,7 @@ func collectAll(ctx context.Context, iter types.AccountNonceIterator) (map[uint6
 	}
 }
 
-// ── Diff path ──────────────────────────────────────────────────────────────────
-
+//  Diff path 
 // diffWithGRO runs the 30-parent × 10-child diff computation using the GRO framework
 // for parent-goroutine lifecycle management.
 //
@@ -129,7 +128,7 @@ func diffWithGRO(
 	iter types.AccountNonceIterator,
 	serverTotal uint64,
 ) (map[uint64]*types.Account, error) {
-	// ── GRO setup ──────────────────────────────────────────────────────────────
+	//  GRO setup
 	// Use the process-wide singleton loaded by GRO.EagerLoading() at startup.
 	// Creating a new AppManager per call would leak manager objects in long-lived
 	// processes; the singleton avoids that and aligns with internal/GRO's pattern.
@@ -153,12 +152,12 @@ func diffWithGRO(
 		return make(map[uint64]*types.Account), nil
 	}
 
-	// ── Work channel ───────────────────────────────────────────────────────────
+	//  Work channel 
 	// Capacity = actualParents so the producer can fill one batch per parent
 	// before any parent has finished processing, avoiding producer stalls.
 	workChan := make(chan []*types.Account, actualParents)
 
-	// ── Producer ───────────────────────────────────────────────────────────────
+	//  Producer 
 	// Sequential iterator → workChan.  Batches are non-overlapping by construction.
 	// Iterator errors are forwarded via producerErr (buffered=1, written at most once)
 	// so a truncated result set is never silently returned to the caller.
@@ -182,13 +181,13 @@ func diffWithGRO(
 		}
 	}()
 
-	// ── Parent result slots ────────────────────────────────────────────────────
+	//  Parent result slots 
 	// Each parent writes exclusively to parentMaps[parentIdx] and parentErrs[parentIdx];
 	// no mutex needed — slot ownership is guaranteed by the captured parentIdx.
 	parentMaps := make([]map[uint64]*types.Account, actualParents)
 	parentErrs := make([]error, actualParents)
 
-	// ── Spawn up to NumDiffParents parent goroutines (clamped to server total) ─
+	//  Spawn up to NumDiffParents parent goroutines (clamped to server total) 
 	for i := 0; i < actualParents; i++ {
 		parentIdx := i // capture loop variable for closure
 
@@ -235,7 +234,7 @@ func diffWithGRO(
 	// Block until all parents have committed their localMaps.
 	wg.Wait()
 
-	// ── Check producer error ───────────────────────────────────────────────────
+	//  Check producer error 
 	// Non-blocking read: the channel is buffered(1) and written at most once.
 	select {
 	case err := <-producerErr:
@@ -243,7 +242,7 @@ func diffWithGRO(
 	default:
 	}
 
-	// ── Check parent errors ────────────────────────────────────────────────────
+	//  Check parent errors 
 	// Surface the first context-cancellation error from any parent goroutine.
 	for i, perr := range parentErrs {
 		if perr != nil {
@@ -251,7 +250,7 @@ func diffWithGRO(
 		}
 	}
 
-	// ── Final merge ────────────────────────────────────────────────────────────
+	//  Final merge 
 	// All parents have returned; sequential merge is safe.
 	final := make(map[uint64]*types.Account)
 	for _, pm := range parentMaps {
@@ -260,16 +259,15 @@ func diffWithGRO(
 	return final, nil
 }
 
-// ── Child-level processing ─────────────────────────────────────────────────────
-
+//  Child-level processing 
 // processWithChildren divides a parent's in-memory batch (≤parentMemoryWindow accounts)
 // into numDiffChildren equal slices (≤childWindow accounts each) and checks every
 // account nonce against the SwappableART using native goroutines.
 //
-// SwappableART.Contains is goroutine-safe (internal sync.Mutex), so concurrent child
-// reads require no additional locking.  Each child builds its own local map before
-// merging into the shared result — the lock is held only for the final map merge,
-// not during the ART lookup loop.
+// SwappableART.Contains is goroutine-safe (internal sync.RWMutex with RLock), so
+// concurrent child reads proceed fully in parallel without serialization.
+// Each child builds its own local map before merging into the shared result —
+// the mutex is held only for the final map merge, not during the ART lookup loop.
 //
 // Returns: merged map of {nonce → *Account} for accounts absent from the client's ART.
 func processWithChildren(

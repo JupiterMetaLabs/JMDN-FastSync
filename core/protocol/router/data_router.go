@@ -33,6 +33,7 @@ import (
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/communication"
 	merkle "github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/merkle"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/router/helper"
+	accountshelper "github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/router/helper/accounts"
 	potshelper "github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/router/helper/pots"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/tagging"
 	merkle_types "github.com/JupiterMetaLabs/JMDN-FastSync/helper/merkle"
@@ -1554,6 +1555,21 @@ func(router *Datarouter) ACCOUNTS_SYNC(ctx context.Context, req *accountspb.Acco
 	switch req.IsLast{
 	case true:
 		// Start the diff computation.
+		diff, err := accountshelper.ComputeAccountDiff(ctx, router.Nodeinfo.ART, router.Nodeinfo.BlockInfo, req.TotalKeys)
+		if err != nil {
+			template.Ack.Error = err.Error()
+			template.Phase.Error = err.Error()
+			return template
+		}
+		template.Ack.Ok = true
+		template.Ack.Error = ""
+		template.TotalAccounts = uint64(len(diff.Missing))
+		template.Phase.PresentPhase = constants.ACCOUNTS_SYNC_RESPONSE
+		template.Phase.SuccessivePhase = constants.ACCOUNTS_SYNC_RESPONSE
+		template.Phase.Success = true
+		template.Phase.Error = ""
+		// TODO: paginate diff.Missing into AccountSyncResponse pages and stream to client
+		return template
 
 	case false:	
 		/*
