@@ -98,6 +98,8 @@ func (ps *PriorSync) SetupNetworkHandlers(debug bool) error {
 		ps.SyncVars.Node.RemoveStreamHandler(constants.AvailabilityProtocol)
 		ps.SyncVars.Node.RemoveStreamHandler(constants.PoTSProtocol)
 		ps.SyncVars.Node.RemoveStreamHandler(constants.BlocksPUBSUB)
+		ps.SyncVars.Node.RemoveStreamHandler(constants.AccountsSyncProtocol)
+		ps.SyncVars.Node.RemoveStreamHandler(constants.AccountsSyncDataProtocol)
 	}
 
 	if ps.cancel != nil {
@@ -135,6 +137,14 @@ func (ps *PriorSync) SetupNetworkHandlers(debug bool) error {
 	}
 	
 	if err := syncHandler.HandlePubsub(ctx, ps.SyncVars.Node); err != nil {
+		return err
+	}
+
+	if err := syncHandler.HandleAccountsSync(ctx, ps.SyncVars.Node); err != nil {
+		return err
+	}
+
+	if err := syncHandler.HandleAccountsSyncData(ctx, ps.SyncVars.Node); err != nil {
 		return err
 	}
 
@@ -250,5 +260,7 @@ func (ps *PriorSync) Close() {
 		node.RemoveStreamHandler(constants.AvailabilityProtocol)
 		node.RemoveStreamHandler(constants.PoTSProtocol)
 		node.RemoveStreamHandler(constants.BlocksPUBSUB)
+		node.RemoveStreamHandler(constants.AccountsSyncProtocol)
+		node.RemoveStreamHandler(constants.AccountsSyncDataProtocol)
 	}
 }
