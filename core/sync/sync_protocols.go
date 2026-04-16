@@ -15,13 +15,19 @@ import (
 	merklepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/merkle"
 	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/priorsync"
 	pubsubpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/pubsub"
+	accountspb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/accounts"
+	ackpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/ack"
+	phasepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/phase"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/constants"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/errors"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/availability"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/communication"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/router"
+	accountshelper "github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/router/helper/accounts"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/pbstream"
+	artpkg "github.com/JupiterMetaLabs/JMDN_Merkletree/art"
+	"google.golang.org/protobuf/types/known/structpb"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/protocol"
@@ -508,7 +514,293 @@ func (s *Sync) HandlePubsub(ctx context.Context, node host.Host) error {
 	return nil
 }
 
-func (s *Sync) HandleAccountsSync(ctx context.Context, node host.Host) error {}
+func (s *Sync) HandleAccountsSync(ctx context.Context, node host.Host) error {
+	node.SetStreamHandler(constants.AccountsSyncProtocol, func(str network.Stream) {
+		defer str.Close()
+
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		remoteNodeInfo := &types.Nodeinfo{
+			PeerID:    str.Conn().RemotePeer(),
+			Multiaddr: []multiaddr.Multiaddr{str.Conn().RemoteMultiaddr()},
+			Version:   s.nodeinfo.Version,
+		}
+
+		var mu gosync.Mutex
+		var totalKeys uint64
+
+		// writeMsg serialises onto the AccountSync control stream.
+		// All writes (batch_ack, heartbeat, end) share this mutex because
+		// libp2p streams are not goroutine-safe.
+		writeMsg := func(msg *accountspb.AccountSyncServerMessage) error {
+			mu.Lock()
+			defer mu.Unlock()
+			_ = str.SetWriteDeadline(time.Now().Add(constants.StreamDeadline))
+			return pbstream.WriteDelimited(str, msg)
+		}
+
+		// ── 1. Upload loop ──────────────────────────────────────────────
+		// Client sends ART chunks sequentially.  Each chunk is merged into
+		// the server's SwappableART; the server acks each one before the
+		// client sends the next.  When is_last=true the upload is complete.
+		//
+		// The final batch is handled inline rather than via HandleAccountsSync
+		// to avoid triggering the premature diff computation in ACCOUNTS_SYNC
+		// case true (which also does not merge the last chunk).
+		for {
+			_ = str.SetReadDeadline(time.Now().Add(constants.StreamDeadline))
+
+			req := &accountspb.AccountNonceSyncRequest{}
+			if err := pbstream.ReadDelimited(str, req); err != nil {
+				return
+			}
+
+			if req.IsLast {
+				totalKeys = req.TotalKeys
+
+				ok, authErr := s.Datarouter.Authenticate(ctx, req.GetPhase().GetAuth(), remoteNodeInfo)
+				if authErr != nil || !ok {
+					_ = writeMsg(&accountspb.AccountSyncServerMessage{
+						Payload: &accountspb.AccountSyncServerMessage_BatchAck{
+							BatchAck: &accountspb.AccountBatchAck{
+								BatchIndex: req.BatchIndex,
+								Ack:        &ackpb.Ack{Ok: false, Error: errors.AuthenticationFailed.Error()},
+							},
+						},
+					})
+					return
+				}
+				defer s.Datarouter.ResetTTL(ctx, req.GetPhase().GetAuth(), remoteNodeInfo) //nolint:revive
+
+				// Decode and merge the last ART chunk before running diff.
+				if len(req.GetArt()) > 0 {
+					chunkART, decErr := artpkg.Decode(req.GetArt())
+					if decErr != nil {
+						_ = writeMsg(&accountspb.AccountSyncServerMessage{
+							Payload: &accountspb.AccountSyncServerMessage_BatchAck{
+								BatchAck: &accountspb.AccountBatchAck{
+									BatchIndex: req.BatchIndex,
+									Ack:        &ackpb.Ack{Ok: false, Error: decErr.Error()},
+								},
+							},
+						})
+						return
+					}
+					if mergeErr := s.Datarouter.Nodeinfo.ART.Merge(chunkART); mergeErr != nil {
+						_ = writeMsg(&accountspb.AccountSyncServerMessage{
+							Payload: &accountspb.AccountSyncServerMessage_BatchAck{
+								BatchAck: &accountspb.AccountBatchAck{
+									BatchIndex: req.BatchIndex,
+									Ack:        &ackpb.Ack{Ok: false, Error: mergeErr.Error()},
+								},
+							},
+						})
+						return
+					}
+				}
+
+				if err := writeMsg(&accountspb.AccountSyncServerMessage{
+					Payload: &accountspb.AccountSyncServerMessage_BatchAck{
+						BatchAck: &accountspb.AccountBatchAck{
+							BatchIndex: req.BatchIndex,
+							Ack:        &ackpb.Ack{Ok: true},
+						},
+					},
+				}); err != nil {
+					return
+				}
+				break // all chunks received — proceed to diff
+			}
+
+			// Intermediate batch: delegate auth + merge to Datarouter.
+			result := s.Datarouter.HandleAccountsSync(ctx, req, remoteNodeInfo)
+
+			if err := writeMsg(&accountspb.AccountSyncServerMessage{
+				Payload: &accountspb.AccountSyncServerMessage_BatchAck{
+					BatchAck: &accountspb.AccountBatchAck{
+						BatchIndex: req.BatchIndex,
+						Ack:        result.Ack,
+					},
+				},
+			}); err != nil {
+				return
+			}
+			if !result.Ack.Ok {
+				return
+			}
+		}
+
+		s.Debug(ctx, constants.AccountsSyncProtocol, node, remoteNodeInfo)
+
+		// ── 2. Heartbeat goroutine ──────────────────────────────────────
+		// Keeps the control stream alive while ComputeAccountDiff scans the
+		// full account set on the server side.
+		computeCtx, computeCancel := context.WithCancel(ctx)
+		defer computeCancel()
+
+		done := make(chan struct{})
+
+		go func() {
+			ticker := time.NewTicker(constants.HeartbeatInterval)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-done:
+					return
+				case <-computeCtx.Done():
+					return
+				case <-ticker.C:
+					hb := &accountspb.AccountSyncServerMessage{
+						Payload: &accountspb.AccountSyncServerMessage_Heartbeat{
+							Heartbeat: &accountspb.AccountSyncHeartbeat{
+								Timestamp: time.Now().UnixNano(),
+							},
+						},
+					}
+					if err := writeMsg(hb); err != nil {
+						logging.Logger(logging.Sync).Warn(computeCtx,
+							"accountssync heartbeat write failed, cancelling computation",
+							ion.Err(err))
+						computeCancel()
+						return
+					}
+				}
+			}
+		}()
+
+		// ── 3. Diff computation ─────────────────────────────────────────
+		diff, diffErr := accountshelper.ComputeAccountDiff(
+			computeCtx,
+			s.Datarouter.Nodeinfo.ART,
+			s.Datarouter.Nodeinfo.BlockInfo,
+			totalKeys,
+		)
+		close(done)
+
+		if diffErr != nil {
+			_ = writeMsg(&accountspb.AccountSyncServerMessage{
+				Payload: &accountspb.AccountSyncServerMessage_End{
+					End: &accountspb.AccountSyncEndOfStream{
+						Ack: &ackpb.Ack{Ok: false, Error: diffErr.Error()},
+						Phase: &phasepb.Phase{
+							PresentPhase:    constants.ACCOUNTS_SYNC_RESPONSE,
+							SuccessivePhase: constants.FAILURE,
+							Success:         false,
+							Error:           diffErr.Error(),
+						},
+					},
+				},
+			})
+			return
+		}
+
+		// ── 4. Collect + paginate missing accounts ──────────────────────
+		accounts := make([]*types.Account, 0, len(diff.Missing))
+		for _, acc := range diff.Missing {
+			accounts = append(accounts, acc)
+		}
+
+		pageSize := constants.MAX_ACCOUNT_NONCES
+		totalPages := (len(accounts) + pageSize - 1) / pageSize
+
+		// ── 5. Parallel data streams (AccountsSyncDataProtocol) ─────────
+		// Each goroutine opens a new stream to the client, sends one page of
+		// AccountSyncResponse, waits for the client ack, then closes.
+		// The server dials back using the existing connection — no extra
+		// handshake needed since the client already connected to us.
+		var wg gosync.WaitGroup
+		for i := 0; i < totalPages; i++ {
+			start := i * pageSize
+			end := min(start+pageSize, len(accounts))
+			pageIdx := uint32(i)
+
+			pbAccounts := make([]*accountspb.Account, 0, end-start)
+			for _, acc := range accounts[start:end] {
+				pbAcc := &accountspb.Account{
+					DidAddress:  acc.DIDAddress,
+					Address:     acc.Address.Bytes(),
+					Balance:     "0",
+					Nonce:       acc.Nonce,
+					AccountType: acc.AccountType,
+					CreatedAt:   acc.CreatedAt,
+					UpdatedAt:   acc.UpdatedAt,
+				}
+				if len(acc.Metadata) > 0 {
+					if st, stErr := structpb.NewStruct(acc.Metadata); stErr == nil {
+						pbAcc.Metadata = st
+					}
+				}
+				pbAccounts = append(pbAccounts, pbAcc)
+			}
+
+			wg.Add(1)
+			go func(pbAccs []*accountspb.Account, idx uint32) {
+				defer wg.Done()
+
+				dataStream, sErr := node.NewStream(ctx, remoteNodeInfo.PeerID, constants.AccountsSyncDataProtocol)
+				if sErr != nil {
+					logging.Logger(logging.Sync).Warn(ctx, "accountssync: failed to open data stream",
+						ion.Err(sErr), ion.Int("page_index", int(idx)))
+					return
+				}
+				defer dataStream.Close()
+
+				_ = dataStream.SetWriteDeadline(time.Now().Add(constants.StreamDeadline))
+				page := &accountspb.AccountSyncServerMessage{
+					Payload: &accountspb.AccountSyncServerMessage_Response{
+						Response: &accountspb.AccountSyncResponse{
+							Accounts:  pbAccs,
+							PageIndex: idx,
+							Ack:       &ackpb.Ack{Ok: true},
+							Phase: &phasepb.Phase{
+								PresentPhase:    constants.ACCOUNTS_SYNC_RESPONSE,
+								SuccessivePhase: constants.ACCOUNTS_SYNC_RESPONSE,
+								Success:         true,
+							},
+						},
+					},
+				}
+				if wErr := pbstream.WriteDelimited(dataStream, page); wErr != nil {
+					logging.Logger(logging.Sync).Warn(ctx, "accountssync: page write failed",
+						ion.Err(wErr), ion.Int("page_index", int(idx)))
+					return
+				}
+
+				// Wait for client ack before marking this page done.
+				_ = dataStream.SetReadDeadline(time.Now().Add(constants.StreamDeadline))
+				clientAck := &ackpb.Ack{}
+				if rErr := pbstream.ReadDelimited(dataStream, clientAck); rErr != nil {
+					logging.Logger(logging.Sync).Warn(ctx, "accountssync: client ack read failed",
+						ion.Err(rErr), ion.Int("page_index", int(idx)))
+				}
+			}(pbAccounts, pageIdx)
+		}
+		wg.Wait()
+
+		// ── 6. EndOfStream on the control stream ───────────────────────
+		// Sent sequentially after all page acks are received.
+		// Signals the client that the full account set has been transferred.
+		_ = writeMsg(&accountspb.AccountSyncServerMessage{
+			Payload: &accountspb.AccountSyncServerMessage_End{
+				End: &accountspb.AccountSyncEndOfStream{
+					TotalPages:    uint32(totalPages),
+					TotalAccounts: uint64(len(accounts)),
+					Ack:           &ackpb.Ack{Ok: true},
+					Phase: &phasepb.Phase{
+						PresentPhase:    constants.ACCOUNTS_SYNC_RESPONSE,
+						SuccessivePhase: constants.SUCCESS,
+						Success:         true,
+					},
+				},
+			},
+		})
+	})
+	return nil
+}
 
 func (s *Sync) Debug(ctx context.Context, protocol protocol.ID, node host.Host, remote *types.Nodeinfo) {
 	if s.debug && remote != nil {

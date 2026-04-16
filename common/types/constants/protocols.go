@@ -10,6 +10,7 @@ const (
 	HeaderSyncProtocol         protocol.ID = "/fastsync/v1/headersync"
 	DataSyncProtocol           protocol.ID = "/fastsync/v1/datasync"
 	AccountsSyncProtocol       protocol.ID = "/fastsync/v1/accountssync"
+	AccountsSyncDataProtocol   protocol.ID = "/fastsync/v1/accountssync/data"
 	PoTSProtocol               protocol.ID = "/fastsync/v1/pots"
 )
 
