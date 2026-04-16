@@ -1554,6 +1554,18 @@ func(router *Datarouter) ACCOUNTS_SYNC(ctx context.Context, req *accountspb.Acco
 
 	switch req.IsLast{
 	case true:
+		// Merge it first before the diff computation.
+		chunkART, err := art.Decode(req.GetArt())
+		if err != nil {
+			template.Ack.Error = err.Error()
+			return template
+		}
+		err = router.Nodeinfo.ART.Merge(chunkART)
+		if err != nil {
+			template.Ack.Error = err.Error()
+			return template
+		}
+		
 		// Start the diff computation.
 		diff, err := accountshelper.ComputeAccountDiff(ctx, router.Nodeinfo.ART, router.Nodeinfo.BlockInfo, req.TotalKeys)
 		if err != nil {
