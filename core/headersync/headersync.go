@@ -20,7 +20,7 @@ import (
 	taggingpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/tagging"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/constants"
-	fserrors "github.com/JupiterMetaLabs/JMDN-FastSync/common/types/errors"
+	commonerrors "github.com/JupiterMetaLabs/JMDN-FastSync/common/types/errors"
 	wal_types "github.com/JupiterMetaLabs/JMDN-FastSync/common/types/wal"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/communication"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/merkle"
@@ -451,7 +451,7 @@ type refreshedRemote struct {
 // Before comparing trees, it proactively refreshes the availability token for
 // every remote in parallel, retrying up to maxRetries times per peer. Peers
 // whose every attempt fails are excluded. If no peer can authenticate, the call
-// returns fserrors.AuthenticationFailed.
+// returns commonerrors.AuthenticationFailed.
 //
 // Return semantics:
 //   - (nil, true, nil)  — trees match; ready for DataSync.
@@ -491,7 +491,7 @@ func (hs *HeaderSync) buildMerkleSnapshot(ctx context.Context, topBlock uint64) 
 
 // refreshAuthForRemotes concurrently re-requests an availability token for each
 // remote, delegating each attempt (with retries) to tryRefreshAuth. Peers that
-// fail all retries are excluded. Returns fserrors.AuthenticationFailed if every
+// fail all retries are excluded. Returns commonerrors.AuthenticationFailed if every
 // peer is excluded.
 func (hs *HeaderSync) refreshAuthForRemotes(
 	ctx context.Context,
@@ -521,7 +521,7 @@ func (hs *HeaderSync) refreshAuthForRemotes(
 
 	if len(out) == 0 {
 		return nil, fmt.Errorf("sync confirmation: no peers could be re-authenticated: %w",
-			fserrors.AuthenticationFailed)
+			commonerrors.AuthenticationFailed)
 	}
 	return out, nil
 }
