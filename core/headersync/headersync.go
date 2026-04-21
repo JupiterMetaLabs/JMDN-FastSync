@@ -2,8 +2,10 @@ package headersync
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/WAL"
@@ -20,6 +22,7 @@ import (
 	taggingpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/tagging"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/constants"
+	fserrors "github.com/JupiterMetaLabs/JMDN-FastSync/common/types/errors"
 	wal_types "github.com/JupiterMetaLabs/JMDN-FastSync/common/types/wal"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/communication"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/merkle"
@@ -515,6 +518,18 @@ func (hs *HeaderSync) SyncConfirmation(ctx context.Context, remotes []*availabil
 		cancel()
 
 		if err != nil {
+			// Auth-expiry is not a "try next peer" problem — every remote in the list
+			// was authorized with the same session UUID, so they will all reject.
+			// Return the sentinel immediately so the outer coordinator can re-request
+			// availability and obtain a fresh token before retrying HeaderSync.
+			if errors.Is(err, fserrors.AuthenticationFailed) ||
+				strings.Contains(err.Error(), "authentication failed") {
+				Log.Logger(Log.HeaderSync).Warn(ctx, "Sync confirmation: auth token expired, signalling re-auth required",
+					ion.String("peer", remoteNodeInfo.PeerID.String()),
+					ion.Err(err))
+				return nil, false, fmt.Errorf("sync confirmation auth expired (peer=%s): %w",
+					remoteNodeInfo.PeerID.String(), fserrors.AuthenticationFailed)
+			}
 			Log.Logger(Log.HeaderSync).Warn(ctx, "Sync confirmation failed with remote, trying next",
 				ion.String("peer", remoteNodeInfo.PeerID.String()),
 				ion.Err(err))
