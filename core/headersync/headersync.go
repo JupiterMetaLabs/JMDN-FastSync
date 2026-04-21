@@ -548,6 +548,10 @@ func (hs *HeaderSync) tryRefreshAuth(
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		resp, err := hs.Comm.SendAvailabilityRequest(ctx, *nodeInfo, req)
 		if err == nil && resp != nil && resp.IsAvailable && resp.Auth != nil && resp.Auth.UUID != "" {
+			// Mutate ar.Auth in-place so the original remotes slice entry reflects
+			// the fresh token. Workers in processQueue read availResp.Auth directly,
+			// so this propagates without any additional bookkeeping.
+			ar.Auth = resp.Auth
 			Log.Logger(Log.HeaderSync).Debug(ctx, "sync confirmation: re-auth ok",
 				ion.String("peer", nodeInfo.PeerID.String()),
 				ion.String("uuid", resp.Auth.UUID))
@@ -601,6 +605,11 @@ func (hs *HeaderSync) sendPriorSyncToRemotes(
 			return nil, false, err
 		}
 		if synced || tag != nil {
+			// Update ServerAuth to the token of the peer that gave a definitive
+			// response. This ensures buildBatches and the DataSyncRequest envelope
+			// always carry the auth of the peer that actually confirmed the state,
+			// not an arbitrary index from the re-auth fan-out.
+			hs.ServerAuth = remote.freshAuth
 			return tag, synced, nil
 		}
 		// Ambiguous response: try the next authenticated peer.
