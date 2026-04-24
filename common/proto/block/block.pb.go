@@ -36,6 +36,7 @@ type Header struct {
 	GasLimit      uint64                 `protobuf:"varint,11,opt,name=gas_limit,json=gasLimit,proto3" json:"gas_limit,omitempty"`
 	GasUsed       uint64                 `protobuf:"varint,12,opt,name=gas_used,json=gasUsed,proto3" json:"gas_used,omitempty"`
 	BlockNumber   uint64                 `protobuf:"varint,13,opt,name=block_number,json=blockNumber,proto3" json:"block_number,omitempty"`
+	LogsBloom     []byte                 `protobuf:"bytes,14,opt,name=logs_bloom,json=logsBloom,proto3" json:"logs_bloom,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -159,6 +160,13 @@ func (x *Header) GetBlockNumber() uint64 {
 		return x.BlockNumber
 	}
 	return 0
+}
+
+func (x *Header) GetLogsBloom() []byte {
+	if x != nil {
+		return x.LogsBloom
+	}
+	return nil
 }
 
 type Transaction struct {
@@ -561,7 +569,7 @@ var File_block_block_proto protoreflect.FileDescriptor
 
 const file_block_block_proto_rawDesc = "" +
 	"\n" +
-	"\x11block/block.proto\x12\x05block\"\x91\x03\n" +
+	"\x11block/block.proto\x12\x05block\"\xb0\x03\n" +
 	"\x06Header\x12\x1d\n" +
 	"\n" +
 	"proof_hash\x18\x01 \x01(\tR\tproofHash\x12\x16\n" +
@@ -580,7 +588,9 @@ const file_block_block_proto_rawDesc = "" +
 	" \x01(\fR\tblockHash\x12\x1b\n" +
 	"\tgas_limit\x18\v \x01(\x04R\bgasLimit\x12\x19\n" +
 	"\bgas_used\x18\f \x01(\x04R\agasUsed\x12!\n" +
-	"\fblock_number\x18\r \x01(\x04R\vblockNumber\"\xae\x03\n" +
+	"\fblock_number\x18\r \x01(\x04R\vblockNumber\x12\x1d\n" +
+	"\n" +
+	"logs_bloom\x18\x0e \x01(\fR\tlogsBloom\"\xae\x03\n" +
 	"\vTransaction\x12\x12\n" +
 	"\x04hash\x18\x01 \x01(\fR\x04hash\x12\x12\n" +
 	"\x04from\x18\x02 \x01(\fR\x04from\x12\x0e\n" +
