@@ -1,3 +1,6 @@
 context/*
 Temp.txt
 **/.tmp
+.claude/*
+.cursor/*
+graphify-out/*
