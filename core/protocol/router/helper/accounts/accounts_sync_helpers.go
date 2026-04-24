@@ -10,28 +10,6 @@ import (
 	art "github.com/JupiterMetaLabs/JMDN_Merkletree/art"
 )
 
-// AccountsSyncResult is the internal return type for ACCOUNTS_SYNC and HandleAccountsSync.
-// Build instances exclusively through resultFactory (accounts_errors.go) — never construct
-// this struct inline so the wire shape stays in one place.
-//
-// Non-final batch (is_last=false, no error):
-//   - BatchAck is set; EndOfStream is nil; DiffReady is false.
-//   - Stream handler sends BatchAck and loops for the next chunk.
-//
-// Final batch (is_last=true, no error):
-//   - BatchAck is set; DiffReady is true; Missing holds every account the client lacks.
-//   - Stream handler pages Missing to the client, then builds and sends EndOfStream.
-//
-// Error path (any stage — auth failure, checksum mismatch, merge error, etc.):
-//   - EndOfStream is set with Ack.Ok=false; BatchAck is nil.
-//   - Stream handler sends EndOfStream and closes — stream must not continue.
-type AccountsSyncResult struct {
-	BatchAck    *accountspb.AccountBatchAck
-	EndOfStream *accountspb.AccountSyncEndOfStream
-	Missing     []*accountspb.Account
-	DiffReady   bool
-}
-
 // LockedART wraps a SwappableART and owns the mutex that protects it.
 //
 // Problem it solves:
