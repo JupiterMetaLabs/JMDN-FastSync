@@ -20,6 +20,7 @@ import (
 	taggingpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/tagging"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/constants"
+	commonerrors "github.com/JupiterMetaLabs/JMDN-FastSync/common/types/errors"
 	wal_types "github.com/JupiterMetaLabs/JMDN-FastSync/common/types/wal"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/communication"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/merkle"
@@ -436,122 +437,260 @@ func fetchWorker(
 	}
 }
 
-// syncConfirmation sends a PriorSync (SYNC_REQUEST) to a remote to compare
-// Merkle trees. If the trees match, (nil, true, nil) is returned. If they differ,
-// the response will contain a HeaderSyncRequest.Tag with the differing ranges,
-// which is returned as (tag, false, nil) for re-enqueueing.
+// refreshedRemote holds a parsed node info and a freshly obtained auth token
+// for a remote peer that has passed proactive re-authentication before a sync
+// confirmation round.
+type refreshedRemote struct {
+	nodeInfo  *types.Nodeinfo
+	freshAuth *authpb.Auth
+}
+
+// SyncConfirmation sends a PriorSync (Merkle comparison) request to each remote
+// peer to determine whether local and remote header sets are in sync.
+//
+// Before comparing trees, it proactively refreshes the availability token for
+// every remote in parallel, retrying up to maxRetries times per peer. Peers
+// whose every attempt fails are excluded. If no peer can authenticate, the call
+// returns commonerrors.AuthenticationFailed.
+//
+// Return semantics:
+//   - (nil, true, nil)  — trees match; ready for DataSync.
+//   - (tag, false, nil) — divergence detected; tag identifies the differing ranges.
+//   - (nil, false, err) — unrecoverable error; caller must abort.
+
 func (hs *HeaderSync) SyncConfirmation(ctx context.Context, remotes []*availabilitypb.AvailabilityResponse) (*taggingpb.Tag, bool, error) {
-	// Build local Merkle tree from our current block state
-	blockInfo := hs.SyncVars.NodeInfo.BlockInfo
-	localDetails := blockInfo.GetBlockDetails()
+	localDetails := hs.SyncVars.NodeInfo.BlockInfo.GetBlockDetails()
 
-	// Build the local Merkle snapshot
-	merkleDb := merkle.NewMerkleProof(blockInfo)
-	merklebuilder, err := merkleDb.GenerateMerkleTree(context.Background(), 0, localDetails.Blocknumber)
+	snapshot, err := hs.buildMerkleSnapshot(ctx, localDetails.Blocknumber)
 	if err != nil {
-		return nil, false, fmt.Errorf("failed to build local merkle tree: %w", err)
-	}
-	merkleSnapshot, err := merkleDb.ToSnapshot(ctx, merklebuilder)
-	if err != nil {
-		return nil, false, fmt.Errorf("failed to convert merkle snapshot: %w", err)
+		return nil, false, err
 	}
 
-	// Checksum handler
-	checksum_handler := checksum_priorsync.PriorSyncChecksum()
+	authRemotes, err := hs.refreshAuthForRemotes(ctx, remotes, localDetails.Blocknumber)
+	if err != nil {
+		return nil, false, err
+	}
 
-	// Try each remote for confirmation
-	for _, availResp := range remotes {
-		remoteNodeInfo, err := helper.NewNodeInfoHelper().ToNodeinfo(availResp.Nodeinfo)
-		if err != nil {
-			Log.Logger(Log.HeaderSync).Warn(ctx, "Failed to parse remote nodeinfo, skipping",
-				ion.Err(err))
-			continue
-		}
+	return hs.sendPriorSyncToRemotes(ctx, snapshot, authRemotes, localDetails)
+}
 
-		childctx, cancel := context.WithCancel(ctx)
-		defer cancel()
+// buildMerkleSnapshot generates a Merkle tree over [0, topBlock] from the local
+// block store and returns a serialized snapshot for inclusion in a PriorSync request.
+func (hs *HeaderSync) buildMerkleSnapshot(ctx context.Context, topBlock uint64) (*merklepb.MerkleSnapshot, error) {
+	db := merkle.NewMerkleProof(hs.SyncVars.NodeInfo.BlockInfo)
+	builder, err := db.GenerateMerkleTree(ctx, 0, topBlock)
+	if err != nil {
+		return nil, fmt.Errorf("build merkle tree: %w", err)
+	}
+	snapshot, err := db.ToSnapshot(ctx, builder)
+	if err != nil {
+		return nil, fmt.Errorf("serialize merkle snapshot: %w", err)
+	}
+	return snapshot, nil
+}
 
-		var range_priorsync *merklepb.Range
-		if localDetails.Range != nil {
-			range_priorsync = &merklepb.Range{
-				Start: localDetails.Range.Start,
-				End:   localDetails.Range.End,
+// refreshAuthForRemotes concurrently re-requests an availability token for each
+// remote, delegating each attempt (with retries) to tryRefreshAuth. Peers that
+// fail all retries are excluded. Returns commonerrors.AuthenticationFailed if every
+// peer is excluded.
+func (hs *HeaderSync) refreshAuthForRemotes(
+	ctx context.Context,
+	remotes []*availabilitypb.AvailabilityResponse,
+	topBlock uint64,
+) ([]refreshedRemote, error) {
+	resultCh := make(chan refreshedRemote, len(remotes))
+	var wg sync.WaitGroup
+
+	for _, ar := range remotes {
+		wg.Add(1)
+		go func(ar *availabilitypb.AvailabilityResponse) {
+			defer wg.Done()
+			if r, ok := hs.tryRefreshAuth(ctx, ar, topBlock); ok {
+				resultCh <- r
 			}
-		} else {
-			range_priorsync = &merklepb.Range{
-				Start: 0,
-				End:   localDetails.Blocknumber,
-			}
-		}
+		}(ar)
+	}
 
-		// Use the auth from this specific remote's availability response
-		syncMsg := &priorsyncpb.PriorSyncMessage{
-			Priorsync: &priorsyncpb.PriorSync{
-				Blocknumber: localDetails.Blocknumber,
-				Stateroot:   localDetails.Stateroot,
-				Blockhash:   localDetails.Blockhash,
-				Range:       range_priorsync,
-				Metadata:    &priorsyncpb.Metadata{},
-			},
-			Phase: &phasepb.Phase{
-				Auth: availResp.Auth,
-			},
-		}
+	wg.Wait()
+	close(resultCh)
 
-		checksum, err := checksum_handler.CreatefromPB(syncMsg.GetPriorsync(), uint16(localDetails.Metadata.Version))
+	var out []refreshedRemote
+	for r := range resultCh {
+		out = append(out, r)
+	}
+
+	if len(out) == 0 {
+		return nil, fmt.Errorf("sync confirmation: no peers could be re-authenticated: %w",
+			commonerrors.AuthenticationFailed)
+	}
+	return out, nil
+}
+
+// tryRefreshAuth attempts to obtain a fresh availability token for a single peer,
+// retrying up to maxRetries times. Returns (result, true) on success, (zero, false)
+// when all attempts fail or the peer response is invalid.
+func (hs *HeaderSync) tryRefreshAuth(
+	ctx context.Context,
+	ar *availabilitypb.AvailabilityResponse,
+	topBlock uint64,
+) (refreshedRemote, bool) {
+	nodeInfo, err := helper.NewNodeInfoHelper().ToNodeinfo(ar.Nodeinfo)
+	if err != nil {
+		Log.Logger(Log.HeaderSync).Warn(ctx, "sync confirmation: cannot parse remote nodeinfo",
+			ion.Err(err))
+		return refreshedRemote{}, false
+	}
+
+	req := &availabilitypb.AvailabilityRequest{
+		Range: &merklepb.Range{Start: 0, End: topBlock},
+	}
+
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		resp, err := hs.Comm.SendAvailabilityRequest(ctx, *nodeInfo, req)
+		if err == nil && resp != nil && resp.IsAvailable && resp.Auth != nil && resp.Auth.UUID != "" {
+			// Mutate ar.Auth in-place so the original remotes slice entry reflects
+			// the fresh token. Workers in processQueue read availResp.Auth directly,
+			// so this propagates without any additional bookkeeping.
+			ar.Auth = resp.Auth
+			Log.Logger(Log.HeaderSync).Debug(ctx, "sync confirmation: re-auth ok",
+				ion.String("peer", nodeInfo.PeerID.String()),
+				ion.String("uuid", resp.Auth.UUID))
+			return refreshedRemote{nodeInfo: nodeInfo, freshAuth: resp.Auth}, true
+		}
+		Log.Logger(Log.HeaderSync).Warn(ctx, "sync confirmation: re-auth attempt failed",
+			ion.String("peer", nodeInfo.PeerID.String()),
+			ion.Int("attempt", attempt),
+			ion.Err(err))
+	}
+
+	Log.Logger(Log.HeaderSync).Warn(ctx, "sync confirmation: re-auth exhausted for peer",
+		ion.String("peer", nodeInfo.PeerID.String()))
+	return refreshedRemote{}, false
+}
+
+// sendPriorSyncToRemotes iterates over authenticated remotes, sending a PriorSync
+// Merkle comparison to each in turn. Returns on the first definitive outcome.
+func (hs *HeaderSync) sendPriorSyncToRemotes(
+	ctx context.Context,
+	snapshot *merklepb.MerkleSnapshot,
+	remotes []refreshedRemote,
+	localDetails types.PriorSync,
+) (*taggingpb.Tag, bool, error) {
+	blockRange := priorSyncRange(localDetails)
+
+	for _, remote := range remotes {
+		msg, err := buildPriorSyncMsg(localDetails, blockRange, remote.freshAuth)
 		if err != nil {
-			return nil, false, fmt.Errorf("failed to create checksum: %w", err)
+			return nil, false, err
 		}
 
-		syncMsg.Priorsync.Metadata.Checksum = checksum
-		syncMsg.Priorsync.Metadata.Version = uint32(localDetails.Metadata.Version)
-
-		Log.Logger(Log.HeaderSync).Debug(ctx, "Sending sync confirmation",
-			ion.String("peer", remoteNodeInfo.PeerID.String()),
+		Log.Logger(Log.HeaderSync).Debug(ctx, "sync confirmation: sending priorsync",
+			ion.String("peer", remote.nodeInfo.PeerID.String()),
 			ion.Uint64("blocknumber", localDetails.Blocknumber),
-			ion.String("UUID", syncMsg.Phase.GetAuth().GetUUID()))
+			ion.String("uuid", msg.Phase.GetAuth().GetUUID()))
 
-		resp, err := hs.Comm.SendPriorSync(childctx, merkleSnapshot, *remoteNodeInfo, *syncMsg)
-		cancel()
+		childCtx, cancel := context.WithCancel(ctx)
+		resp, err := hs.Comm.SendPriorSync(childCtx, snapshot, *remote.nodeInfo, *msg)
+		cancel() // called directly to avoid defer accumulation in a loop
 
 		if err != nil {
-			Log.Logger(Log.HeaderSync).Warn(ctx, "Sync confirmation failed with remote, trying next",
-				ion.String("peer", remoteNodeInfo.PeerID.String()),
+			Log.Logger(Log.HeaderSync).Warn(ctx, "sync confirmation: send failed, trying next peer",
+				ion.String("peer", remote.nodeInfo.PeerID.String()),
 				ion.Err(err))
 			continue
 		}
 
-		// Check the response phase for success
-		if resp.Phase != nil && resp.Phase.Success {
-			if resp.Headersync == nil {
-				return nil, false, fmt.Errorf("sync confirmation failed: headersync is nil")
-			}
-			// Trees match — nil tag with successive phase DATA_SYNC_REQUEST
-			// confirms headers are in sync.
-			if resp.Headersync.Tag == nil && resp.Phase.SuccessivePhase == constants.DATA_SYNC_REQUEST {
-				Log.Logger(Log.HeaderSync).Info(ctx, "Sync confirmation: headers in sync, ready for data sync",
-					ion.String("successive_phase", resp.Phase.SuccessivePhase))
-				return nil, true, nil
-			}
+		tag, synced, err := interpretSyncResponse(ctx, resp, remote.nodeInfo)
+		if err != nil {
+			return nil, false, err
 		}
-
-		// Trees differ — server returned tagged ranges that still need syncing
-		if resp.Headersync != nil && resp.Headersync.Tag != nil {
-			tag := resp.Headersync.Tag
-			totalRanges := len(tag.Range)
-			totalBlocks := len(tag.BlockNumber)
-			Log.Logger(Log.HeaderSync).Info(ctx, "Sync confirmation: still out of sync",
-				ion.Int("remaining_ranges", totalRanges),
-				ion.Int("remaining_blocks", totalBlocks))
-			return tag, false, nil
+		if synced || tag != nil {
+			// Update ServerAuth to the token of the peer that gave a definitive
+			// response. This ensures buildBatches and the DataSyncRequest envelope
+			// always carry the auth of the peer that actually confirmed the state,
+			// not an arbitrary index from the re-auth fan-out.
+			hs.ServerAuth = remote.freshAuth
+			return tag, synced, nil
 		}
-
-		// No phase success and no tag — ambiguous, try next remote
-		Log.Logger(Log.HeaderSync).Warn(ctx, "Sync confirmation returned ambiguous response",
-			ion.String("peer", remoteNodeInfo.PeerID.String()))
+		// Ambiguous response: try the next authenticated peer.
 	}
 
-	return nil, false, fmt.Errorf("sync confirmation failed: all remotes exhausted")
+	return nil, false, fmt.Errorf("sync confirmation: all peers exhausted without a definitive response")
+}
+
+// priorSyncRange returns the Merkle comparison range to embed in a PriorSync message.
+// If the local block state carries a bounded range, that range is preserved;
+// otherwise the full chain range [0, topBlock] is used.
+func priorSyncRange(details types.PriorSync) *merklepb.Range {
+	if details.Range != nil {
+		return &merklepb.Range{Start: details.Range.Start, End: details.Range.End}
+	}
+	return &merklepb.Range{Start: 0, End: details.Blocknumber}
+}
+
+// buildPriorSyncMsg constructs a PriorSyncMessage with a computed checksum.
+// It is a pure function: same inputs always produce equivalent output.
+func buildPriorSyncMsg(
+	details types.PriorSync,
+	blockRange *merklepb.Range,
+	auth *authpb.Auth,
+) (*priorsyncpb.PriorSyncMessage, error) {
+	msg := &priorsyncpb.PriorSyncMessage{
+		Priorsync: &priorsyncpb.PriorSync{
+			Blocknumber: details.Blocknumber,
+			Stateroot:   details.Stateroot,
+			Blockhash:   details.Blockhash,
+			Range:       blockRange,
+			Metadata:    &priorsyncpb.Metadata{},
+		},
+		Phase: &phasepb.Phase{Auth: auth},
+	}
+
+	checksum, err := checksum_priorsync.PriorSyncChecksum().CreatefromPB(
+		msg.GetPriorsync(), uint16(details.Metadata.Version),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("compute priorsync checksum: %w", err)
+	}
+
+	msg.Priorsync.Metadata.Checksum = checksum
+	msg.Priorsync.Metadata.Version = uint32(details.Metadata.Version)
+	return msg, nil
+}
+
+// interpretSyncResponse classifies a PriorSync response from a remote peer:
+//   - (nil, true, nil)  — Merkle trees match; ready for DataSync.
+//   - (tag, false, nil) — divergence detected; tag holds the differing ranges.
+//   - (nil, false, err) — structurally invalid success response; caller must abort.
+//   - (nil, false, nil) — ambiguous response; caller should try the next peer.
+func interpretSyncResponse(
+	ctx context.Context,
+	resp *priorsyncpb.PriorSyncMessage,
+	peer *types.Nodeinfo,
+) (*taggingpb.Tag, bool, error) {
+	if resp.Phase != nil && resp.Phase.Success {
+		if resp.Headersync == nil {
+			return nil, false, fmt.Errorf("sync confirmation: success response missing headersync payload")
+		}
+		if resp.Headersync.Tag == nil && resp.Phase.SuccessivePhase == constants.DATA_SYNC_REQUEST {
+			Log.Logger(Log.HeaderSync).Info(ctx, "sync confirmation: trees match, advancing to data sync",
+				ion.String("peer", peer.PeerID.String()))
+			return nil, true, nil
+		}
+	}
+
+	if resp.Headersync != nil && resp.Headersync.Tag != nil {
+		tag := resp.Headersync.Tag
+		Log.Logger(Log.HeaderSync).Info(ctx, "sync confirmation: divergence detected",
+			ion.String("peer", peer.PeerID.String()),
+			ion.Int("ranges", len(tag.Range)),
+			ion.Int("blocks", len(tag.BlockNumber)))
+		return tag, false, nil
+	}
+
+	Log.Logger(Log.HeaderSync).Warn(ctx, "sync confirmation: ambiguous response from peer",
+		ion.String("peer", peer.PeerID.String()))
+	return nil, false, nil
 }
 
 // buildBatches groups tag ranges and individual block numbers into
