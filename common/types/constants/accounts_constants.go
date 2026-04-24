@@ -37,3 +37,16 @@ const (
 const (
 	TEMP_ART_DIR = "/jmdn-accountsync-art"
 )
+
+// ── Concurrent dispatch constants ──────────────────────────────────────────────
+//
+// During AccountSync response, missing accounts are split into batches and
+// dispatched concurrently to keep bandwidth utilization high while maintaining
+// memory bounds. Each batch becomes one AccountSyncResponse page.
+//
+// At peak: MaxAccountsPerBatch × NumConcurrentBatches = 3000 × 10 = 30,000
+// accounts dispatched per iteration.
+const (
+	MaxAccountsPerBatch    = 3_000  // accounts per AccountSyncResponse page
+	NumConcurrentBatches   = 10     // concurrent workers (parallel pages in flight)
+)

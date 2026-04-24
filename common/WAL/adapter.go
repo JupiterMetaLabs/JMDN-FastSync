@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/accounts"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/datasync"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/headersync"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/merkle"
@@ -277,6 +278,71 @@ func (e *PoTSBlockEvent) Deserialize(data []byte) error {
 	return json.Unmarshal(data, e)
 }
 
+// AccountSyncEvent records one page of missing accounts delivered to the client
+// during AccountSync (Phase 5). The WAL entry is written before the accounts are
+// persisted to the database, enabling crash recovery via idempotent CreateAccount.
+//
+// Implements wal_types.EventAdapter.
+type AccountSyncEvent struct {
+	wal_types.BaseEvent
+	Response  *accounts.AccountSyncResponse `json:"-"`
+	ProtoData []byte                        `json:"proto_data"`
+}
+
+// GetType returns the WAL type identifier for AccountSync events.
+//
+// Time: O(1). Space: O(1).
+func (e *AccountSyncEvent) GetType() wal_types.WALType {
+	return wal_types.AccountSync
+}
+
+// GetOperation returns the event operation type.
+//
+// Time: O(1). Space: O(1).
+func (e *AccountSyncEvent) GetOperation() wal_types.EventOperation {
+	return e.Operation
+}
+
+// Serialize encodes the event to bytes for WAL storage.
+// The AccountSyncResponse proto is marshalled to ProtoData; the outer struct
+// is then JSON-encoded so the BaseEvent LSN and type fields are preserved.
+//
+// Time: O(n) where n = total bytes across all accounts in the page.
+// Space: O(n) — allocates proto bytes + JSON bytes proportional to account count.
+func (e *AccountSyncEvent) Serialize() ([]byte, error) {
+	e.Type = wal_types.AccountSync
+
+	if e.Response != nil {
+		protoBytes, err := proto.Marshal(e.Response)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal proto: %w", err)
+		}
+		e.ProtoData = protoBytes
+	}
+
+	return json.Marshal(e)
+}
+
+// Deserialize reconstructs the event from WAL bytes produced by Serialize.
+// Returns an error if either the JSON envelope or the embedded proto is malformed.
+//
+// Time: O(n) where n = total bytes in the serialised form.
+// Space: O(n) — allocates the decoded AccountSyncResponse and its accounts slice.
+func (e *AccountSyncEvent) Deserialize(data []byte) error {
+	if err := json.Unmarshal(data, e); err != nil {
+		return err
+	}
+
+	if len(e.ProtoData) > 0 {
+		e.Response = &accounts.AccountSyncResponse{}
+		if err := proto.Unmarshal(e.ProtoData, e.Response); err != nil {
+			return fmt.Errorf("failed to unmarshal proto: %w", err)
+		}
+	}
+
+	return nil
+}
+
 // EventFactory creates the appropriate event adapter based on WAL type
 func EventFactory(walType wal_types.WALType) (wal_types.EventAdapter, error) {
 	switch walType {
@@ -292,6 +358,8 @@ func EventFactory(walType wal_types.WALType) (wal_types.EventAdapter, error) {
 		return &ReconciliationBatchEvent{}, nil
 	case wal_types.PoTS:
 		return &PoTSBlockEvent{}, nil
+	case wal_types.AccountSync:
+		return &AccountSyncEvent{}, nil
 	default:
 		return nil, fmt.Errorf("unknown WAL type: %s", walType)
 	}
