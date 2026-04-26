@@ -4,8 +4,11 @@ import (
 	"fmt"
 	"sync"
 
+	"errors"
 	accountspb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/accounts"
+	checksumpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/checksum"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
+	localerrors "github.com/JupiterMetaLabs/JMDN-FastSync/common/types/errors"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/checksum"
 	art "github.com/JupiterMetaLabs/JMDN_Merkletree/art"
 )
@@ -91,16 +94,29 @@ func (l *LockedART) Close() error {
 //
 // Time:  O(n) where n = len(artBytes) — one CRC32 pass.
 // Space: O(1) — no heap allocations beyond the 4-byte intermediate.
-func ARTChecksumValid(artBytes, csBytes []byte) bool {
-	if len(csBytes) == 0 {
-		return false
+func ARTChecksumValid(art_bytes []byte, checksum_object *checksumpb.Checksum) (bool, error) {
+
+	if checksum_object == nil || len(checksum_object.GetChecksum()) == 0 {
+		return false, errors.New(localerrors.NilData.Error()+", checksum object is nil or checksum is empty")
 	}
 	cs := checksum.NewChecksum()
-	ok, err := cs.Verify(artBytes, checksum.VersionCRC32, csBytes)
-	if err != nil {
-		return false
+	version := checksum_object.GetVersion()
+	switch version {
+	case checksumpb.ChecksumVersion_CRC32:
+		ok, err := cs.Verify(art_bytes, checksum.VersionCRC32, checksum_object.GetChecksum())
+		if err != nil {
+			return false, err
+		}
+		return ok, nil
+	case checksumpb.ChecksumVersion_SHA256:
+		ok, err := cs.Verify(art_bytes, checksum.VersionSHA256, checksum_object.GetChecksum())
+		if err != nil {
+			return false, err
+		}
+		return ok, nil
+	default:
+		return false, errors.New(localerrors.UnsupportedChecksumVersion.Error()+", unsupported checksum version: "+version.String())
 	}
-	return ok
 }
 
 // ConvertMissingToProto converts the diff result map (nonce → types.Account) to a
