@@ -8,6 +8,7 @@ package accounts
 
 import (
 	ack "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/ack"
+	checksum "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/checksum"
 	phase "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/phase"
 	tagging "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/tagging"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
@@ -141,17 +142,18 @@ func (x *Account) GetMetadata() *structpb.Struct {
 //	ART        — zstd-compressed ART of nonces the client already has
 //	TotalKeys  — client's full account count (lets server know how many batches to expect)
 //	KeysRange  — nonce range this chunk covers (enables O(1) segment routing on server)
-//	Checksum   — integrity verification of the ART bytes
+//	Checksum — checksum.Checksum (value + ChecksumVersion) over `art`; when value is
+//	               non-empty, server uses this and ignores field 4.
 //	Phase      — phase information
 type AccountNonceSyncRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Art           []byte                 `protobuf:"bytes,1,opt,name=art,proto3" json:"art,omitempty"`                                  // zstd-compressed ART chunk (art.Encode output)
 	TotalKeys     uint64                 `protobuf:"varint,2,opt,name=total_keys,json=totalKeys,proto3" json:"total_keys,omitempty"`    // client's total account count across ALL chunks
 	KeysRange     *tagging.RangeTag      `protobuf:"bytes,3,opt,name=keys_range,json=keysRange,proto3" json:"keys_range,omitempty"`     // nonce range [start, end] for this chunk
-	Checksum      []byte                 `protobuf:"bytes,4,opt,name=checksum,proto3" json:"checksum,omitempty"`                        // integrity checksum of the art bytes
 	BatchIndex    uint32                 `protobuf:"varint,5,opt,name=batch_index,json=batchIndex,proto3" json:"batch_index,omitempty"` // 0-indexed sequence number
 	IsLast        bool                   `protobuf:"varint,6,opt,name=is_last,json=isLast,proto3" json:"is_last,omitempty"`             // true on the final batch — server starts diff computation after this
 	Phase         *phase.Phase           `protobuf:"bytes,7,opt,name=phase,proto3" json:"phase,omitempty"`                              // phase information
+	Checksum      *checksum.Checksum     `protobuf:"bytes,8,opt,name=checksum,proto3" json:"checksum,omitempty"`                        // optional: versioned digest (shared checksum.proto)
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -207,13 +209,6 @@ func (x *AccountNonceSyncRequest) GetKeysRange() *tagging.RangeTag {
 	return nil
 }
 
-func (x *AccountNonceSyncRequest) GetChecksum() []byte {
-	if x != nil {
-		return x.Checksum
-	}
-	return nil
-}
-
 func (x *AccountNonceSyncRequest) GetBatchIndex() uint32 {
 	if x != nil {
 		return x.BatchIndex
@@ -231,6 +226,13 @@ func (x *AccountNonceSyncRequest) GetIsLast() bool {
 func (x *AccountNonceSyncRequest) GetPhase() *phase.Phase {
 	if x != nil {
 		return x.Phase
+	}
+	return nil
+}
+
+func (x *AccountNonceSyncRequest) GetChecksum() *checksum.Checksum {
+	if x != nil {
+		return x.Checksum
 	}
 	return nil
 }
@@ -616,7 +618,7 @@ var File_accounts_accounts_proto protoreflect.FileDescriptor
 
 const file_accounts_accounts_proto_rawDesc = "" +
 	"\n" +
-	"\x17accounts/accounts.proto\x12\baccounts\x1a\x1cgoogle/protobuf/struct.proto\x1a\rack/ack.proto\x1a\x11phase/phase.proto\x1a\x11tagging/tag.proto\"\x8a\x02\n" +
+	"\x17accounts/accounts.proto\x12\baccounts\x1a\x1cgoogle/protobuf/struct.proto\x1a\rack/ack.proto\x1a\x11phase/phase.proto\x1a\x11tagging/tag.proto\x1a\x17checksum/checksum.proto\"\x8a\x02\n" +
 	"\aAccount\x12\x1f\n" +
 	"\vdid_address\x18\x01 \x01(\tR\n" +
 	"didAddress\x12\x18\n" +
@@ -628,18 +630,18 @@ const file_accounts_accounts_proto_rawDesc = "" +
 	"created_at\x18\x06 \x01(\x03R\tcreatedAt\x12\x1d\n" +
 	"\n" +
 	"updated_at\x18\a \x01(\x03R\tupdatedAt\x123\n" +
-	"\bmetadata\x18\b \x01(\v2\x17.google.protobuf.StructR\bmetadata\"\xf6\x01\n" +
+	"\bmetadata\x18\b \x01(\v2\x17.google.protobuf.StructR\bmetadata\"\x8a\x02\n" +
 	"\x17AccountNonceSyncRequest\x12\x10\n" +
 	"\x03art\x18\x01 \x01(\fR\x03art\x12\x1d\n" +
 	"\n" +
 	"total_keys\x18\x02 \x01(\x04R\ttotalKeys\x120\n" +
 	"\n" +
-	"keys_range\x18\x03 \x01(\v2\x11.tagging.RangeTagR\tkeysRange\x12\x1a\n" +
-	"\bchecksum\x18\x04 \x01(\fR\bchecksum\x12\x1f\n" +
+	"keys_range\x18\x03 \x01(\v2\x11.tagging.RangeTagR\tkeysRange\x12\x1f\n" +
 	"\vbatch_index\x18\x05 \x01(\rR\n" +
 	"batchIndex\x12\x17\n" +
 	"\ais_last\x18\x06 \x01(\bR\x06isLast\x12\"\n" +
-	"\x05phase\x18\a \x01(\v2\f.phase.PhaseR\x05phase\"N\n" +
+	"\x05phase\x18\a \x01(\v2\f.phase.PhaseR\x05phase\x12.\n" +
+	"\bchecksum\x18\b \x01(\v2\x12.checksum.ChecksumR\bchecksum\"N\n" +
 	"\x0fAccountBatchAck\x12\x1f\n" +
 	"\vbatch_index\x18\x01 \x01(\rR\n" +
 	"batchIndex\x12\x1a\n" +
@@ -689,27 +691,29 @@ var file_accounts_accounts_proto_goTypes = []any{
 	(*structpb.Struct)(nil),          // 7: google.protobuf.Struct
 	(*tagging.RangeTag)(nil),         // 8: tagging.RangeTag
 	(*phase.Phase)(nil),              // 9: phase.Phase
-	(*ack.Ack)(nil),                  // 10: ack.Ack
+	(*checksum.Checksum)(nil),        // 10: checksum.Checksum
+	(*ack.Ack)(nil),                  // 11: ack.Ack
 }
 var file_accounts_accounts_proto_depIdxs = []int32{
 	7,  // 0: accounts.Account.metadata:type_name -> google.protobuf.Struct
 	8,  // 1: accounts.AccountNonceSyncRequest.keys_range:type_name -> tagging.RangeTag
 	9,  // 2: accounts.AccountNonceSyncRequest.phase:type_name -> phase.Phase
-	10, // 3: accounts.AccountBatchAck.ack:type_name -> ack.Ack
-	0,  // 4: accounts.AccountSyncResponse.accounts:type_name -> accounts.Account
-	10, // 5: accounts.AccountSyncResponse.ack:type_name -> ack.Ack
-	9,  // 6: accounts.AccountSyncResponse.phase:type_name -> phase.Phase
-	10, // 7: accounts.AccountSyncEndOfStream.ack:type_name -> ack.Ack
-	9,  // 8: accounts.AccountSyncEndOfStream.phase:type_name -> phase.Phase
-	2,  // 9: accounts.AccountSyncServerMessage.batch_ack:type_name -> accounts.AccountBatchAck
-	3,  // 10: accounts.AccountSyncServerMessage.heartbeat:type_name -> accounts.AccountSyncHeartbeat
-	4,  // 11: accounts.AccountSyncServerMessage.response:type_name -> accounts.AccountSyncResponse
-	5,  // 12: accounts.AccountSyncServerMessage.end:type_name -> accounts.AccountSyncEndOfStream
-	13, // [13:13] is the sub-list for method output_type
-	13, // [13:13] is the sub-list for method input_type
-	13, // [13:13] is the sub-list for extension type_name
-	13, // [13:13] is the sub-list for extension extendee
-	0,  // [0:13] is the sub-list for field type_name
+	10, // 3: accounts.AccountNonceSyncRequest.checksum:type_name -> checksum.Checksum
+	11, // 4: accounts.AccountBatchAck.ack:type_name -> ack.Ack
+	0,  // 5: accounts.AccountSyncResponse.accounts:type_name -> accounts.Account
+	11, // 6: accounts.AccountSyncResponse.ack:type_name -> ack.Ack
+	9,  // 7: accounts.AccountSyncResponse.phase:type_name -> phase.Phase
+	11, // 8: accounts.AccountSyncEndOfStream.ack:type_name -> ack.Ack
+	9,  // 9: accounts.AccountSyncEndOfStream.phase:type_name -> phase.Phase
+	2,  // 10: accounts.AccountSyncServerMessage.batch_ack:type_name -> accounts.AccountBatchAck
+	3,  // 11: accounts.AccountSyncServerMessage.heartbeat:type_name -> accounts.AccountSyncHeartbeat
+	4,  // 12: accounts.AccountSyncServerMessage.response:type_name -> accounts.AccountSyncResponse
+	5,  // 13: accounts.AccountSyncServerMessage.end:type_name -> accounts.AccountSyncEndOfStream
+	14, // [14:14] is the sub-list for method output_type
+	14, // [14:14] is the sub-list for method input_type
+	14, // [14:14] is the sub-list for extension type_name
+	14, // [14:14] is the sub-list for extension extendee
+	0,  // [0:14] is the sub-list for field type_name
 }
 
 func init() { file_accounts_accounts_proto_init() }

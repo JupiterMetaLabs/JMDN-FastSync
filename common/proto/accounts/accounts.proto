@@ -8,6 +8,8 @@ import "google/protobuf/struct.proto";
 import "ack/ack.proto";
 import "phase/phase.proto";
 import "tagging/tag.proto";
+import "checksum/checksum.proto";
+
 // ================================================================
 // Account record
 // ================================================================
@@ -48,16 +50,17 @@ message Account {
 //   ART        — zstd-compressed ART of nonces the client already has
 //   TotalKeys  — client's full account count (lets server know how many batches to expect)
 //   KeysRange  — nonce range this chunk covers (enables O(1) segment routing on server)
-//   Checksum   — integrity verification of the ART bytes
+//   Checksum — checksum.Checksum (value + ChecksumVersion) over `art`; when value is
+//                  non-empty, server uses this and ignores field 4.
 //   Phase      — phase information
 message AccountNonceSyncRequest {
     bytes      art         = 1; // zstd-compressed ART chunk (art.Encode output)
     uint64     total_keys  = 2; // client's total account count across ALL chunks
     tagging.RangeTag keys_range  = 3; // nonce range [start, end] for this chunk
-    bytes      checksum    = 4; // integrity checksum of the art bytes
     uint32     batch_index = 5; // 0-indexed sequence number
     bool       is_last     = 6; // true on the final batch — server starts diff computation after this
     phase.Phase phase      = 7; // phase information
+    checksum.Checksum checksum = 8; // optional: versioned digest (shared checksum.proto)
 }
 
 // ================================================================

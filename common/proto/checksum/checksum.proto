@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package checksum;
+
+option go_package = "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/checksum";
+
+// ChecksumVersion mirrors the version constants in internal/checksum/checksum.go.
+//   CRC32  (1) — 4-byte big-endian IEEE CRC32 digest.
+//   SHA256 (2) — 32-byte SHA-256 digest.
+enum ChecksumVersion {
+    CHECKSUM_VERSION_UNSPECIFIED = 0;
+    CRC32                        = 1;
+    SHA256                       = 2;
+}
+
+// Checksum carries a versioned integrity digest over an arbitrary byte payload.
+// The digest bytes are big-endian for CRC32 (4 bytes) and raw for SHA256 (32 bytes).
+message Checksum {
+    // value is the raw digest bytes produced by internal/checksum.Create().
+    bytes checksum = 1;
+    ChecksumVersion version = 2;
+}
