@@ -2,6 +2,13 @@ package sync
 
 import (
 	"context"
+
+	"path/filepath"
+	"os"
+	"github.com/google/uuid"
+	art "github.com/JupiterMetaLabs/JMDN_Merkletree/art"
+	accountshelper "github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/router/helper/accounts"
+	
 	gosync "sync"
 	"time"
 
@@ -17,6 +24,8 @@ import (
 	pubsubpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/pubsub"
 	accountspb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/accounts"
 	ackpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/ack"
+
+	
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/constants"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/errors"
@@ -515,6 +524,16 @@ func (s *Sync) HandleAccountsSync(ctx context.Context, node host.Host) error {
 	node.SetStreamHandler(constants.AccountsSyncProtocol, func(str network.Stream) {
 		defer str.Close()
 
+		// Per-session ART: isolated to this connection, cleaned up when goroutine exits.
+		sessionDir := filepath.Join(os.TempDir(), constants.TEMP_ART_DIR, uuid.New().String())
+		sessionSwappable, err := art.NewSwappable(sessionDir, art.DefaultThreshold)
+		if err != nil {
+			logging.Logger(logging.Sync).Warn(ctx, "accountssync: failed to create session ART", ion.Err(err))
+			return
+		}
+		defer os.RemoveAll(sessionDir)
+		sessionLockedART := accountshelper.NewLockedART(sessionSwappable)
+
 		select {
 		case <-ctx.Done():
 			return
@@ -570,48 +589,66 @@ func (s *Sync) HandleAccountsSync(ctx context.Context, node host.Host) error {
 			}
 		}()
 
-		// Upload loop — reads one ART chunk per iteration, routes to Datarouter.
-		// Datarouter handles IsLast: non-last merges only, last merges + diffs.
-		// result.Phase.SuccessivePhase drives the response:
-		//   ACCOUNTS_SYNC_REQUEST → BatchAck, continue (more chunks expected)
-		//   anything else         → EndOfStream, return (diff done or error)
+		// Upload loop — reads one AccountNonceSyncRequest frame per iteration.
+		// HandleAccountsSync returns an AccountSyncServerMessage whose oneof payload
+		// drives the next action:
+		//
+		//   _BatchAck (Ack.Ok=true)  → chunk accepted; send BatchAck, loop — client
+		//                              sends the next chunk after receiving the ack.
+		//   _BatchAck (Ack.Ok=false) → chunk rejected (checksum mismatch, decode error,
+		//                              etc.); send BatchAck with the error so the client
+		//                              knows what went wrong and can retry the same chunk.
+		//                              Stream stays open — only _End closes it.
+		//   _End (Ack.Ok=false)      → hard error (auth, unknown state, merge, diff fail);
+		//                              send EndOfStream and close.
+		//   _End (Ack.Ok=true)       → diff computation done; page dispatch then send
+		//                              final EndOfStream (TODO in next task).
+		//
+		// Stream lifecycle rule: the stream remains open as long as there is no _End.
+		// Only an _End frame closes the stream. The client blocks waiting for either
+		// a BatchAck (to send its next chunk) or an EndOfStream (to know the stream
+		// is finished). We never close without sending one of these two.
 		for {
 			_ = str.SetReadDeadline(time.Now().Add(constants.StreamDeadline))
 
 			req := &accountspb.AccountNonceSyncRequest{}
 			if err := pbstream.ReadDelimited(str, req); err != nil {
+				// Network-level failure (EOF, deadline, reset). Connection is already
+				// broken so there is nothing to send — return and let defer close.
 				return
 			}
 
-			result := s.Datarouter.HandleAccountsSync(computeCtx, req, remoteNodeInfo)
+			result := s.Datarouter.HandleAccountsSync(computeCtx, req, remoteNodeInfo, sessionLockedART)
 			s.Debug(ctx, constants.AccountsSyncProtocol, node, remoteNodeInfo)
 
-			if result.Phase.SuccessivePhase == constants.ACCOUNTS_SYNC_REQUEST {
-				if err := writeMsg(&accountspb.AccountSyncServerMessage{
-					Payload: &accountspb.AccountSyncServerMessage_BatchAck{
-						BatchAck: &accountspb.AccountBatchAck{
-							BatchIndex: req.BatchIndex,
-							Ack:        result.Ack,
-						},
-					},
-				}); err != nil {
-					return
-				}
-				if !result.Ack.Ok {
-					return
-				}
-				continue
-			}
+			switch p := result.Payload.(type) {
 
-			// Diff complete (or error) — EndOfStream is the final message.
-			// return triggers defer str.Close() for this handler goroutine only;
-			// the server remains up and accepts other client connections.
-			_ = writeMsg(&accountspb.AccountSyncServerMessage{
-				Payload: &accountspb.AccountSyncServerMessage_End{
-					End: result,
-				},
-			})
-			return
+			case *accountspb.AccountSyncServerMessage_BatchAck:
+				// Send the BatchAck. Client is waiting on this before it does anything next.
+				if err := writeMsg(result); err != nil {
+					return
+				}
+				// Whether Ack.Ok is true or false, keep the loop alive.
+				// Ack.Ok=true  → chunk accepted, client sends the next chunk.
+				// Ack.Ok=false → chunk rejected (checksum, decode error, etc.); client
+				//                reads the error from the ack and may retry the same chunk.
+				// The stream stays open in both cases — only _End closes it.
+				_ = p // suppress unused variable warning
+				continue
+
+			case *accountspb.AccountSyncServerMessage_End:
+				// EndOfStream is the only legitimate stream terminator.
+				_ = writeMsg(result)
+				return
+
+			default:
+				// This branch must never be reached — HandleAccountsSync only returns
+				// _BatchAck or _End. If it ever is reached, log and return without
+				// sending anything; the stream deadline will expire on the client side.
+				logging.Logger(logging.Sync).Warn(computeCtx,
+					"accountssync: unexpected payload type from router, closing stream")
+				return
+			}
 		}
 	})
 	return nil
@@ -626,7 +663,7 @@ func (s *Sync) HandleAccountsSync(ctx context.Context, node host.Host) error {
 func (s *Sync) HandleAccountsSyncData(ctx context.Context, node host.Host) error {
 	node.SetStreamHandler(constants.AccountsSyncDataProtocol, func(str network.Stream) {
 		defer str.Close()
-
+		
 		select {
 		case <-ctx.Done():
 			return

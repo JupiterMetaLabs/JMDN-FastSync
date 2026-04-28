@@ -88,6 +88,15 @@ func (l *LockedART) Close() error {
 	return l.swappable.Close()
 }
 
+// Swappable returns the underlying SwappableART for read-only access after
+// Close() has been called. Safe to pass to ComputeAccountDiff once Close()
+// has returned — no further writes will occur on a closed session ART.
+//
+// Time: O(1). Space: O(1).
+func (l *LockedART) Swappable() *art.SwappableART {
+	return l.swappable
+}
+
 // ARTChecksumValid reports whether the CRC32-IEEE checksum of artBytes matches
 // the 4-byte big-endian checksum field from the proto.
 // Returns false if csBytes is empty or verification fails.

@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math"
-	"os"
 	"sync"
 	"time"
 
@@ -38,7 +37,6 @@ import (
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/tagging"
 	merkle_types "github.com/JupiterMetaLabs/JMDN-FastSync/helper/merkle"
 	Log "github.com/JupiterMetaLabs/JMDN-FastSync/logging"
-	art "github.com/JupiterMetaLabs/JMDN_Merkletree/art"
 	"github.com/JupiterMetaLabs/JMDN_Merkletree/merkletree"
 	"github.com/JupiterMetaLabs/ion"
 	libp2p_peer "github.com/libp2p/go-libp2p/core/peer"
@@ -56,18 +54,7 @@ type Datarouter struct {
 	availabilityLimiters sync.Map // libp2p_peer.ID -> *rate.Limiter
 }
 
-func NewDatarouter(nodeinfo *types.Nodeinfo, comm communication.Communicator) *Datarouter {
-	// TODO: Clear the temp art directory after client gives acknowledgement of the accounts sync.
-	if nodeinfo.ART == nil {
-		swappable, err := art.NewSwappable(
-			os.TempDir()+constants.TEMP_ART_DIR,
-			art.DefaultThreshold,
-		)
-		if err != nil {
-			panic(fmt.Sprintf("failed to initialise SwappableART for AccountSync: %v", err))
-		}
-		nodeinfo.ART = swappable
-	}
+func NewDatarouter(nodeinfo *types.Nodeinfo, comm communication.Communicator) *Datarouter {	
 	return &Datarouter{
 		Nodeinfo:            nodeinfo,
 		Comm:                comm,
@@ -588,36 +575,18 @@ func (router *Datarouter) HandlePoTSync(ctx context.Context, req *potspb.PoTSReq
 	return response
 }
 
-func (router *Datarouter) HandleAccountsSync(ctx context.Context, req *accountspb.AccountNonceSyncRequest, remote *types.Nodeinfo) *accountspb.AccountSyncEndOfStream {
-	template := &accountspb.AccountSyncEndOfStream{
-		TotalPages: 0,
-		TotalAccounts: 0,
-		Ack: &ackpb.Ack{
-			Ok:    false,
-			Error: errors.AuthRequired.Error(),
-		},
-		Phase: &phasepb.Phase{
-			PresentPhase:    constants.ACCOUNTS_SYNC_RESPONSE,
-			SuccessivePhase: constants.FAILURE,
-			Success:         false,
-			Error:           errors.AuthRequired.Error(),
-			Auth:            nil,
-		},
-	}
+func (router *Datarouter) HandleAccountsSync(ctx context.Context, req *accountspb.AccountNonceSyncRequest, remote *types.Nodeinfo, sessionLockedART *accountshelper.LockedART) *accountspb.AccountSyncServerMessage {
+	f := accountshelper.NewResultFactory(req.GetBatchIndex())
 
 	if req.Phase == nil || req.Phase.Auth == nil || req.Phase.Auth.UUID == "" {
-		template.Phase.Error = errors.AuthRequired.Error()
-		return template
+		return f.ErrEndOfStream(errors.AuthRequired.Error())
 	}
 
 	authenticated, err := router.Authenticate(ctx, req.Phase.Auth, remote)
 	if err != nil || !authenticated {
-		template.Phase.Error = errors.AuthenticationFailed.Error()
-		template.Phase.Auth = req.Phase.Auth
-		return template
+		return f.ErrEndOfStream(errors.AuthenticationFailed.Error())
 	}
 
-	// Defer TTL reset
 	defer func() {
 		if resetErr := router.ResetTTL(ctx, req.Phase.Auth, remote); resetErr != nil {
 			Log.Logger(namedlogger).Error(ctx, "Failed to reset TTL", resetErr)
@@ -632,37 +601,16 @@ func (router *Datarouter) HandleAccountsSync(ctx context.Context, req *accountsp
 		ion.String("phase", req.Phase.PresentPhase),
 		ion.String("is_last", fmt.Sprintf("%t", req.IsLast)),
 	)
-	
+
 	switch req.Phase.PresentPhase {
 	case constants.ACCOUNTS_SYNC_REQUEST:
-		if req == nil || req.KeysRange == nil {
-			return &accountspb.AccountSyncEndOfStream{
-				Ack: &ackpb.Ack{
-					Ok:    false,
-					Error: errors.AccountsSyncRequestNil.Error(),
-				},
-			}
+		if req.KeysRange == nil {
+			return f.ErrEndOfStream(errors.AccountsSyncRequestNil.Error())
 		}
-		AccountsSync := router.ACCOUNTS_SYNC(ctx, req)
-		AccountsSync.Phase.Auth = req.Phase.Auth
-		return AccountsSync
+		return router.ACCOUNTS_SYNC(ctx, req, sessionLockedART)
 
 	default:
-		return &accountspb.AccountSyncEndOfStream{
-			TotalPages: 0,
-			TotalAccounts: 0,
-			Ack: &ackpb.Ack{
-				Ok:    false,
-				Error: "unknown state: " + req.Phase.PresentPhase,
-			},
-			Phase: &phasepb.Phase{
-				PresentPhase:    req.Phase.PresentPhase,
-				SuccessivePhase: constants.FAILURE,
-				Success:         false,
-				Error:           "unknown state: " + req.Phase.PresentPhase,
-				Auth:            req.Phase.Auth,
-			},
-		}
+		return f.ErrEndOfStream("unknown state: " + req.Phase.PresentPhase)
 	}
 }
 
@@ -1522,95 +1470,62 @@ func (router *Datarouter) FULL_SYNC(ctx context.Context, req *priorsyncpb.PriorS
 	}
 }
 
-func(router *Datarouter) ACCOUNTS_SYNC(ctx context.Context, req *accountspb.AccountNonceSyncRequest) *accountspb.AccountSyncEndOfStream {
-	template := &accountspb.AccountSyncEndOfStream{
-		TotalPages: 0,
-		TotalAccounts: 0,
-		Ack: &ackpb.Ack{
-			Ok:    false,
-			Error: errors.AccountsSyncArtNil.Error(),
-		},
-		Phase: &phasepb.Phase{
-			PresentPhase:    constants.ACCOUNTS_SYNC_RESPONSE,
-			SuccessivePhase: constants.FAILURE,
-			Success:         false,
-			Error:           errors.AccountsSyncRequestNil.Error(),
-		},
-	}
-	/*
-		- This is the accounts sync.
-		- Before the Headersync request, we need to get the accounts sync.
-		- The client would send the accounts of its local commit as the ART chunk.
-			* If the client have sent the ART chunk, with is_last set to true, then the server would start the diff computation.
-			* If the client have sent the ART chunk, with is_last set to false, then the server would merge the ART chunk with the client's global ART chunk. and delete the new received chunk. (we need to maintain the only one global ART of a client)
-			* Beyond the window of the ART code would automatically swap to the disk to avoid memory exhaustion.
-		- After getting the ART of whole client's data, the server would start the diff computation.
-		- Server will collect the did's whose nonces are not in global art, and send the accounts of these did's to the client.
-		- Note that we not gonna send every did in each response, we will send it by batches in the parallel responses. No ordering is required for the accounts sync.
-	*/
-	if req == nil || req.Art == nil {
-		return template
+func (router *Datarouter) ACCOUNTS_SYNC(ctx context.Context, req *accountspb.AccountNonceSyncRequest, sessionLockedART *accountshelper.LockedART) *accountspb.AccountSyncServerMessage {
+	f := accountshelper.NewResultFactory(req.GetBatchIndex())
+
+	if req == nil || len(req.GetArt()) == 0 {
+		return f.ErrEndOfStream(errors.AccountsSyncArtNil.Error())
 	}
 
-	switch req.IsLast{
-	case true:
-		// Merge it first before the diff computation.
-		chunkART, err := art.Decode(req.GetArt())
-		if err != nil {
-			template.Ack.Error = err.Error()
-			return template
-		}
-		err = router.Nodeinfo.ART.Merge(chunkART)
-		if err != nil {
-			template.Ack.Error = err.Error()
-			return template
-		}
-		
-		// Start the diff computation.
-		diff, err := accountshelper.ComputeAccountDiff(ctx, router.Nodeinfo.ART, router.Nodeinfo.BlockInfo, req.TotalKeys)
-		if err != nil {
-			template.Ack.Error = err.Error()
-			template.Phase.Error = err.Error()
-			return template
-		}
-		template.Ack.Ok = true
-		template.Ack.Error = ""
-		template.TotalAccounts = uint64(len(diff.Missing))
-		template.Phase.PresentPhase = constants.ACCOUNTS_SYNC_RESPONSE
-		template.Phase.SuccessivePhase = constants.ACCOUNTS_SYNC_RESPONSE
-		template.Phase.Success = true
-		template.Phase.Error = ""
-		// TODO: paginate diff.Missing into AccountSyncResponse pages and stream to client
-		return template
-
-	case false:	
-		/*
-			1. ART sent would be compressed with zstd. so Need to be decompressed first.
-			2. Merge the ART chunk with the client's global ART chunk. and delete the new received chunk.
-			3. Delete the new received chunk.
-			4. Swapping to the disk is done automatically by the ART code.
-		*/
-		chunkART, err := art.Decode(req.GetArt())
-		if err != nil {
-			template.Ack.Error = err.Error()
-			return template
-		}
-
-		err = router.Nodeinfo.ART.Merge(chunkART)
-		if err != nil {
-			template.Ack.Error = err.Error()
-			return template
-		}
-		
-		template.Ack.Ok = true
-		template.Ack.Error = ""
-		template.Phase.PresentPhase = constants.ACCOUNTS_SYNC_RESPONSE
-		// if isLast is false then SuccessivePhase would be the current phase
-		template.Phase.SuccessivePhase = constants.ACCOUNTS_SYNC_REQUEST
-		template.Phase.Success = true
-		template.Phase.Error = ""
-		return template
+	// Reject the chunk before touching the ART if the checksum does not match.
+	// This guards against both accidental corruption and deliberate tampering.
+	valid, err := accountshelper.ARTChecksumValid(req.GetArt(), req.Checksum)
+	if err != nil || !valid {
+		return f.ErrEndOfStream(err.Error())
 	}
 
-	return template
+	// Merge through LockedART — decode + tree write are serialised under its
+	// internal mutex, so parallel frames from a rogue node cannot race.
+	if err := sessionLockedART.Merge(req.GetArt()); err != nil {
+		return f.ErrEndOfStream(err.Error())
+	}
+
+	Log.Logger(namedlogger).Info(ctx, "AccountSync ART chunk merged",
+		ion.Int("batch_index", int(req.BatchIndex)),
+		ion.Bool("is_last", req.IsLast),
+		ion.Uint64("total_keys", req.TotalKeys),
+	)
+
+	// Non-final batch: acknowledge receipt and wait for the next chunk.
+	if !req.IsLast {
+		return f.BatchAck()
+	}
+
+	// Final batch: flush hot ART keys to disk before the diff scan begins.
+	// Close is also serialised under LockedART's mutex, so it cannot race with
+	// any late-arriving concurrent chunk from a misbehaving client.
+	if err := sessionLockedART.Close(); err != nil {
+		return f.ErrEndOfStream(err.Error())
+	}
+
+	// Compute the diff — every account the client is missing.
+	diff, err := accountshelper.ComputeAccountDiff(ctx, sessionLockedART.Swappable(), router.Nodeinfo.BlockInfo, req.TotalKeys)
+	if err != nil {
+		return f.ErrEndOfStream(fmt.Errorf("diff computation: %w", err).Error())
+	}
+
+	//DEBUG: Log the diff
+	Log.Logger(namedlogger).Info(ctx, "AccountSync diff",
+		ion.Int("missing_accounts", len(diff.Missing)),
+		ion.Int("total_accounts", int(req.TotalKeys)),
+		ion.Bool("is_full_sync", diff.IsFullSync),
+	)
+
+	missing := accountshelper.ConvertMissingToProto(diff.Missing)
+
+	Log.Logger(namedlogger).Info(ctx, "AccountSync diff computed",
+		ion.Int("missing_accounts", len(missing)),
+	)
+	// Stream the missing accounts to the client. 
+	return f.DiffReady(missing)
 }
