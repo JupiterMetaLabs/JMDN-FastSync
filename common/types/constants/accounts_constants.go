@@ -1,5 +1,7 @@
 package constants
 
+import "time"
+
 const (
 	MAX_ACCOUNT_NONCES = 100_000
 	// Beyond this window, Radix Trie would be swapped to disk to avoid memory exhaustion.
@@ -101,5 +103,7 @@ const (
 
 	// DispatchACKTimeout is how long a dispatch worker waits for the client's
 	// Ack after sending one AccountSyncResponse page before treating it as failed.
-	DispatchACKTimeout = 10 // seconds
+	DispatchACKTimeout = 10 * time.Second // 10 seconds
+
+	DefaultDeadLetterCapacity = 2 // 2 dead letter channels
 )
