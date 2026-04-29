@@ -105,5 +105,5 @@ const (
 	// Ack after sending one AccountSyncResponse page before treating it as failed.
 	DispatchACKTimeout = 10 * time.Second // 10 seconds
 
-	DefaultDeadLetterCapacity = 2 // 2 dead letter channels
+	DeadLetterCapacity = 2 // 2 dead letter channels
 )
