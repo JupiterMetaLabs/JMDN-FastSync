@@ -42,9 +42,6 @@ type BlockInfo interface {
 	NewHeadersWriter() WriteHeaders
 	NewDataWriter() WriteData
 	NewAccountManager() AccountManager
-	// NewAccountNonceIterator returns an iterator over all server accounts,
-	// used during AccountSync diff computation to find accounts the client is missing.
-	NewAccountNonceIterator(batchSize int) AccountNonceIterator
 }
 
 // AccountNonceIterator pages through all accounts stored on the server node.
@@ -61,6 +58,16 @@ type AccountNonceIterator interface {
 	// TotalAccounts returns the total number of accounts on the server.
 	// Must be safe to call before the first NextBatch without affecting iteration order.
 	TotalAccounts() (uint64, error)
+
+	// GetAccountsByNonces batch-fetches full account rows for the given nonce values.
+	// Used by the AccountSync dispatcher to hydrate nonce pages with complete account
+	// data before streaming to the client.
+	//
+	// Accounts not found for a given nonce are silently omitted (not an error).
+	// The caller overrides balance_wei to "0" before sending — DB value is ignored.
+	// Implementation should use a single WHERE nonce IN (?,?,...) query.
+	GetAccountsByNonces(nonces []uint64) ([]*Account, error)
+	
 	// Close releases any resources held by the iterator.
 	Close()
 }
@@ -114,6 +121,11 @@ type AccountManager interface {
 	// BatchUpdateAccounts atomically applies all account updates in a single DB transaction.
 	// Either every update is committed or none are (full rollback on any failure).
 	BatchUpdateAccounts(updates []AccountUpdate) error
+
+	// NewAccountNonceIterator returns an iterator that pages through all accounts
+	// ordered by nonce, used during AccountSync diff computation.
+	// Moved from BlockInfo so all account operations live in one interface.
+	NewAccountNonceIterator(batchSize int) AccountNonceIterator
 }
 
 type AUTHHandler interface {

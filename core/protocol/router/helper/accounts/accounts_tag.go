@@ -47,7 +47,7 @@ func ComputeAccountDiff(
 	blockInfo types.BlockInfo,
 	clientTotalKeys uint64,
 ) (*AccountDiff, error) {
-	iter := blockInfo.NewAccountNonceIterator(constants.ParentMemoryWindow)
+	iter := blockInfo.NewAccountManager().NewAccountNonceIterator(constants.ParentMemoryWindow)
 	defer iter.Close()
 
 	serverTotal, err := iter.TotalAccounts()

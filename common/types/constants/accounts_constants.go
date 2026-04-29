@@ -47,6 +47,59 @@ const (
 // At peak: MaxAccountsPerBatch × NumConcurrentBatches = 3000 × 10 = 30,000
 // accounts dispatched per iteration.
 const (
-	MaxAccountsPerBatch    = 3_000  // accounts per AccountSyncResponse page
-	NumConcurrentBatches   = 10     // concurrent workers (parallel pages in flight)
+	MaxAccountsPerBatch  = 3_000 // accounts per AccountSyncResponse page
+	NumConcurrentBatches = 10    // concurrent workers (parallel pages in flight)
+)
+
+// ── Async streaming dispatcher constants ───────────────────────────────────────
+//
+// The dispatcher is an async pipeline between the diff stage and the network
+// dispatch stage. It uses a bounded nonce channel with soft pause/resume
+// hysteresis to prevent the diff stage from outrunning the dispatch stage.
+//
+// Pause/resume threshold:
+//   - Diff goroutines pause when nonces in channel ≥ NonceBufferPauseThreshold.
+//   - They resume only when the count drops below:
+//       NonceBufferPauseThreshold × NonceBufferResumePct / 100  =  80,000
+//   - The 20k gap prevents oscillation at the boundary (hysteresis).
+//
+// Page sizing:
+//   - NoncePageSize is the MAXIMUM nonces per page. The last page of a diff
+//     session will typically be smaller (e.g. 800, 80, or even 7 nonces).
+//     The dispatcher handles variable-sized pages naturally — no rigid framing.
+//
+// Channel capacity is computed at runtime as:
+//   ceil(NonceBufferPauseThreshold / NoncePageSize)
+// and is not a named constant so it stays in sync with the two values above
+// without manual maintenance.
+const (
+	// NonceBufferPauseThreshold is the soft upper limit on nonces buffered in
+	// the dispatcher. Diff goroutines pause when this count is reached and
+	// resume only when the count drops below NonceBufferResumePct % of this.
+	NonceBufferPauseThreshold = 100_000
+
+	// NonceBufferResumePct is the percentage of NonceBufferPauseThreshold at
+	// which paused diff goroutines are allowed to resume.
+	// Resume threshold = NonceBufferPauseThreshold × NonceBufferResumePct / 100
+	//                  = 80,000 nonces.
+	NonceBufferResumePct = 80
+
+	// NoncePageSize is the maximum number of nonces in one dispatcher page.
+	// Each full page → one DB batch-fetch → one AccountSyncResponse to client.
+	// The final page of a session is variable-sized and may be much smaller.
+	NoncePageSize = 3_000
+
+	// DispatchWorkers is the number of concurrent goroutines that drain the
+	// nonce channel. Each worker: DB fetch (3000 nonces) → proto convert →
+	// dial client → send page → wait ACK. 10 workers × 3000 = 30,000 accounts
+	// in flight across all workers at peak.
+	DispatchWorkers = 10
+
+	// DispatchMaxRetries is the maximum re-queue attempts for a failed page
+	// before it is moved to the dead-letter channel and logged as permanent failure.
+	DispatchMaxRetries = 3
+
+	// DispatchACKTimeout is how long a dispatch worker waits for the client's
+	// Ack after sending one AccountSyncResponse page before treating it as failed.
+	DispatchACKTimeout = 10 // seconds
 )
