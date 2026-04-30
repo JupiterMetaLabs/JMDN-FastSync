@@ -85,7 +85,7 @@ func buildSendPage(
 		msg := &accountspb.AccountSyncServerMessage{
 			Payload: &accountspb.AccountSyncServerMessage_Response{
 				Response: &accountspb.AccountSyncResponse{
-					Accounts:  toProtoAccounts(accounts),
+					Accounts:  ToProtoAccounts(accounts),
 					PageIndex: pageIndex,
 					Ack:       &ackpb.Ack{Ok: true},
 					Phase: &phasepb.Phase{
@@ -179,7 +179,7 @@ func buildOnDeadLetter(
 		msg := &accountspb.AccountSyncServerMessage{
 			Payload: &accountspb.AccountSyncServerMessage_Response{
 				Response: &accountspb.AccountSyncResponse{
-					Accounts:  toProtoAccounts(accounts),
+					Accounts:  ToProtoAccounts(accounts),
 					PageIndex: 0,
 					Ack:       &ackpb.Ack{Ok: true},
 					Phase: &phasepb.Phase{
@@ -218,12 +218,12 @@ func buildOnDeadLetter(
 
 // ─── Proto conversion ─────────────────────────────────────────────────────────
 
-// toProtoAccounts converts []*types.Account → []*accountspb.Account.
+// ToProtoAccounts converts []*types.Account → []*accountspb.Account.
 // Balance is always "0" — Reconciliation fills actual balances post-DataSync.
 // Nil entries are silently skipped.
 //
 // Time: O(n). Space: O(n).
-func toProtoAccounts(accounts []*types.Account) []*accountspb.Account {
+func ToProtoAccounts(accounts []*types.Account) []*accountspb.Account {
 	out := make([]*accountspb.Account, 0, len(accounts))
 	for _, acc := range accounts {
 		if acc == nil {

@@ -33,6 +33,7 @@ import (
 	merkle "github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/merkle"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/router/helper"
 	accountshelper "github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/router/helper/accounts"
+	accountsdispatcher "github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/router/helper/accounts/dispatcher"
 	potshelper "github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/router/helper/pots"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/tagging"
 	merkle_types "github.com/JupiterMetaLabs/JMDN-FastSync/helper/merkle"
@@ -607,7 +608,7 @@ func (router *Datarouter) HandleAccountsSync(ctx context.Context, req *accountsp
 		if req.KeysRange == nil {
 			return f.ErrEndOfStream(errors.AccountsSyncRequestNil.Error())
 		}
-		return router.ACCOUNTS_SYNC(ctx, req, sessionLockedART)
+		return router.ACCOUNTS_SYNC(ctx, req, remote, sessionLockedART)
 
 	default:
 		return f.ErrEndOfStream("unknown state: " + req.Phase.PresentPhase)
@@ -1470,7 +1471,7 @@ func (router *Datarouter) FULL_SYNC(ctx context.Context, req *priorsyncpb.PriorS
 	}
 }
 
-func (router *Datarouter) ACCOUNTS_SYNC(ctx context.Context, req *accountspb.AccountNonceSyncRequest, sessionLockedART *accountshelper.LockedART) *accountspb.AccountSyncServerMessage {
+func (router *Datarouter) ACCOUNTS_SYNC(ctx context.Context, req *accountspb.AccountNonceSyncRequest, remote *types.Nodeinfo, sessionLockedART *accountshelper.LockedART) *accountspb.AccountSyncServerMessage {
 	f := accountshelper.NewResultFactory(req.GetBatchIndex())
 
 	if req == nil || len(req.GetArt()) == 0 {
@@ -1479,9 +1480,12 @@ func (router *Datarouter) ACCOUNTS_SYNC(ctx context.Context, req *accountspb.Acc
 
 	// Reject the chunk before touching the ART if the checksum does not match.
 	// This guards against both accidental corruption and deliberate tampering.
-	valid, err := accountshelper.ARTChecksumValid(req.GetArt(), req.Checksum)
-	if err != nil || !valid {
-		return f.ErrEndOfStream(err.Error())
+	valid, checksumErr := accountshelper.ARTChecksumValid(req.GetArt(), req.Checksum)
+	if checksumErr != nil {
+		return f.ErrEndOfStream(checksumErr.Error())
+	}
+	if !valid {
+		return f.ErrEndOfStream("ART checksum mismatch")
 	}
 
 	// Merge through LockedART — decode + tree write are serialised under its
@@ -1508,24 +1512,77 @@ func (router *Datarouter) ACCOUNTS_SYNC(ctx context.Context, req *accountspb.Acc
 		return f.ErrEndOfStream(err.Error())
 	}
 
-	// Compute the diff — every account the client is missing.
-	diff, err := accountshelper.ComputeAccountDiff(ctx, sessionLockedART.Swappable(), router.Nodeinfo.BlockInfo, req.TotalKeys)
-	if err != nil {
-		return f.ErrEndOfStream(fmt.Errorf("diff computation: %w", err).Error())
+	// Build callbacks: FetchAccounts hits DB, SendPage dials the client back
+	// on AccountsSyncDataProtocol (one short-lived stream per page).
+	callbacks := types.DispatcherCallbacks{
+		FetchAccounts: func(fetchCtx context.Context, nonces []uint64) ([]*types.Account, error) {
+			return router.Nodeinfo.BlockInfo.NewAccountManager().NewAccountNonceIterator(1).GetAccountsByNonces(nonces)
+		},
+		SendPage: func(sendCtx context.Context, pageIndex uint32, accounts []*types.Account) error {
+			msg := &accountspb.AccountSyncServerMessage{
+				Payload: &accountspb.AccountSyncServerMessage_Response{
+					Response: &accountspb.AccountSyncResponse{
+						Accounts:  accountshelper.ToProtoAccounts(accounts),
+						PageIndex: pageIndex,
+						Ack:       &ackpb.Ack{Ok: true},
+						Phase: &phasepb.Phase{
+							PresentPhase:    constants.ACCOUNTS_SYNC_RESPONSE,
+							SuccessivePhase: constants.ACCOUNTS_SYNC_RESPONSE,
+							Success:         true,
+							Auth:            req.Phase.Auth,
+						},
+					},
+				},
+			}
+			ack, err := router.Comm.StreamAccounts(sendCtx, *remote, msg)
+			if err != nil {
+				return fmt.Errorf("stream accounts page %d: %w", pageIndex, err)
+			}
+			if ack.GetBatchAck() != nil && !ack.GetBatchAck().GetAck().GetOk() {
+				return fmt.Errorf("client rejected page %d: %s", pageIndex, ack.GetBatchAck().GetAck().GetError())
+			}
+			return nil
+		},
 	}
 
-	//DEBUG: Log the diff
-	Log.Logger(namedlogger).Info(ctx, "AccountSync diff",
-		ion.Int("missing_accounts", len(diff.Missing)),
-		ion.Int("total_accounts", int(req.TotalKeys)),
-		ion.Bool("is_full_sync", diff.IsFullSync),
+	d, dispErr := accountsdispatcher.New(accountsdispatcher.Default(), callbacks)
+	if dispErr != nil {
+		return f.ErrEndOfStream(fmt.Errorf("dispatcher init: %w", dispErr).Error())
+	}
+
+	summaryCh := make(chan types.DispatchSummary, 1)
+	go func() {
+		s, _ := d.Run(ctx)
+		summaryCh <- s
+	}()
+
+	isFullSync, diffErr := accountshelper.ComputeAccountDiff(ctx, sessionLockedART.Swappable(), router.Nodeinfo.BlockInfo, req.TotalKeys, d)
+	if diffErr != nil {
+		return f.ErrEndOfStream(fmt.Errorf("diff computation: %w", diffErr).Error())
+	}
+
+	summary := <-summaryCh
+
+	Log.Logger(namedlogger).Info(ctx, "AccountSync diff complete",
+		ion.Bool("is_full_sync", isFullSync),
+		ion.Uint64("delivered_accounts", summary.DeliveredAccounts),
+		ion.Int("delivered_pages", int(summary.DeliveredPages)),
+		ion.Int("failed_pages", int(summary.PermanentFailedPages)),
 	)
 
-	missing := accountshelper.ConvertMissingToProto(diff.Missing)
-
-	Log.Logger(namedlogger).Info(ctx, "AccountSync diff computed",
-		ion.Int("missing_accounts", len(missing)),
-	)
-	// Stream the missing accounts to the client. 
-	return f.DiffReady(missing)
+	return &accountspb.AccountSyncServerMessage{
+		Payload: &accountspb.AccountSyncServerMessage_End{
+			End: &accountspb.AccountSyncEndOfStream{
+				TotalPages:    summary.DeliveredPages,
+				TotalAccounts: summary.DeliveredAccounts,
+				Ack:           &ackpb.Ack{Ok: true},
+				Phase: &phasepb.Phase{
+					PresentPhase:    constants.ACCOUNTS_SYNC_RESPONSE,
+					SuccessivePhase: constants.ACCOUNTS_SYNC_RESPONSE,
+					Success:         true,
+					Auth:            req.Phase.Auth,
+				},
+			},
+		},
+	}
 }
