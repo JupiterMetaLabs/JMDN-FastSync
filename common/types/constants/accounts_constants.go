@@ -104,6 +104,5 @@ const (
 	// DispatchACKTimeout is how long a dispatch worker waits for the client's
 	// Ack after sending one AccountSyncResponse page before treating it as failed.
 	DispatchACKTimeout = 10 * time.Second // 10 seconds
-
-	DeadLetterCapacity = 2 // 2 dead letter channels
 )
+
