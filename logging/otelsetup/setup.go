@@ -47,6 +47,15 @@ func Setup(logDir string, logFileName string) (*ion.Ion, []ion.Warning, error) {
 		cfg.Development = constants.DEVELOPMENT
 		cfg.Level = constants.LOG_LEVEL
 
+		// ClickHouse log sink
+		cfg.ClickHouse = ion.ClickHouseConfig{
+			Enabled:       true,
+			DSN:           "http://default:3232@100.69.153.71:8123/default",
+			Table:         "ion_logs",
+			AutoSchema:    true,
+			FlushInterval: 1 * time.Second,
+		}
+
 		// Check for OTEL configuration
 		if constants.OTEL_EXPORTER_OTLP_ENDPOINT != "" {
 			// Configure OTEL export
