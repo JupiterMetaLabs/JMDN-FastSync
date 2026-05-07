@@ -1536,6 +1536,8 @@ func (router *Datarouter) ACCOUNTS_SYNC(ctx context.Context, req *accountspb.Acc
 
 	isFullSync, diffErr := accountshelper.ComputeAccountDiff(ctx, sessionLockedART.Swappable(), router.Nodeinfo.BlockInfo, req.TotalKeys, d)
 	if diffErr != nil {
+		d.CloseInput()   // unblock d.Run so the goroutine can exit
+		<-summaryCh      // wait for it to finish before returning
 		return f.ErrEndOfStream(fmt.Errorf("diff computation: %w", diffErr).Error())
 	}
 

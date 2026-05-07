@@ -56,7 +56,9 @@ func NewDispatcherCallbacks(
 // Time: O(n) where n = len(nonces). Space: O(n).
 func buildFetchAccounts(nodeinfo *types.Nodeinfo) func(context.Context, []uint64) ([]*types.Account, error) {
 	return func(ctx context.Context, nonces []uint64) ([]*types.Account, error) {
-		return nodeinfo.BlockInfo.NewAccountManager().NewAccountNonceIterator(1).GetAccountsByNonces(nonces)
+		iter := nodeinfo.BlockInfo.NewAccountManager().NewAccountNonceIterator(1)
+		defer iter.Close()
+		return iter.GetAccountsByNonces(nonces)
 	}
 }
 
@@ -105,7 +107,13 @@ func buildSendPage(
 		if err != nil {
 			return fmt.Errorf("accountsync send page %d: %w", pageIndex, err)
 		}
-		if ack.GetBatchAck() != nil && !ack.GetBatchAck().GetAck().GetOk() {
+		if ack == nil {
+			return fmt.Errorf("accountsync send page %d: nil ack with nil error", pageIndex)
+		}
+		if ack.GetBatchAck() == nil {
+			return fmt.Errorf("accountsync send page %d: unexpected response type %T", pageIndex, ack.Payload)
+		}
+		if !ack.GetBatchAck().GetAck().GetOk() {
 			return fmt.Errorf("accountsync client rejected page %d: %s", pageIndex, ack.GetBatchAck().GetAck().GetError())
 		}
 

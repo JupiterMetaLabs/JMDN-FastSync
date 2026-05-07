@@ -246,7 +246,7 @@ func SendProtoDelimited(
 	}
 
 	// Set read deadline
-	if err := stream.SetReadDeadline(time.Now().Add(10 * time.Second)); err != nil {
+	if err := stream.SetReadDeadline(time.Now().Add(constants.StreamDeadline)); err != nil {
 		return fmt.Errorf("failed to set read deadline: %w", err)
 	}
 	defer stream.SetReadDeadline(time.Time{})
