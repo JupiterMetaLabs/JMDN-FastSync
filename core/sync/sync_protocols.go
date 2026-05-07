@@ -689,7 +689,47 @@ func (s *Sync) HandleAccountsSyncData(ctx context.Context, node host.Host) error
 		_ = str.SetWriteDeadline(time.Now().Add(constants.StreamDeadline))
 		defer str.SetWriteDeadline(time.Time{})
 
-		_ = pbstream.WriteDelimited(str, &ackpb.Ack{Ok: true})
+		resp := page.GetResponse()
+		if resp == nil {
+			_ = pbstream.WriteDelimited(str, &accountspb.AccountSyncServerMessage{
+				Payload: &accountspb.AccountSyncServerMessage_BatchAck{
+					BatchAck: &accountspb.AccountBatchAck{
+						Ack: &ackpb.Ack{Ok: false, Error: "expected Response payload"},
+					},
+				},
+			})
+			return
+		}
+
+		if err := s.Datarouter.HandleAccountsSyncData(ctx, resp.GetAccounts()); err != nil {
+			logging.Logger(logging.Sync).Error(ctx, "accountsync: failed to store page",
+				err,
+				ion.Int("page_index", int(resp.GetPageIndex())),
+				ion.Int("account_count", len(resp.GetAccounts())),
+			)
+			_ = pbstream.WriteDelimited(str, &accountspb.AccountSyncServerMessage{
+				Payload: &accountspb.AccountSyncServerMessage_BatchAck{
+					BatchAck: &accountspb.AccountBatchAck{
+						Ack: &ackpb.Ack{Ok: false, Error: err.Error()},
+					},
+				},
+			})
+			return
+		}
+
+		logging.Logger(logging.Sync).Info(ctx, "accountsync: page received and stored",
+			ion.Int("page_index", int(resp.GetPageIndex())),
+			ion.Int("account_count", len(resp.GetAccounts())),
+			ion.String("from_peer", remoteNodeInfo.PeerID.String()),
+		)
+
+		_ = pbstream.WriteDelimited(str, &accountspb.AccountSyncServerMessage{
+			Payload: &accountspb.AccountSyncServerMessage_BatchAck{
+				BatchAck: &accountspb.AccountBatchAck{
+					Ack: &ackpb.Ack{Ok: true},
+				},
+			},
+		})
 	})
 	return nil
 }

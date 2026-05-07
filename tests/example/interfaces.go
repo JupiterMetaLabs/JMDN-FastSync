@@ -162,6 +162,14 @@ func (e example_accountmanager) BatchUpdateAccounts(updates []types.AccountUpdat
 	return nil
 }
 
+func (e example_accountmanager) GetAccountByAddress(accountAddress string) (*types.Account, error) {
+	return nil, nil
+}
+
+func (e example_accountmanager) WriteAccounts(accounts []*types.Account) error {
+	return nil
+}
+
 
 
 

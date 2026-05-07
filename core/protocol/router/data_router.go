@@ -1471,6 +1471,15 @@ func (router *Datarouter) FULL_SYNC(ctx context.Context, req *priorsyncpb.PriorS
 	}
 }
 
+// HandleAccountsSyncData writes one incoming account page (received via the
+// AccountsSyncDataProtocol dial-back) into the local DB.
+func (router *Datarouter) HandleAccountsSyncData(ctx context.Context, accounts []*accountspb.Account) error {
+	if len(accounts) == 0 {
+		return nil
+	}
+	return router.Nodeinfo.BlockInfo.NewAccountManager().WriteAccounts(accountshelper.ProtoToAccounts(accounts))
+}
+
 func (router *Datarouter) ACCOUNTS_SYNC(ctx context.Context, req *accountspb.AccountNonceSyncRequest, remote *types.Nodeinfo, sessionLockedART *accountshelper.LockedART) *accountspb.AccountSyncServerMessage {
 	f := accountshelper.NewResultFactory(req.GetBatchIndex())
 
@@ -1512,38 +1521,7 @@ func (router *Datarouter) ACCOUNTS_SYNC(ctx context.Context, req *accountspb.Acc
 		return f.ErrEndOfStream(err.Error())
 	}
 
-	// Build callbacks: FetchAccounts hits DB, SendPage dials the client back
-	// on AccountsSyncDataProtocol (one short-lived stream per page).
-	callbacks := types.DispatcherCallbacks{
-		FetchAccounts: func(fetchCtx context.Context, nonces []uint64) ([]*types.Account, error) {
-			return router.Nodeinfo.BlockInfo.NewAccountManager().NewAccountNonceIterator(1).GetAccountsByNonces(nonces)
-		},
-		SendPage: func(sendCtx context.Context, pageIndex uint32, accounts []*types.Account) error {
-			msg := &accountspb.AccountSyncServerMessage{
-				Payload: &accountspb.AccountSyncServerMessage_Response{
-					Response: &accountspb.AccountSyncResponse{
-						Accounts:  accountshelper.ToProtoAccounts(accounts),
-						PageIndex: pageIndex,
-						Ack:       &ackpb.Ack{Ok: true},
-						Phase: &phasepb.Phase{
-							PresentPhase:    constants.ACCOUNTS_SYNC_RESPONSE,
-							SuccessivePhase: constants.ACCOUNTS_SYNC_RESPONSE,
-							Success:         true,
-							Auth:            req.Phase.Auth,
-						},
-					},
-				},
-			}
-			ack, err := router.Comm.StreamAccounts(sendCtx, *remote, msg)
-			if err != nil {
-				return fmt.Errorf("stream accounts page %d: %w", pageIndex, err)
-			}
-			if ack.GetBatchAck() != nil && !ack.GetBatchAck().GetAck().GetOk() {
-				return fmt.Errorf("client rejected page %d: %s", pageIndex, ack.GetBatchAck().GetAck().GetError())
-			}
-			return nil
-		},
-	}
+	callbacks := accountshelper.NewDispatcherCallbacks(router.Nodeinfo, *remote, router.Comm.StreamAccounts, req.Phase.Auth)
 
 	d, dispErr := accountsdispatcher.New(accountsdispatcher.Default(), callbacks)
 	if dispErr != nil {
