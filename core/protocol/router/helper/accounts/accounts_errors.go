@@ -60,6 +60,20 @@ func (f *resultFactory) BatchAck() *accountspb.AccountSyncServerMessage {
 	}
 }
 
+// ErrBatchAck returns an AccountSyncServerMessage carrying a BatchAck with
+// Ack.Ok=false. Use when processing a page fails (write error, nil response,
+// etc.) but the stream lifecycle is governed by the upload loop — not this ack.
+func (f *resultFactory) ErrBatchAck(msg string) *accountspb.AccountSyncServerMessage {
+	return &accountspb.AccountSyncServerMessage{
+		Payload: &accountspb.AccountSyncServerMessage_BatchAck{
+			BatchAck: &accountspb.AccountBatchAck{
+				BatchIndex: f.batchIndex,
+				Ack:        &ackpb.Ack{Ok: false, Error: msg},
+			},
+		},
+	}
+}
+
 // DiffReady returns an AccountSyncServerMessage carrying an EndOfStream with
 // Ack.Ok=true and TotalAccounts populated. This is the diff-ready signal for
 // the final (is_last=true) success path.

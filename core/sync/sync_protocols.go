@@ -39,6 +39,8 @@ import (
 	"github.com/multiformats/go-multiaddr"
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/pubsub/publisher"
+
+	WAL "github.com/JupiterMetaLabs/JMDN-FastSync/common/WAL"
 )
 
 type Sync struct {
@@ -61,11 +63,11 @@ type sync_interface interface {
 	Debug(ctx context.Context, protocol protocol.ID, node host.Host, remote *types.Nodeinfo)
 }
 
-func NewSyncHandler(nodeinfo *types.Nodeinfo, comm communication.Communicator, debug bool) sync_interface {
+func NewSyncHandler(nodeinfo *types.Nodeinfo, comm communication.Communicator, wal *WAL.WAL, debug bool) sync_interface {
 	return &Sync{
 		debug:      debug,
 		nodeinfo:   nodeinfo,
-		Datarouter: router.NewDatarouter(nodeinfo, comm),
+		Datarouter: router.NewDatarouter(nodeinfo, comm, wal),
 	}
 }
 
@@ -701,35 +703,16 @@ func (s *Sync) HandleAccountsSyncData(ctx context.Context, node host.Host) error
 			return
 		}
 
-		if err := s.Datarouter.HandleAccountsSyncData(ctx, resp.GetAccounts()); err != nil {
-			logging.Logger(logging.Sync).Error(ctx, "accountsync: failed to store page",
-				err,
-				ion.Int("page_index", int(resp.GetPageIndex())),
-				ion.Int("account_count", len(resp.GetAccounts())),
-			)
-			_ = pbstream.WriteDelimited(str, &accountspb.AccountSyncServerMessage{
-				Payload: &accountspb.AccountSyncServerMessage_BatchAck{
-					BatchAck: &accountspb.AccountBatchAck{
-						Ack: &ackpb.Ack{Ok: false, Error: err.Error()},
-					},
-				},
-			})
-			return
-		}
+		ack := s.Datarouter.HandleAccountsSyncData(ctx, resp, remoteNodeInfo)
 
-		logging.Logger(logging.Sync).Info(ctx, "accountsync: page received and stored",
+		logging.Logger(logging.Sync).Info(ctx, "accountsync: page received",
 			ion.Int("page_index", int(resp.GetPageIndex())),
 			ion.Int("account_count", len(resp.GetAccounts())),
 			ion.String("from_peer", remoteNodeInfo.PeerID.String()),
+			ion.Bool("ok", ack.GetBatchAck().GetAck().GetOk()),
 		)
 
-		_ = pbstream.WriteDelimited(str, &accountspb.AccountSyncServerMessage{
-			Payload: &accountspb.AccountSyncServerMessage_BatchAck{
-				BatchAck: &accountspb.AccountBatchAck{
-					Ack: &ackpb.Ack{Ok: true},
-				},
-			},
-		})
+		_ = pbstream.WriteDelimited(str, ack)
 	})
 	return nil
 }

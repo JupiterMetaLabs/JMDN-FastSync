@@ -11,6 +11,7 @@ import (
 
 	"golang.org/x/time/rate"
 
+	clienthelper "github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/router/helper/accounts/client_helper"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/checksum/checksum_priorsync"
 	accountspb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/accounts"
 	ackpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/ack"
@@ -42,6 +43,7 @@ import (
 	"github.com/JupiterMetaLabs/ion"
 	libp2p_peer "github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
+	WAL "github.com/JupiterMetaLabs/JMDN-FastSync/common/WAL"
 )
 
 const (
@@ -53,14 +55,19 @@ type Datarouter struct {
 	Comm                 communication.Communicator
 	clientGeneratedUUID  string
 	availabilityLimiters sync.Map // libp2p_peer.ID -> *rate.Limiter
+	wal 				*WAL.WAL
 }
 
-func NewDatarouter(nodeinfo *types.Nodeinfo, comm communication.Communicator) *Datarouter {	
-	return &Datarouter{
+func NewDatarouter(nodeinfo *types.Nodeinfo, comm communication.Communicator, wal *WAL.WAL) *Datarouter {
+	datarouter := &Datarouter{
 		Nodeinfo:            nodeinfo,
 		Comm:                comm,
 		clientGeneratedUUID: "",
 	}
+	if wal != nil {
+		datarouter.wal = wal
+	}
+	return datarouter
 }
 
 // getAvailabilityLimiter returns the per-peer rate limiter for HandleAvailability,
@@ -1471,13 +1478,27 @@ func (router *Datarouter) FULL_SYNC(ctx context.Context, req *priorsyncpb.PriorS
 	}
 }
 
-// HandleAccountsSyncData writes one incoming account page (received via the
-// AccountsSyncDataProtocol dial-back) into the local DB.
-func (router *Datarouter) HandleAccountsSyncData(ctx context.Context, accounts []*accountspb.Account) error {
-	if len(accounts) == 0 {
-		return nil
+// HandleAccountsSyncData stores one incoming account page received via the
+// AccountsSyncDataProtocol dial-back and returns a BatchAck for the server.
+func (router *Datarouter) HandleAccountsSyncData(ctx context.Context, resp *accountspb.AccountSyncResponse, remote *types.Nodeinfo) *accountspb.AccountSyncServerMessage {
+	if resp == nil {
+		return accountshelper.NewResultFactory(0).ErrBatchAck("nil response")
 	}
-	return router.Nodeinfo.BlockInfo.NewAccountManager().WriteAccounts(accountshelper.ProtoToAccounts(accounts))
+
+	f := accountshelper.NewResultFactory(resp.GetPageIndex())
+
+	writer := clienthelper.NewClientWriter().SetSyncVars(ctx, *router.Nodeinfo, router.wal)
+	defer writer.Close()
+
+	status, err := writer.WriteAccounts(resp.GetAccounts())
+	if err != nil {
+		return f.ErrBatchAck(err.Error())
+	}
+	if !status {
+		return f.ErrBatchAck("write returned false with no error")
+	}
+
+	return f.BatchAck()
 }
 
 func (router *Datarouter) ACCOUNTS_SYNC(ctx context.Context, req *accountspb.AccountNonceSyncRequest, remote *types.Nodeinfo, sessionLockedART *accountshelper.LockedART) *accountspb.AccountSyncServerMessage {

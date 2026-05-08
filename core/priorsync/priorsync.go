@@ -19,6 +19,7 @@ import (
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/communication"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/merkle"
 	sync_proto "github.com/JupiterMetaLabs/JMDN-FastSync/core/sync"
+	
 	"github.com/JupiterMetaLabs/JMDN-FastSync/logging"
 	"github.com/JupiterMetaLabs/ion"
 	"github.com/libp2p/go-libp2p/core/host"
@@ -84,7 +85,7 @@ func (ps *PriorSync) SetupNetworkHandlers(debug bool) error {
 	comm := communication.NewCommunication(ps.SyncVars.Node, ps.SyncVars.Version)
 
 	// Initialize Sync Handler (Builder Pattern)
-	syncHandler := sync_proto.NewSyncHandler(&ps.SyncVars.NodeInfo, comm, debug)
+	syncHandler := sync_proto.NewSyncHandler(&ps.SyncVars.NodeInfo, comm, ps.SyncVars.WAL, debug)
 
 	ps.mu.Lock()
 

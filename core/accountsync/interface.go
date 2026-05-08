@@ -38,6 +38,10 @@ type AccountSync_router interface {
 	// that need to inspect the node identity or WAL reference.
 	GetSyncVars() *types.Syncvars
 
+	// This will start listening for the account sync data from the server. 
+	// This is used to handle the account sync data from the server.
+	// startAccountSyncData(ctx context.Context) accountSyncTypes.AccountSyncData_router
+
 	// AccountSync runs the full Phase 5 client flow against a single server
 	// identified by the AvailabilityResponse (carries Nodeinfo + Auth UUID).
 	//
@@ -49,3 +53,5 @@ type AccountSync_router interface {
 	// Close releases resources held by the router.
 	Close()
 }
+
+
