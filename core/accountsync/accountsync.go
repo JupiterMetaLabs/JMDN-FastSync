@@ -77,12 +77,17 @@ func (as *AccountSync) AccountSync(remote *availabilitypb.AvailabilityResponse) 
 	ctx := as.SyncVars.Ctx
 	as.ServerAuth = remote.Auth
 
+	// buildCtx is cancelled on any return path, which unblocks any buildChunks
+	// goroutine stuck waiting to send to the out channel after a stream error.
+	buildCtx, buildCancel := context.WithCancel(ctx)
+	defer buildCancel()
+
 	remoteNodeInfo, err := routerhelper.NewNodeInfoHelper().ToNodeinfo(remote.Nodeinfo)
 	if err != nil {
 		return 0, fmt.Errorf("accountsync: parse remote nodeinfo: %w", err)
 	}
 
-	chunkCh, errCh := buildChunks(ctx, as.SyncVars.NodeInfo.BlockInfo, as.ServerAuth)
+	chunkCh, errCh := buildChunks(buildCtx, as.SyncVars.NodeInfo.BlockInfo, as.ServerAuth)
 
 	var totalAccounts uint64
 
@@ -113,7 +118,6 @@ func (as *AccountSync) AccountSync(remote *availabilitypb.AvailabilityResponse) 
 	}
 
 	if err := as.Comm.StreamAllAccountSyncChunks(ctx, *remoteNodeInfo, chunkCh, handlers); err != nil {
-		<-errCh // drain so buildChunks goroutine can exit
 		return 0, fmt.Errorf("accountsync: stream: %w", err)
 	}
 
