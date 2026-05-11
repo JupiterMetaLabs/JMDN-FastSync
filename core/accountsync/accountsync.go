@@ -88,12 +88,15 @@ func (as *AccountSync) AccountSync(remote *availabilitypb.AvailabilityResponse) 
 
 	handlers := messaging.AccountSyncHandlers{
 		OnBatchAck: func(ack *accountspb.AccountBatchAck) error {
-			// Final chunk returns EndOfStream directly — BatchAck should not arrive.
+			if !ack.GetAck().GetOk() {
+				return fmt.Errorf("accountsync: server rejected chunk: %s", ack.GetAck().GetError())
+			}
+			Log.Logger(Log.Sync).Info(ctx, "accountsync: chunk acked")
 			return nil
 		},
 		OnResponse: func(resp *accountspb.AccountSyncResponse) error {
 			// Pages come via dial-back on AccountsSyncDataProtocol, not here.
-			Log.Logger(Log.Sync).Warn(ctx, "accountsync: unexpected Response on original stream",
+			Log.Logger(Log.Sync).Warn(ctx, "accountsync: unexpected Response on upload stream",
 				ion.Int("page_index", int(resp.GetPageIndex())))
 			return nil
 		},
@@ -109,35 +112,13 @@ func (as *AccountSync) AccountSync(remote *availabilitypb.AvailabilityResponse) 
 		},
 	}
 
-	var finalChunk *accountspb.AccountNonceSyncRequest
-
-	for chunk := range chunkCh {
-		if chunk.IsLast {
-			finalChunk = chunk
-			continue
-		}
-		ack, err := as.Comm.SendAccountSyncChunk(ctx, *remoteNodeInfo, chunk)
-		if err != nil {
-			return 0, fmt.Errorf("accountsync: send chunk %d: %w", chunk.BatchIndex, err)
-		}
-		if !ack.GetAck().GetOk() {
-			return 0, fmt.Errorf("accountsync: server rejected chunk %d: %s",
-				chunk.BatchIndex, ack.GetAck().GetError())
-		}
-		Log.Logger(Log.Sync).Info(ctx, "accountsync: chunk acked",
-			ion.Int("batch_index", int(chunk.BatchIndex)))
+	if err := as.Comm.StreamAllAccountSyncChunks(ctx, *remoteNodeInfo, chunkCh, handlers); err != nil {
+		<-errCh // drain so buildChunks goroutine can exit
+		return 0, fmt.Errorf("accountsync: stream: %w", err)
 	}
 
 	if err := <-errCh; err != nil {
 		return 0, fmt.Errorf("accountsync: chunk pipeline: %w", err)
-	}
-
-	if finalChunk == nil {
-		return 0, fmt.Errorf("accountsync: pipeline produced no final chunk")
-	}
-
-	if err := as.Comm.SendAccountSyncFinalChunk(ctx, *remoteNodeInfo, finalChunk, handlers); err != nil {
-		return 0, fmt.Errorf("accountsync: final chunk: %w", err)
 	}
 
 	return totalAccounts, nil

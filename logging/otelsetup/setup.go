@@ -48,13 +48,15 @@ func Setup(logDir string, logFileName string) (*ion.Ion, []ion.Warning, error) {
 		cfg.Development = constants.DEVELOPMENT
 		cfg.Level = constants.LOG_LEVEL
 
-		// ClickHouse log sink
-		cfg.ClickHouse = ion.ClickHouseConfig{
-			Enabled:       true,
-			DSN:           os.Getenv("CLICKHOUSE_DSN"),
-			Table:         "ion_fastsync_logs",
-			AutoSchema:    true,
-			FlushInterval: 3 * time.Second,
+		// ClickHouse log sink (only if DSN is configured)
+		if dsn := os.Getenv("CLICKHOUSE_DSN"); dsn != "" {
+			cfg.ClickHouse = ion.ClickHouseConfig{
+				Enabled:       true,
+				DSN:           dsn,
+				Table:         "ion_fastsync_logs",
+				AutoSchema:    true,
+				FlushInterval: 3 * time.Second,
+			}
 		}
 
 		// Check for OTEL configuration
