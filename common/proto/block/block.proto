@@ -18,6 +18,7 @@ message Header {
     uint64 gas_limit = 11;
     uint64 gas_used = 12;
     uint64 block_number = 13;
+    bytes logs_bloom = 14;
 }
 
 message Transaction {
