@@ -180,6 +180,12 @@ func diffWithGRO(
 		return nil
 	}
 
+	// diffCtx is cancelled when diffWithGRO returns (via defer) or early on spawnErr.
+	// Cancelling it stops the producer goroutine, which closes workChan, which lets
+	// already-spawned parents drain and exit without needing a separate drain goroutine.
+	diffCtx, diffCancel := context.WithCancel(ctx)
+	defer diffCancel()
+
 	workChan := make(chan []*types.Account, actualParents)
 
 	producerErr := make(chan error, 1)
@@ -195,7 +201,7 @@ func diffWithGRO(
 				return
 			}
 			select {
-			case <-ctx.Done():
+			case <-diffCtx.Done():
 				return
 			case workChan <- batch:
 			}
@@ -264,10 +270,11 @@ func diffWithGRO(
 		)
 
 		if spawnErr != nil {
-			go func() {
-				for range workChan {
-				}
-			}()
+			// Cancel diffCtx to stop the producer. The producer exits and closes
+			// workChan, which causes already-spawned parents to drain and return.
+			// wg.Wait() ensures they have all finished before we return.
+			diffCancel()
+			wg.Wait()
 			return fmt.Errorf("spawn parent %d: %w", parentIdx, spawnErr)
 		}
 	}

@@ -113,6 +113,9 @@ func (d *AccountDispatcher) EnqueueNonces(ctx context.Context, nonces []uint64) 
 	if len(nonces) == 0 {
 		return nil
 	}
+	if d.inputClosed.Load() {
+		return fmt.Errorf("dispatcher: EnqueueNonces called after CloseInput")
+	}
 
 	page := noncePage{
 		Nonces:    nonces,

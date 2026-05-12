@@ -11,6 +11,7 @@ import (
 
 	"golang.org/x/time/rate"
 
+	clienthelper "github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/router/helper/accounts/client_helper"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/checksum/checksum_priorsync"
 	accountspb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/accounts"
 	ackpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/ack"
@@ -42,6 +43,7 @@ import (
 	"github.com/JupiterMetaLabs/ion"
 	libp2p_peer "github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
+	WAL "github.com/JupiterMetaLabs/JMDN-FastSync/common/WAL"
 )
 
 const (
@@ -53,14 +55,19 @@ type Datarouter struct {
 	Comm                 communication.Communicator
 	clientGeneratedUUID  string
 	availabilityLimiters sync.Map // libp2p_peer.ID -> *rate.Limiter
+	wal 				*WAL.WAL
 }
 
-func NewDatarouter(nodeinfo *types.Nodeinfo, comm communication.Communicator) *Datarouter {	
-	return &Datarouter{
+func NewDatarouter(nodeinfo *types.Nodeinfo, comm communication.Communicator, wal *WAL.WAL) *Datarouter {
+	datarouter := &Datarouter{
 		Nodeinfo:            nodeinfo,
 		Comm:                comm,
 		clientGeneratedUUID: "",
 	}
+	if wal != nil {
+		datarouter.wal = wal
+	}
+	return datarouter
 }
 
 // getAvailabilityLimiter returns the per-peer rate limiter for HandleAvailability,
@@ -1471,6 +1478,29 @@ func (router *Datarouter) FULL_SYNC(ctx context.Context, req *priorsyncpb.PriorS
 	}
 }
 
+// HandleAccountsSyncData stores one incoming account page received via the
+// AccountsSyncDataProtocol dial-back and returns a BatchAck for the server.
+func (router *Datarouter) HandleAccountsSyncData(ctx context.Context, resp *accountspb.AccountSyncResponse, remote *types.Nodeinfo) *accountspb.AccountSyncServerMessage {
+	if resp == nil {
+		return accountshelper.NewResultFactory(0).ErrBatchAck("nil response")
+	}
+
+	f := accountshelper.NewResultFactory(resp.GetPageIndex())
+
+	writer := clienthelper.NewClientWriter().SetSyncVars(ctx, *router.Nodeinfo, router.wal)
+	defer writer.Close()
+
+	status, err := writer.WriteAccounts(resp.GetAccounts())
+	if err != nil {
+		return f.ErrBatchAck(err.Error())
+	}
+	if !status {
+		return f.ErrBatchAck("write returned false with no error")
+	}
+
+	return f.BatchAck()
+}
+
 func (router *Datarouter) ACCOUNTS_SYNC(ctx context.Context, req *accountspb.AccountNonceSyncRequest, remote *types.Nodeinfo, sessionLockedART *accountshelper.LockedART) *accountspb.AccountSyncServerMessage {
 	f := accountshelper.NewResultFactory(req.GetBatchIndex())
 
@@ -1512,38 +1542,7 @@ func (router *Datarouter) ACCOUNTS_SYNC(ctx context.Context, req *accountspb.Acc
 		return f.ErrEndOfStream(err.Error())
 	}
 
-	// Build callbacks: FetchAccounts hits DB, SendPage dials the client back
-	// on AccountsSyncDataProtocol (one short-lived stream per page).
-	callbacks := types.DispatcherCallbacks{
-		FetchAccounts: func(fetchCtx context.Context, nonces []uint64) ([]*types.Account, error) {
-			return router.Nodeinfo.BlockInfo.NewAccountManager().NewAccountNonceIterator(1).GetAccountsByNonces(nonces)
-		},
-		SendPage: func(sendCtx context.Context, pageIndex uint32, accounts []*types.Account) error {
-			msg := &accountspb.AccountSyncServerMessage{
-				Payload: &accountspb.AccountSyncServerMessage_Response{
-					Response: &accountspb.AccountSyncResponse{
-						Accounts:  accountshelper.ToProtoAccounts(accounts),
-						PageIndex: pageIndex,
-						Ack:       &ackpb.Ack{Ok: true},
-						Phase: &phasepb.Phase{
-							PresentPhase:    constants.ACCOUNTS_SYNC_RESPONSE,
-							SuccessivePhase: constants.ACCOUNTS_SYNC_RESPONSE,
-							Success:         true,
-							Auth:            req.Phase.Auth,
-						},
-					},
-				},
-			}
-			ack, err := router.Comm.StreamAccounts(sendCtx, *remote, msg)
-			if err != nil {
-				return fmt.Errorf("stream accounts page %d: %w", pageIndex, err)
-			}
-			if ack.GetBatchAck() != nil && !ack.GetBatchAck().GetAck().GetOk() {
-				return fmt.Errorf("client rejected page %d: %s", pageIndex, ack.GetBatchAck().GetAck().GetError())
-			}
-			return nil
-		},
-	}
+	callbacks := accountshelper.NewDispatcherCallbacks(router.Nodeinfo, *remote, router.Comm.StreamAccounts, req.Phase.Auth)
 
 	d, dispErr := accountsdispatcher.New(accountsdispatcher.Default(), callbacks)
 	if dispErr != nil {
@@ -1558,6 +1557,8 @@ func (router *Datarouter) ACCOUNTS_SYNC(ctx context.Context, req *accountspb.Acc
 
 	isFullSync, diffErr := accountshelper.ComputeAccountDiff(ctx, sessionLockedART.Swappable(), router.Nodeinfo.BlockInfo, req.TotalKeys, d)
 	if diffErr != nil {
+		d.CloseInput()   // unblock d.Run so the goroutine can exit
+		<-summaryCh      // wait for it to finish before returning
 		return f.ErrEndOfStream(fmt.Errorf("diff computation: %w", diffErr).Error())
 	}
 
