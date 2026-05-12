@@ -3,7 +3,6 @@ package otelsetup
 import (
 	"context"
 	"sync"
-	"os"
 	"time"
 	constants "github.com/JupiterMetaLabs/JMDN-FastSync/common/types/constants"
 	"github.com/JupiterMetaLabs/ion"
@@ -47,18 +46,6 @@ func Setup(logDir string, logFileName string) (*ion.Ion, []ion.Warning, error) {
 		cfg.Version = constants.VERSION
 		cfg.Development = constants.DEVELOPMENT
 		cfg.Level = constants.LOG_LEVEL
-
-		// ClickHouse log sink (only if DSN is configured)
-		if dsn := os.Getenv("CLICKHOUSE_DSN"); dsn != "" {
-			cfg.ClickHouse = ion.ClickHouseConfig{
-				Enabled:       true,
-				DSN:           dsn,
-				Table:         "ion_fastsync_logs",
-				AutoSchema:    true,
-				FlushInterval: 3 * time.Second,
-			}
-		}
-
 		// Check for OTEL configuration
 		if constants.OTEL_EXPORTER_OTLP_ENDPOINT != "" {
 			// Configure OTEL export
