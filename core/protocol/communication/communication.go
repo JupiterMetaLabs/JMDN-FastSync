@@ -10,6 +10,7 @@ import (
 	datasyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/datasync"
 	headersyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/headersync"
 	merklepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/merkle"
+	accountspb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/accounts"
 	phasepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/phase"
 	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/priorsync"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
@@ -39,6 +40,16 @@ type Communicator interface {
 	SendAvailabilityRequest(ctx context.Context, peerNode types.Nodeinfo, req *availabilitypb.AvailabilityRequest) (*availabilitypb.AvailabilityResponse, error)
 
 	SendPoTSRequest(ctx context.Context, peerNode types.Nodeinfo, req *potspb.PoTSRequest) (*potspb.PoTSResponse, error)
+
+	// StreamAllAccountSyncChunks uploads all ART chunks on a single persistent stream.
+	// Each non-final chunk (is_last=false) is followed by a BatchAck from the server
+	// before the next chunk is sent. The final chunk (is_last=true) is followed by all
+	// server→client frames until EndOfStream, dispatched via handlers.
+	StreamAllAccountSyncChunks(ctx context.Context, peerNode types.Nodeinfo, chunks <-chan *accountspb.AccountNonceSyncRequest, handlers messaging.AccountSyncHandlers) error
+
+	// StreamAccounts delivers one AccountSyncResponse page from the server to the
+	// client by dialling AccountsSyncDataProtocol (dial-back). Returns the client ack.
+	StreamAccounts(ctx context.Context, peerNode types.Nodeinfo, resp *accountspb.AccountSyncServerMessage) (*accountspb.AccountSyncServerMessage, error)
 }
 
 func NewCommunication(host host.Host, protocolVersion uint16) Communicator {
@@ -267,6 +278,75 @@ func (c *communication) SendAvailabilityRequest(
 	}
 
 	return resp, nil
+}
+
+// StreamAllAccountSyncChunks uploads all ART chunks on ONE persistent stream so
+// the server's sessionLockedART accumulates every batch before diff computation.
+func (c *communication) StreamAllAccountSyncChunks(
+	ctx context.Context,
+	peerNode types.Nodeinfo,
+	chunks <-chan *accountspb.AccountNonceSyncRequest,
+	handlers messaging.AccountSyncHandlers,
+) error {
+	if c.host == nil {
+		return errors.New("host is nil")
+	}
+	peerInfo := libp2p_peer.AddrInfo{
+		ID:    peerNode.PeerID,
+		Addrs: peerNode.Multiaddr,
+	}
+	return messaging.SendAccountsSyncAllChunksWithHeartbeat(
+		ctx,
+		c.protocolVersion,
+		c.host,
+		peerInfo,
+		constants.AccountsSyncProtocol,
+		chunks,
+		handlers,
+	)
+}
+
+// StreamAccounts delivers one AccountSyncResponse page from the SERVER to the
+// CLIENT by dialling the client on AccountsSyncDataProtocol (dial-back).
+//
+// The server calls this once per missing-account page. The client's
+// HandleAccountsSyncData handler reads resp, stores the accounts, and sends
+// an AccountSyncServerMessage ack back on the same short-lived stream.
+//
+// Using a separate dial-back stream per page keeps the data router stateless —
+// no reference to the original upload stream is required.
+//
+// Time:  O(n) where n = proto-serialised size of resp — dominated by accounts.
+// Space: O(1) — ack message only.
+func (c *communication) StreamAccounts(
+	ctx context.Context,
+	peerNode types.Nodeinfo,
+	resp *accountspb.AccountSyncServerMessage,
+) (*accountspb.AccountSyncServerMessage, error) {
+	if c.host == nil {
+		return nil, errors.New("host is nil")
+	}
+
+	peerInfo := libp2p_peer.AddrInfo{
+		ID:    peerNode.PeerID,
+		Addrs: peerNode.Multiaddr,
+	}
+
+	ack := &accountspb.AccountSyncServerMessage{}
+
+	if err := messaging.SendProtoDelimited(
+		ctx,
+		c.protocolVersion,
+		c.host,
+		peerInfo,
+		constants.AccountsSyncDataProtocol,
+		resp,
+		ack,
+	); err != nil {
+		return nil, errors.New("stream accounts to client failed: " + err.Error())
+	}
+
+	return ack, nil
 }
 
 func (c *communication) SendPoTSRequest(

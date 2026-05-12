@@ -34,6 +34,13 @@ const (
 
 	PoTS_REQUEST = "state:pots:potsrequest"
 	PoTS_RESPONSE = "state:pots:potsresponse"
+
+	ACCOUNTS_SYNC_REQUEST_BATCH_ACK = "state:accountssync:accountssyncrequest:batchack"
+	ACCOUNTS_SYNC_REQUEST_HEARTBEAT = "state:accountssync:accountssyncrequest:heartbeat"
+	ACCOUNTS_SYNC_REQUEST_RESPONSE_PAGE = "state:accountssync:accountssyncrequest:response:page"
+	ACCOUNTS_SYNC_REQUEST_END = "state:accountssync:accountssyncrequest:end"
+	ACCOUNTS_SYNC_REQUEST = "state:accountssync:accountssyncrequest"
+	ACCOUNTS_SYNC_RESPONSE = "state:accountssync:accountssyncresponse"
 )
 
 const (

@@ -9,6 +9,7 @@ const (
 	DataSync       WALType = "wal:datasync"
 	Reconciliation WALType = "wal:reconciliation"
 	PoTS           WALType = "wal:pots"
+	AccountSync    WALType = "wal:accountsync"
 )
 
 const (

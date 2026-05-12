@@ -11,8 +11,9 @@ import (
 
 	"golang.org/x/time/rate"
 
+	clienthelper "github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/router/helper/accounts/client_helper"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/checksum/checksum_priorsync"
-	potspb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/pots"
+	accountspb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/accounts"
 	ackpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/ack"
 	availabilitypb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/availability"
 	authpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/availability/auth"
@@ -23,6 +24,7 @@ import (
 	merklepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/merkle"
 	nodeinfopb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/nodeinfo"
 	phasepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/phase"
+	potspb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/pots"
 	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/priorsync"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/constants"
@@ -31,6 +33,8 @@ import (
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/communication"
 	merkle "github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/merkle"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/router/helper"
+	accountshelper "github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/router/helper/accounts"
+	accountsdispatcher "github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/router/helper/accounts/dispatcher"
 	potshelper "github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/router/helper/pots"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/tagging"
 	merkle_types "github.com/JupiterMetaLabs/JMDN-FastSync/helper/merkle"
@@ -39,6 +43,7 @@ import (
 	"github.com/JupiterMetaLabs/ion"
 	libp2p_peer "github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
+	WAL "github.com/JupiterMetaLabs/JMDN-FastSync/common/WAL"
 )
 
 const (
@@ -50,14 +55,19 @@ type Datarouter struct {
 	Comm                 communication.Communicator
 	clientGeneratedUUID  string
 	availabilityLimiters sync.Map // libp2p_peer.ID -> *rate.Limiter
+	wal 				*WAL.WAL
 }
 
-func NewDatarouter(nodeinfo *types.Nodeinfo, comm communication.Communicator) *Datarouter {
-	return &Datarouter{
+func NewDatarouter(nodeinfo *types.Nodeinfo, comm communication.Communicator, wal *WAL.WAL) *Datarouter {
+	datarouter := &Datarouter{
 		Nodeinfo:            nodeinfo,
 		Comm:                comm,
 		clientGeneratedUUID: "",
 	}
+	if wal != nil {
+		datarouter.wal = wal
+	}
+	return datarouter
 }
 
 // getAvailabilityLimiter returns the per-peer rate limiter for HandleAvailability,
@@ -571,6 +581,45 @@ func (router *Datarouter) HandlePoTSync(ctx context.Context, req *potspb.PoTSReq
 		ion.String("tags", tagInfo))
 
 	return response
+}
+
+func (router *Datarouter) HandleAccountsSync(ctx context.Context, req *accountspb.AccountNonceSyncRequest, remote *types.Nodeinfo, sessionLockedART *accountshelper.LockedART) *accountspb.AccountSyncServerMessage {
+	f := accountshelper.NewResultFactory(req.GetBatchIndex())
+
+	if req.Phase == nil || req.Phase.Auth == nil || req.Phase.Auth.UUID == "" {
+		return f.ErrEndOfStream(errors.AuthRequired.Error())
+	}
+
+	authenticated, err := router.Authenticate(ctx, req.Phase.Auth, remote)
+	if err != nil || !authenticated {
+		return f.ErrEndOfStream(errors.AuthenticationFailed.Error())
+	}
+
+	defer func() {
+		if resetErr := router.ResetTTL(ctx, req.Phase.Auth, remote); resetErr != nil {
+			Log.Logger(namedlogger).Error(ctx, "Failed to reset TTL", resetErr)
+		}
+	}()
+
+	Log.Logger(namedlogger).Info(ctx, "Processing Accounts Sync Request",
+		ion.String("remote_peer", remote.PeerID.String()),
+		ion.Uint64("total_keys", req.TotalKeys),
+		ion.Int("batch_index", int(req.BatchIndex)),
+		ion.String("keys_range", req.KeysRange.String()),
+		ion.String("phase", req.Phase.PresentPhase),
+		ion.String("is_last", fmt.Sprintf("%t", req.IsLast)),
+	)
+
+	switch req.Phase.PresentPhase {
+	case constants.ACCOUNTS_SYNC_REQUEST:
+		if req.KeysRange == nil {
+			return f.ErrEndOfStream(errors.AccountsSyncRequestNil.Error())
+		}
+		return router.ACCOUNTS_SYNC(ctx, req, remote, sessionLockedART)
+
+	default:
+		return f.ErrEndOfStream("unknown state: " + req.Phase.PresentPhase)
+	}
 }
 
 func (router *Datarouter) SYNC_REQUEST_V2(ctx context.Context, req *priorsyncpb.PriorSync) *priorsyncpb.PriorSyncMessage {
@@ -1424,6 +1473,116 @@ func (router *Datarouter) FULL_SYNC(ctx context.Context, req *priorsyncpb.PriorS
 				SuccessivePhase: constants.HEADER_SYNC_RESPONSE,
 				Success:         true,
 				Error:           "",
+			},
+		},
+	}
+}
+
+// HandleAccountsSyncData stores one incoming account page received via the
+// AccountsSyncDataProtocol dial-back and returns a BatchAck for the server.
+func (router *Datarouter) HandleAccountsSyncData(ctx context.Context, resp *accountspb.AccountSyncResponse, remote *types.Nodeinfo) *accountspb.AccountSyncServerMessage {
+	if resp == nil {
+		return accountshelper.NewResultFactory(0).ErrBatchAck("nil response")
+	}
+
+	f := accountshelper.NewResultFactory(resp.GetPageIndex())
+
+	writer := clienthelper.NewClientWriter().SetSyncVars(ctx, *router.Nodeinfo, router.wal)
+	defer writer.Close()
+
+	status, err := writer.WriteAccounts(resp.GetAccounts())
+	if err != nil {
+		return f.ErrBatchAck(err.Error())
+	}
+	if !status {
+		return f.ErrBatchAck("write returned false with no error")
+	}
+
+	return f.BatchAck()
+}
+
+func (router *Datarouter) ACCOUNTS_SYNC(ctx context.Context, req *accountspb.AccountNonceSyncRequest, remote *types.Nodeinfo, sessionLockedART *accountshelper.LockedART) *accountspb.AccountSyncServerMessage {
+	f := accountshelper.NewResultFactory(req.GetBatchIndex())
+
+	if req == nil || len(req.GetArt()) == 0 {
+		return f.ErrEndOfStream(errors.AccountsSyncArtNil.Error())
+	}
+
+	// Reject the chunk before touching the ART if the checksum does not match.
+	// This guards against both accidental corruption and deliberate tampering.
+	valid, checksumErr := accountshelper.ARTChecksumValid(req.GetArt(), req.Checksum)
+	if checksumErr != nil {
+		return f.ErrEndOfStream(checksumErr.Error())
+	}
+	if !valid {
+		return f.ErrEndOfStream("ART checksum mismatch")
+	}
+
+	// Merge through LockedART — decode + tree write are serialised under its
+	// internal mutex, so parallel frames from a rogue node cannot race.
+	if err := sessionLockedART.Merge(req.GetArt()); err != nil {
+		return f.ErrEndOfStream(err.Error())
+	}
+
+	Log.Logger(namedlogger).Info(ctx, "AccountSync ART chunk merged",
+		ion.Int("batch_index", int(req.BatchIndex)),
+		ion.Bool("is_last", req.IsLast),
+		ion.Uint64("total_keys", req.TotalKeys),
+	)
+
+	// Non-final batch: acknowledge receipt and wait for the next chunk.
+	if !req.IsLast {
+		return f.BatchAck()
+	}
+
+	// Final batch: flush hot ART keys to disk before the diff scan begins.
+	// Close is also serialised under LockedART's mutex, so it cannot race with
+	// any late-arriving concurrent chunk from a misbehaving client.
+	if err := sessionLockedART.Close(); err != nil {
+		return f.ErrEndOfStream(err.Error())
+	}
+
+	callbacks := accountshelper.NewDispatcherCallbacks(router.Nodeinfo, *remote, router.Comm.StreamAccounts, req.Phase.Auth)
+
+	d, dispErr := accountsdispatcher.New(accountsdispatcher.Default(), callbacks)
+	if dispErr != nil {
+		return f.ErrEndOfStream(fmt.Errorf("dispatcher init: %w", dispErr).Error())
+	}
+
+	summaryCh := make(chan types.DispatchSummary, 1)
+	go func() {
+		s, _ := d.Run(ctx)
+		summaryCh <- s
+	}()
+
+	isFullSync, diffErr := accountshelper.ComputeAccountDiff(ctx, sessionLockedART.Swappable(), router.Nodeinfo.BlockInfo, req.TotalKeys, d)
+	if diffErr != nil {
+		d.CloseInput()   // unblock d.Run so the goroutine can exit
+		<-summaryCh      // wait for it to finish before returning
+		return f.ErrEndOfStream(fmt.Errorf("diff computation: %w", diffErr).Error())
+	}
+
+	summary := <-summaryCh
+
+	Log.Logger(namedlogger).Info(ctx, "AccountSync diff complete",
+		ion.Bool("is_full_sync", isFullSync),
+		ion.Uint64("delivered_accounts", summary.DeliveredAccounts),
+		ion.Int("delivered_pages", int(summary.DeliveredPages)),
+		ion.Int("failed_pages", int(summary.PermanentFailedPages)),
+	)
+
+	return &accountspb.AccountSyncServerMessage{
+		Payload: &accountspb.AccountSyncServerMessage_End{
+			End: &accountspb.AccountSyncEndOfStream{
+				TotalPages:    summary.DeliveredPages,
+				TotalAccounts: summary.DeliveredAccounts,
+				Ack:           &ackpb.Ack{Ok: true},
+				Phase: &phasepb.Phase{
+					PresentPhase:    constants.ACCOUNTS_SYNC_RESPONSE,
+					SuccessivePhase: constants.ACCOUNTS_SYNC_RESPONSE,
+					Success:         true,
+					Auth:            req.Phase.Auth,
+				},
 			},
 		},
 	}

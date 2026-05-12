@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"time"
 
+	accountspb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/accounts"
 	datasyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/datasync"
 	potspb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/pots"
 	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/priorsync"
@@ -244,7 +246,7 @@ func SendProtoDelimited(
 	}
 
 	// Set read deadline
-	if err := stream.SetReadDeadline(time.Now().Add(10 * time.Second)); err != nil {
+	if err := stream.SetReadDeadline(time.Now().Add(constants.StreamDeadline)); err != nil {
 		return fmt.Errorf("failed to set read deadline: %w", err)
 	}
 	defer stream.SetReadDeadline(time.Time{})
@@ -262,6 +264,12 @@ type streamConfig[E proto.Message] struct {
 	newEnvelope   func() E
 	isHeartbeat   func(E) bool
 	mergeResponse func(E) error
+	// isFinal reports whether this envelope is the last frame on the stream.
+	// nil means every non-heartbeat frame is final (correct for all single-response
+	// protocols: PriorSync, DataSync, PoTS). Set explicitly for multi-frame protocols
+	// like AccountSync where the loop must continue past batch_ack / response frames
+	// and only exit on the end-of-stream frame.
+	isFinal func(E) bool
 }
 
 // sendProtoDelimitedWithHeartbeatGeneric is the shared implementation for both
@@ -367,11 +375,14 @@ func sendProtoDelimitedWithHeartbeatGeneric[E proto.Message](
 			continue
 		}
 
-		// Final response — copy into caller's struct natively and exit.
 		if err := cfg.mergeResponse(envelope); err != nil {
 			return err
 		}
-		return nil
+		// nil isFinal → every non-heartbeat frame is final (PriorSync, DataSync, PoTS).
+		// Non-nil isFinal → only exit when the frame is the designated terminator (AccountSync end).
+		if cfg.isFinal == nil || cfg.isFinal(envelope) {
+			return nil
+		}
 	}
 }
 
@@ -484,4 +495,178 @@ func SendPoTSProtoDelimitedWithHeartbeat(
 			},
 		},
 	)
+}
+
+// accountSyncStream is the minimal interface required by
+// ReadAccountsSyncServerMessageSkippingHeartbeats: a readable stream whose
+// read deadline can be reset on each heartbeat to keep the connection alive.
+// libp2p network.Stream satisfies this interface.
+type accountSyncStream interface {
+	io.Reader
+	SetReadDeadline(t time.Time) error
+}
+
+// ReadAccountsSyncServerMessageSkippingHeartbeats reads the next non-heartbeat
+// AccountSyncServerMessage from an already-open AccountSync stream.
+//
+// Heartbeat frames are silently consumed; the read deadline is reset on each one
+// to prevent the stream from timing out during long diff computations on the server.
+//
+// All other payload types are returned as-is — inspect with:
+//
+//	msg.GetBatchAck()  → AccountBatchAck       (server acked one ART batch)
+//	msg.GetResponse()  → AccountSyncResponse   (one page of missing accounts)
+//	msg.GetEnd()       → AccountSyncEndOfStream (completion signal — stop looping)
+//
+// Call this in a loop on the same stream after sending the final
+// AccountNonceSyncRequest (is_last=true) until msg.GetEnd() is non-nil or error.
+func ReadAccountsSyncServerMessageSkippingHeartbeats(stream accountSyncStream) (*accountspb.AccountSyncServerMessage, error) {
+	for {
+		if err := stream.SetReadDeadline(time.Now().Add(constants.StreamDeadline)); err != nil {
+			return nil, fmt.Errorf("accounts sync: set read deadline: %w", err)
+		}
+		msg := &accountspb.AccountSyncServerMessage{}
+		if err := pbstream.ReadDelimited(stream, msg); err != nil {
+			return nil, fmt.Errorf("accounts sync: read frame: %w", err)
+		}
+		if _, ok := msg.Payload.(*accountspb.AccountSyncServerMessage_Heartbeat); ok {
+			// Heartbeat — deadline already reset above; read the next frame.
+			continue
+		}
+		return msg, nil
+	}
+}
+
+// SendAccountsSyncAllChunksWithHeartbeat uploads all ART chunks to the server on a
+// single persistent stream and dispatches every server→client frame via handlers.
+//
+// Protocol:
+//
+//	For each non-final chunk (is_last=false):
+//	  write chunk → read BatchAck (heartbeats skipped) → handlers.OnBatchAck → next chunk
+//
+//	For the final chunk (is_last=true):
+//	  write chunk → read frames until EndOfStream:
+//	    batch_ack  → handlers.OnBatchAck, loop
+//	    response   → handlers.OnResponse, loop
+//	    end        → handlers.OnEnd, return nil
+//
+// All chunks share ONE stream so the server's sessionLockedART accumulates every
+// batch before the diff computation begins.
+func SendAccountsSyncAllChunksWithHeartbeat(
+	ctx context.Context,
+	version uint16,
+	host host.Host,
+	peerInfo peer.AddrInfo,
+	protocolID protocol.ID,
+	chunks <-chan *accountspb.AccountNonceSyncRequest,
+	handlers AccountSyncHandlers,
+) error {
+	if host == nil {
+		return errors.New("host is nil")
+	}
+	if len(peerInfo.Addrs) == 0 {
+		return errors.New("peer has no addresses")
+	}
+
+	primaryAddr, fallbackAddr, err := SelectTransportAddrWithFallback(peerInfo.Addrs, version)
+	if err != nil {
+		return fmt.Errorf("transport selection failed: %w", err)
+	}
+
+	targetPeer := peer.AddrInfo{ID: peerInfo.ID, Addrs: []multiaddr.Multiaddr{primaryAddr}}
+
+	connectCtx, cancel := context.WithTimeout(ctx, constants.StreamDeadline)
+	defer cancel()
+
+	connectErr := host.Connect(connectCtx, targetPeer)
+	if connectErr != nil && version >= 2 && fallbackAddr != nil {
+		logging.Logger(logging.Transport).Warn(ctx, "primary transport failed, attempting TCP fallback", ion.Err(connectErr))
+		targetPeer.Addrs = []multiaddr.Multiaddr{fallbackAddr}
+		fallbackCtx, fallbackCancel := context.WithTimeout(ctx, constants.StreamDeadline)
+		defer fallbackCancel()
+		connectErr = host.Connect(fallbackCtx, targetPeer)
+		if connectErr != nil {
+			return fmt.Errorf("failed to connect (QUIC and TCP fallback) to peer %s: %w", peerInfo.ID, connectErr)
+		}
+	} else if connectErr != nil {
+		return fmt.Errorf("failed to connect to peer %s at %v: %w", peerInfo.ID, targetPeer.Addrs, connectErr)
+	}
+
+	stream, err := host.NewStream(ctx, peerInfo.ID, protocolID)
+	if err != nil {
+		return fmt.Errorf("failed to create stream: %w", err)
+	}
+	defer stream.Close()
+
+	for chunk := range chunks {
+		if err := stream.SetWriteDeadline(time.Now().Add(constants.StreamDeadline)); err != nil {
+			return fmt.Errorf("accountsync: set write deadline: %w", err)
+		}
+		if err := pbstream.WriteDelimited(stream, chunk); err != nil {
+			return fmt.Errorf("accountsync: write chunk %d: %w", chunk.BatchIndex, err)
+		}
+
+		if !chunk.IsLast {
+			msg, err := ReadAccountsSyncServerMessageSkippingHeartbeats(stream)
+			if err != nil {
+				return fmt.Errorf("accountsync: read ack for chunk %d: %w", chunk.BatchIndex, err)
+			}
+			batchAck := msg.GetBatchAck()
+			if batchAck == nil {
+				return fmt.Errorf("accountsync: expected BatchAck for chunk %d, got %T", chunk.BatchIndex, msg.Payload)
+			}
+			if handlers.OnBatchAck != nil {
+				if err := handlers.OnBatchAck(batchAck); err != nil {
+					return err
+				}
+			}
+		} else {
+			for {
+				msg, err := ReadAccountsSyncServerMessageSkippingHeartbeats(stream)
+				if err != nil {
+					return fmt.Errorf("accountsync: read final response: %w", err)
+				}
+				switch p := msg.Payload.(type) {
+				case *accountspb.AccountSyncServerMessage_BatchAck:
+					if handlers.OnBatchAck != nil {
+						if err := handlers.OnBatchAck(p.BatchAck); err != nil {
+							return err
+						}
+					}
+				case *accountspb.AccountSyncServerMessage_Response:
+					if handlers.OnResponse != nil {
+						if err := handlers.OnResponse(p.Response); err != nil {
+							return err
+						}
+					}
+				case *accountspb.AccountSyncServerMessage_End:
+					if handlers.OnEnd != nil {
+						if err := handlers.OnEnd(p.End); err != nil {
+							return err
+						}
+					}
+					return nil
+				default:
+					return fmt.Errorf("accountsync: unexpected frame type %T after final chunk", msg.Payload)
+				}
+			}
+		}
+	}
+	return fmt.Errorf("accountsync: chunks channel closed without a final chunk")
+}
+
+// AccountSyncHandlers holds per-frame callbacks for SendAccountsSyncAllChunksWithHeartbeat.
+// Heartbeat frames are silently consumed; no callback is needed for them.
+// Returning a non-nil error from any handler aborts the read loop immediately.
+type AccountSyncHandlers struct {
+	// OnBatchAck is called for each AccountBatchAck (one per uploaded ART batch).
+	OnBatchAck func(*accountspb.AccountBatchAck) error
+	// OnResponse is called for each AccountSyncResponse page of missing accounts.
+	// Pages may arrive out of order; use page_index to reorder if needed.
+	OnResponse func(*accountspb.AccountSyncResponse) error
+	// OnEnd is called exactly once when AccountSyncEndOfStream arrives.
+	// Use total_pages to verify all response pages were received before the
+	// function returns.
+	OnEnd func(*accountspb.AccountSyncEndOfStream) error
 }

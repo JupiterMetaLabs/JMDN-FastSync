@@ -5,6 +5,7 @@ import (
 	"time"
 
 	blockpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/block"
+	art "github.com/JupiterMetaLabs/JMDN_Merkletree/art"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/multiformats/go-multiaddr"
@@ -23,6 +24,7 @@ type Nodeinfo struct {
 	Version      uint16
 	Protocol     protocol.ID
 	BlockInfo    BlockInfo
+	ART          *art.SwappableART
 }
 
 type AUTHStructure struct {
@@ -40,6 +42,34 @@ type BlockInfo interface {
 	NewHeadersWriter() WriteHeaders
 	NewDataWriter() WriteData
 	NewAccountManager() AccountManager
+}
+
+// AccountNonceIterator pages through all accounts stored on the server node.
+// Used by AccountSync server-side to iterate every account and check whether
+// the client already has each one (via SwappableART nonce lookup).
+//
+// Contract: TotalAccounts MUST be position-independent (e.g. a COUNT(*) query).
+// Calling TotalAccounts before the first NextBatch MUST NOT advance the cursor.
+// Implementations that violate this will cause ComputeAccountDiff to iterate
+// from a non-zero offset and silently return an incomplete Missing set.
+type AccountNonceIterator interface {
+	// NextBatch returns the next batch of accounts. Returns nil slice and nil error at end.
+	NextBatch() ([]*Account, error)
+	// TotalAccounts returns the total number of accounts on the server.
+	// Must be safe to call before the first NextBatch without affecting iteration order.
+	TotalAccounts() (uint64, error)
+
+	// GetAccountsByNonces batch-fetches full account rows for the given nonce values.
+	// Used by the AccountSync dispatcher to hydrate nonce pages with complete account
+	// data before streaming to the client.
+	//
+	// Accounts not found for a given nonce are silently omitted (not an error).
+	// The caller overrides balance_wei to "0" before sending — DB value is ignored.
+	// Implementation should use a single WHERE nonce IN (?,?,...) query.
+	GetAccountsByNonces(nonces []uint64) ([]*Account, error)
+
+	// Close releases any resources held by the iterator.
+	Close()
 }
 
 type BlockIterator interface {
@@ -82,6 +112,9 @@ type AccountManager interface {
 	// GetAccountBalance retrieves the current balance and nonce for an account.
 	GetAccountBalance(accountAddress string) (*big.Int, uint64, error)
 
+	// GetAccountByAddress retrieves an account by address.
+	GetAccountByAddress(accountAddress string) (*Account, error)
+
 	// UpdateAccountBalance updates the balance and nonce for an existing account.
 	UpdateAccountBalance(accountAddress string, balance *big.Int, nonce uint64) error
 
@@ -91,6 +124,14 @@ type AccountManager interface {
 	// BatchUpdateAccounts atomically applies all account updates in a single DB transaction.
 	// Either every update is committed or none are (full rollback on any failure).
 	BatchUpdateAccounts(updates []AccountUpdate) error
+
+	// Write account records to the database
+	WriteAccounts(accounts []*Account) error
+
+	// NewAccountNonceIterator returns an iterator that pages through all accounts
+	// ordered by nonce, used during AccountSync diff computation.
+	// Moved from BlockInfo so all account operations live in one interface.
+	NewAccountNonceIterator(batchSize int) AccountNonceIterator
 }
 
 type AUTHHandler interface {

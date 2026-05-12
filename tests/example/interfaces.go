@@ -13,6 +13,27 @@ type example_blockinfo struct{}
 func NewExampleBlockInfo() types.BlockInfo {
 	return example_blockinfo{}
 }
+
+func (e example_blockinfo) NewAccountNonceIterator(batchSize int) types.AccountNonceIterator {
+	return &example_accountnonceiterator{}
+}
+
+type example_accountnonceiterator struct{}
+
+func (e example_accountnonceiterator) NextBatch() ([]*types.Account, error) {
+	return nil, nil
+}
+
+func (e example_accountnonceiterator) TotalAccounts() (uint64, error) {
+	return 0, nil
+}
+
+func (e example_accountnonceiterator) GetAccountsByNonces(nonces []uint64) ([]*types.Account, error) {
+	return nil, nil
+}
+
+func (e example_accountnonceiterator) Close() {}
+
 type example_authhandler struct{}
 
 func (e example_blockinfo) AUTH() types.AUTHHandler {
@@ -114,7 +135,11 @@ func (e example_blocknonheader) GetBlockNonHeadersRange(start, end uint64) ([]*b
 type example_accountmanager struct{}
 
 func (e example_blockinfo) NewAccountManager() types.AccountManager {
-	return example_accountmanager{}
+	return &example_accountmanager{}
+}
+
+func (e *example_accountmanager) NewAccountNonceIterator(batchSize int) types.AccountNonceIterator {
+	return &example_accountnonceiterator{}
 }
 
 func (e example_accountmanager) GetAccountBalance(address string) (*big.Int, uint64, error) {
@@ -134,6 +159,14 @@ func (e example_accountmanager) UpdateAccountBalance(address string, balance *bi
 }
 
 func (e example_accountmanager) BatchUpdateAccounts(updates []types.AccountUpdate) error {
+	return nil
+}
+
+func (e example_accountmanager) GetAccountByAddress(accountAddress string) (*types.Account, error) {
+	return nil, nil
+}
+
+func (e example_accountmanager) WriteAccounts(accounts []*types.Account) error {
 	return nil
 }
 

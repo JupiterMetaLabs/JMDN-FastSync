@@ -2,6 +2,13 @@ package sync
 
 import (
 	"context"
+
+	"path/filepath"
+	"os"
+	"github.com/google/uuid"
+	art "github.com/JupiterMetaLabs/JMDN_Merkletree/art"
+	accountshelper "github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/router/helper/accounts"
+	
 	gosync "sync"
 	"time"
 
@@ -15,6 +22,10 @@ import (
 	merklepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/merkle"
 	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/priorsync"
 	pubsubpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/pubsub"
+	accountspb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/accounts"
+	ackpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/ack"
+
+	
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/constants"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/errors"
@@ -28,6 +39,8 @@ import (
 	"github.com/multiformats/go-multiaddr"
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/pubsub/publisher"
+
+	WAL "github.com/JupiterMetaLabs/JMDN-FastSync/common/WAL"
 )
 
 type Sync struct {
@@ -45,14 +58,16 @@ type sync_interface interface {
 	HandleDataSync(ctx context.Context, node host.Host) error
 	HandlePoTSSync(ctx context.Context, node host.Host) error
 	HandlePubsub(ctx context.Context, node host.Host) error
+	HandleAccountsSync(ctx context.Context, node host.Host) error
+	HandleAccountsSyncData(ctx context.Context, node host.Host) error
 	Debug(ctx context.Context, protocol protocol.ID, node host.Host, remote *types.Nodeinfo)
 }
 
-func NewSyncHandler(nodeinfo *types.Nodeinfo, comm communication.Communicator, debug bool) sync_interface {
+func NewSyncHandler(nodeinfo *types.Nodeinfo, comm communication.Communicator, wal *WAL.WAL, debug bool) sync_interface {
 	return &Sync{
 		debug:      debug,
 		nodeinfo:   nodeinfo,
-		Datarouter: router.NewDatarouter(nodeinfo, comm),
+		Datarouter: router.NewDatarouter(nodeinfo, comm, wal),
 	}
 }
 
@@ -503,6 +518,201 @@ func (s *Sync) HandlePubsub(ctx context.Context, node host.Host) error {
 		if !resp.Accepted {
 			str.Close()
 		}
+	})
+	return nil
+}
+
+func (s *Sync) HandleAccountsSync(ctx context.Context, node host.Host) error {
+	node.SetStreamHandler(constants.AccountsSyncProtocol, func(str network.Stream) {
+		defer str.Close()
+
+		// Per-session ART: isolated to this connection, cleaned up when goroutine exits.
+		sessionDir := filepath.Join(os.TempDir(), constants.TEMP_ART_DIR, uuid.New().String())
+		sessionSwappable, err := art.NewSwappable(sessionDir, art.DefaultThreshold)
+		if err != nil {
+			logging.Logger(logging.Sync).Warn(ctx, "accountssync: failed to create session ART", ion.Err(err))
+			return
+		}
+		defer os.RemoveAll(sessionDir)
+		sessionLockedART := accountshelper.NewLockedART(sessionSwappable)
+
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		remoteNodeInfo := &types.Nodeinfo{
+			PeerID:    str.Conn().RemotePeer(),
+			Multiaddr: []multiaddr.Multiaddr{str.Conn().RemoteMultiaddr()},
+			Version:   s.nodeinfo.Version,
+		}
+
+		var mu gosync.Mutex
+
+		writeMsg := func(msg *accountspb.AccountSyncServerMessage) error {
+			mu.Lock()
+			defer mu.Unlock()
+			_ = str.SetWriteDeadline(time.Now().Add(constants.StreamDeadline))
+			return pbstream.WriteDelimited(str, msg)
+		}
+
+		// Single heartbeat goroutine for the entire stream duration.
+		// computeCtx is shared across all iterations:
+		//   - defer computeCancel() fires on any return path → heartbeat exits.
+		//   - heartbeat write failure calls computeCancel() → in-progress
+		//     HandleAccountsSync unblocks → loop exits on next read error.
+		computeCtx, computeCancel := context.WithCancel(ctx)
+		defer computeCancel()
+
+		go func() {
+			ticker := time.NewTicker(constants.HeartbeatInterval)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-computeCtx.Done():
+					return
+				case <-ticker.C:
+					hb := &accountspb.AccountSyncServerMessage{
+						Payload: &accountspb.AccountSyncServerMessage_Heartbeat{
+							Heartbeat: &accountspb.AccountSyncHeartbeat{
+								Timestamp: time.Now().UnixNano(),
+							},
+						},
+					}
+					if err := writeMsg(hb); err != nil {
+						logging.Logger(logging.Sync).Warn(computeCtx,
+							"accountssync heartbeat write failed, cancelling stream",
+							ion.Err(err))
+						computeCancel()
+						return
+					}
+				}
+			}
+		}()
+
+		// Upload loop — reads one AccountNonceSyncRequest frame per iteration.
+		// HandleAccountsSync returns an AccountSyncServerMessage whose oneof payload
+		// drives the next action:
+		//
+		//   _BatchAck (Ack.Ok=true)  → chunk accepted; send BatchAck, loop — client
+		//                              sends the next chunk after receiving the ack.
+		//   _BatchAck (Ack.Ok=false) → chunk rejected (checksum mismatch, decode error,
+		//                              etc.); send BatchAck with the error so the client
+		//                              knows what went wrong and can retry the same chunk.
+		//                              Stream stays open — only _End closes it.
+		//   _End (Ack.Ok=false)      → hard error (auth, unknown state, merge, diff fail);
+		//                              send EndOfStream and close.
+		//   _End (Ack.Ok=true)       → diff computation done; page dispatch then send
+		//                              final EndOfStream (TODO in next task).
+		//
+		// Stream lifecycle rule: the stream remains open as long as there is no _End.
+		// Only an _End frame closes the stream. The client blocks waiting for either
+		// a BatchAck (to send its next chunk) or an EndOfStream (to know the stream
+		// is finished). We never close without sending one of these two.
+		for {
+			_ = str.SetReadDeadline(time.Now().Add(constants.StreamDeadline))
+
+			req := &accountspb.AccountNonceSyncRequest{}
+			if err := pbstream.ReadDelimited(str, req); err != nil {
+				// Network-level failure (EOF, deadline, reset). Connection is already
+				// broken so there is nothing to send — return and let defer close.
+				return
+			}
+
+			result := s.Datarouter.HandleAccountsSync(computeCtx, req, remoteNodeInfo, sessionLockedART)
+			s.Debug(ctx, constants.AccountsSyncProtocol, node, remoteNodeInfo)
+
+			switch p := result.Payload.(type) {
+
+			case *accountspb.AccountSyncServerMessage_BatchAck:
+				// Send the BatchAck. Client is waiting on this before it does anything next.
+				if err := writeMsg(result); err != nil {
+					return
+				}
+				// Whether Ack.Ok is true or false, keep the loop alive.
+				// Ack.Ok=true  → chunk accepted, client sends the next chunk.
+				// Ack.Ok=false → chunk rejected (checksum, decode error, etc.); client
+				//                reads the error from the ack and may retry the same chunk.
+				// The stream stays open in both cases — only _End closes it.
+				_ = p // suppress unused variable warning
+				continue
+
+			case *accountspb.AccountSyncServerMessage_End:
+				// EndOfStream is the only legitimate stream terminator.
+				_ = writeMsg(result)
+				return
+
+			default:
+				// This branch must never be reached — HandleAccountsSync only returns
+				// _BatchAck or _End. If it ever is reached, log and return without
+				// sending anything; the stream deadline will expire on the client side.
+				logging.Logger(logging.Sync).Warn(computeCtx,
+					"accountssync: unexpected payload type from router, closing stream")
+				return
+			}
+		}
+	})
+	return nil
+}
+
+// HandleAccountsSyncData registers the client-side handler for the
+// AccountsSyncDataProtocol stream.  The server dials this protocol for each
+// page of missing accounts it wants to deliver; the client reads the page,
+// routes it to the Datarouter for storage, and acks before the stream closes.
+//
+// Pattern mirrors HandleMerkle: single read → route → single write.
+func (s *Sync) HandleAccountsSyncData(ctx context.Context, node host.Host) error {
+	node.SetStreamHandler(constants.AccountsSyncDataProtocol, func(str network.Stream) {
+		defer str.Close()
+		
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		_ = str.SetReadDeadline(time.Now().Add(constants.StreamDeadline))
+		defer str.SetReadDeadline(time.Time{})
+
+		page := &accountspb.AccountSyncServerMessage{}
+		if err := pbstream.ReadDelimited(str, page); err != nil {
+			return
+		}
+
+		remoteNodeInfo := &types.Nodeinfo{
+			PeerID:    str.Conn().RemotePeer(),
+			Multiaddr: []multiaddr.Multiaddr{str.Conn().RemoteMultiaddr()},
+			Version:   s.nodeinfo.Version,
+		}
+
+		s.Debug(ctx, constants.AccountsSyncDataProtocol, node, remoteNodeInfo)
+
+		_ = str.SetWriteDeadline(time.Now().Add(constants.StreamDeadline))
+		defer str.SetWriteDeadline(time.Time{})
+
+		resp := page.GetResponse()
+		if resp == nil {
+			_ = pbstream.WriteDelimited(str, &accountspb.AccountSyncServerMessage{
+				Payload: &accountspb.AccountSyncServerMessage_BatchAck{
+					BatchAck: &accountspb.AccountBatchAck{
+						Ack: &ackpb.Ack{Ok: false, Error: "expected Response payload"},
+					},
+				},
+			})
+			return
+		}
+
+		ack := s.Datarouter.HandleAccountsSyncData(ctx, resp, remoteNodeInfo)
+
+		logging.Logger(logging.Sync).Info(ctx, "accountsync: page received",
+			ion.Int("page_index", int(resp.GetPageIndex())),
+			ion.Int("account_count", len(resp.GetAccounts())),
+			ion.String("from_peer", remoteNodeInfo.PeerID.String()),
+			ion.Bool("ok", ack.GetBatchAck().GetAck().GetOk()),
+		)
+
+		_ = pbstream.WriteDelimited(str, ack)
 	})
 	return nil
 }
