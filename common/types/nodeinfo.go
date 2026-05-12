@@ -67,7 +67,7 @@ type AccountNonceIterator interface {
 	// The caller overrides balance_wei to "0" before sending — DB value is ignored.
 	// Implementation should use a single WHERE nonce IN (?,?,...) query.
 	GetAccountsByNonces(nonces []uint64) ([]*Account, error)
-	
+
 	// Close releases any resources held by the iterator.
 	Close()
 }
@@ -112,6 +112,9 @@ type AccountManager interface {
 	// GetAccountBalance retrieves the current balance and nonce for an account.
 	GetAccountBalance(accountAddress string) (*big.Int, uint64, error)
 
+	// GetAccountByAddress retrieves an account by address.
+	GetAccountByAddress(accountAddress string) (*Account, error)
+
 	// UpdateAccountBalance updates the balance and nonce for an existing account.
 	UpdateAccountBalance(accountAddress string, balance *big.Int, nonce uint64) error
 
@@ -121,6 +124,9 @@ type AccountManager interface {
 	// BatchUpdateAccounts atomically applies all account updates in a single DB transaction.
 	// Either every update is committed or none are (full rollback on any failure).
 	BatchUpdateAccounts(updates []AccountUpdate) error
+
+	// Write account records to the database
+	WriteAccounts(accounts []*Account) error
 
 	// NewAccountNonceIterator returns an iterator that pages through all accounts
 	// ordered by nonce, used during AccountSync diff computation.

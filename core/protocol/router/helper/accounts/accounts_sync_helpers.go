@@ -11,6 +11,7 @@ import (
 	localerrors "github.com/JupiterMetaLabs/JMDN-FastSync/common/types/errors"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/internal/checksum"
 	art "github.com/JupiterMetaLabs/JMDN_Merkletree/art"
+	"github.com/ethereum/go-ethereum/common"
 )
 
 // LockedART wraps a SwappableART and owns the mutex that protects it.
@@ -126,6 +127,34 @@ func ARTChecksumValid(art_bytes []byte, checksum_object *checksumpb.Checksum) (b
 	default:
 		return false, errors.New(localerrors.UnsupportedChecksumVersion.Error()+", unsupported checksum version: "+version.String())
 	}
+}
+
+// ProtoToAccounts converts a proto account slice received over the wire into
+// []*types.Account for writing to the local DB.
+// Used by the client-side AccountsSyncDataProtocol handler.
+//
+// Time:  O(n). Space: O(n).
+func ProtoToAccounts(accounts []*accountspb.Account) []*types.Account {
+	out := make([]*types.Account, 0, len(accounts))
+	for _, a := range accounts {
+		if a == nil {
+			continue
+		}
+		acc := &types.Account{
+			Address:     common.BytesToAddress(a.Address),
+			DIDAddress:  a.DidAddress,
+			Balance:     a.Balance,
+			Nonce:       a.Nonce,
+			AccountType: a.AccountType,
+			CreatedAt:   a.CreatedAt,
+			UpdatedAt:   a.UpdatedAt,
+		}
+		if a.Metadata != nil {
+			acc.Metadata = a.Metadata.AsMap()
+		}
+		out = append(out, acc)
+	}
+	return out
 }
 
 // ConvertMissingToProto converts the diff result map (nonce → types.Account) to a

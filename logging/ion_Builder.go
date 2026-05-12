@@ -3,6 +3,7 @@ package logging
 import (
 	"context"
 	"fmt"
+	"log"
 	"sync"
 	otelsetup "github.com/JupiterMetaLabs/JMDN-FastSync/logging/otelsetup"
 	"github.com/JupiterMetaLabs/ion"
@@ -39,9 +40,12 @@ func (al *AsyncLogger) setGlobal() (*ion.Ion, error) {
 		return al.GlobalLogger, nil
 	}
 	// Setup the global logger
-	ionInstance, _, err := otelsetup.Setup(ionLoggeing_DIR, ionLogging_FileName)
+	ionInstance, warnings, err := otelsetup.Setup(ionLoggeing_DIR, ionLogging_FileName)
 	if err != nil {
 		return nil, err
+	}
+	for _, w := range warnings {
+		log.Printf("[ion] warning: %v", w)
 	}
 
 	return ionInstance, nil

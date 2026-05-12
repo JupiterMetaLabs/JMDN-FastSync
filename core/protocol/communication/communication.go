@@ -41,15 +41,11 @@ type Communicator interface {
 
 	SendPoTSRequest(ctx context.Context, peerNode types.Nodeinfo, req *potspb.PoTSRequest) (*potspb.PoTSResponse, error)
 
-	// SendAccountSyncChunk sends one non-final ART chunk (is_last=false) to the
-	// server and reads back exactly one BatchAck. Each chunk opens its own
-	// short-lived stream on AccountsSyncProtocol.
-	SendAccountSyncChunk(ctx context.Context, peerNode types.Nodeinfo, req *accountspb.AccountNonceSyncRequest) (*accountspb.AccountBatchAck, error)
-
-	// SendAccountSyncFinalChunk sends the final ART chunk (is_last=true) and reads
-	// all server→client frames (BatchAck, Response pages, EndOfStream) via the
-	// provided handlers until EndOfStream arrives.
-	SendAccountSyncFinalChunk(ctx context.Context, peerNode types.Nodeinfo, req *accountspb.AccountNonceSyncRequest, handlers messaging.AccountSyncHandlers) error
+	// StreamAllAccountSyncChunks uploads all ART chunks on a single persistent stream.
+	// Each non-final chunk (is_last=false) is followed by a BatchAck from the server
+	// before the next chunk is sent. The final chunk (is_last=true) is followed by all
+	// server→client frames until EndOfStream, dispatched via handlers.
+	StreamAllAccountSyncChunks(ctx context.Context, peerNode types.Nodeinfo, chunks <-chan *accountspb.AccountNonceSyncRequest, handlers messaging.AccountSyncHandlers) error
 
 	// StreamAccounts delivers one AccountSyncResponse page from the server to the
 	// client by dialling AccountsSyncDataProtocol (dial-back). Returns the client ack.
@@ -284,97 +280,28 @@ func (c *communication) SendAvailabilityRequest(
 	return resp, nil
 }
 
-// SendAccountSyncRequest sends one AccountNonceSyncRequest (ART chunk) to the
-// server on AccountsSyncProtocol.
-//
-// Uses SendAccountsSyncProtoDelimitedWithHeartbeat so heartbeat frames are
-// silently consumed and the read deadline is refreshed on each one.
-//
-// Returns the last non-heartbeat AccountSyncServerMessage received:
-//   - BatchAck on a non-final chunk (Ack.Ok=true → next chunk may be sent)
-//   - EndOfStream on the final chunk (TotalPages populated)
-//
-// This is the CLIENT→SERVER direction. The caller loops over chunks and waits
-// for BatchAck before sending the next one.
-//
-// Time:  O(1) per chunk — one network round-trip.
-// Space: O(1) — result pointer only.
-// SendAccountSyncChunk sends one non-final ART chunk (is_last=false) to the
-// server on AccountsSyncProtocol and reads back exactly one BatchAck.
-// Each non-final chunk opens its own short-lived stream — the server merges
-// the chunk into its session ART and closes after the BatchAck.
-//
-// Use SendAccountSyncFinalChunk for the last chunk (is_last=true).
-//
-// Time:  O(1) network round-trip. Space: O(1).
-func (c *communication) SendAccountSyncChunk(
+// StreamAllAccountSyncChunks uploads all ART chunks on ONE persistent stream so
+// the server's sessionLockedART accumulates every batch before diff computation.
+func (c *communication) StreamAllAccountSyncChunks(
 	ctx context.Context,
 	peerNode types.Nodeinfo,
-	req *accountspb.AccountNonceSyncRequest,
-) (*accountspb.AccountBatchAck, error) {
-	if c.host == nil {
-		return nil, errors.New("host is nil")
-	}
-
-	peerInfo := libp2p_peer.AddrInfo{
-		ID:    peerNode.PeerID,
-		Addrs: peerNode.Multiaddr,
-	}
-
-	// Single request → single BatchAck response.
-	resp := &accountspb.AccountSyncServerMessage{}
-	if err := messaging.SendProtoDelimited(
-		ctx,
-		c.protocolVersion,
-		c.host,
-		peerInfo,
-		constants.AccountsSyncProtocol,
-		req,
-		resp,
-	); err != nil {
-		return nil, errors.New("account sync chunk failed: " + err.Error())
-	}
-
-	batchAck := resp.GetBatchAck()
-	if batchAck == nil {
-		return nil, errors.New("account sync chunk: expected BatchAck, got different payload")
-	}
-	if !batchAck.GetAck().GetOk() {
-		return nil, errors.New("account sync chunk rejected: " + batchAck.GetAck().GetError())
-	}
-	return batchAck, nil
-}
-
-// SendAccountSyncFinalChunk sends the final ART chunk (is_last=true) and reads
-// all server→client frames (BatchAck, Response pages, EndOfStream) via handlers
-// until AccountSyncEndOfStream arrives.
-//
-// Uses SendAccountsSyncProtoDelimitedWithHeartbeat so heartbeat frames are
-// silently consumed and the read deadline is refreshed automatically.
-//
-// Time:  O(n) total frames received. Space: O(1) per frame.
-func (c *communication) SendAccountSyncFinalChunk(
-	ctx context.Context,
-	peerNode types.Nodeinfo,
-	req *accountspb.AccountNonceSyncRequest,
+	chunks <-chan *accountspb.AccountNonceSyncRequest,
 	handlers messaging.AccountSyncHandlers,
 ) error {
 	if c.host == nil {
 		return errors.New("host is nil")
 	}
-
 	peerInfo := libp2p_peer.AddrInfo{
 		ID:    peerNode.PeerID,
 		Addrs: peerNode.Multiaddr,
 	}
-
-	return messaging.SendAccountsSyncProtoDelimitedWithHeartbeat(
+	return messaging.SendAccountsSyncAllChunksWithHeartbeat(
 		ctx,
 		c.protocolVersion,
 		c.host,
 		peerInfo,
 		constants.AccountsSyncProtocol,
-		req,
+		chunks,
 		handlers,
 	)
 }

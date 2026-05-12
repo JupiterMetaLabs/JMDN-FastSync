@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"sync"
 
 	accountspb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/accounts"
 	ackpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/ack"
@@ -17,38 +16,35 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
+// StreamAccountsFn is the dial-back function used to deliver one page to the client.
+// The server opens a new AccountsSyncDataProtocol stream per call, sends the page,
+// and reads the client's BatchAck. Each call is independent — no shared stream state.
+type StreamAccountsFn func(ctx context.Context, remote types.Nodeinfo, msg *accountspb.AccountSyncServerMessage) (*accountspb.AccountSyncServerMessage, error)
+
 // NewDispatcherCallbacks builds the types.DispatcherCallbacks for one AccountSync session.
 //
 // Parameters:
-//   - nodeinfo  : provides BlockInfo → AccountManager → GetAccountsByNonces
-//   - writeMsg  : mutex-protected stream writer (same stream as the ART upload)
-//   - readAck   : reads one Ack from the client on the same stream after a page write
-//   - auth      : session auth token embedded in every AccountSyncResponse.Phase
+//   - nodeinfo       : provides BlockInfo → AccountManager → GetAccountsByNonces
+//   - remote         : client's Nodeinfo used by streamAccounts to dial back per page
+//   - streamAccounts : dials the client on AccountsSyncDataProtocol, sends the page, reads BatchAck
+//   - auth           : session auth token embedded in every AccountSyncResponse.Phase
 //
-// A shared pageMu is created here and captured by both SendPage and OnDeadLetter.
-// It serialises the write→Ack round-trip so concurrent workers never read each
-// other's Acks.
+// Each page is delivered on its own short-lived stream via streamAccounts — no shared
+// stream mutex needed. DB fetches (FetchAccounts) and page deliveries run fully in
+// parallel across all dispatch workers.
 //
 // Time: O(1). Space: O(1).
 func NewDispatcherCallbacks(
 	nodeinfo *types.Nodeinfo,
-	writeMsg func(*accountspb.AccountSyncServerMessage) error,
-	readAck func() (*ackpb.Ack, error),
+	remote types.Nodeinfo,
+	streamAccounts StreamAccountsFn,
 	auth *authpb.Auth,
 ) types.DispatcherCallbacks {
-	// pageMu serialises write+Ack across concurrent dispatch workers.
-	// Without it: worker A sends page 3, worker B sends page 7, client Acks
-	// page 3 — worker B reads it and wrongly thinks page 7 was accepted.
-	// With it: one goroutine holds write→readAck→return atomically.
-	// DB fetches (FetchAccounts) still run in parallel — only the network
-	// send+Ack phase is serialised.
-	var pageMu sync.Mutex
-
 	return types.DispatcherCallbacks{
 		FetchAccounts: buildFetchAccounts(nodeinfo),
-		SendPage:      buildSendPage(writeMsg, readAck, auth, &pageMu),
+		SendPage:      buildSendPage(remote, streamAccounts, auth),
 		OnPageMetrics: buildOnPageMetrics(),
-		OnDeadLetter:  buildOnDeadLetter(nodeinfo, writeMsg, readAck, auth, &pageMu),
+		OnDeadLetter:  buildOnDeadLetter(nodeinfo, remote, streamAccounts, auth),
 	}
 }
 
@@ -60,28 +56,37 @@ func NewDispatcherCallbacks(
 // Time: O(n) where n = len(nonces). Space: O(n).
 func buildFetchAccounts(nodeinfo *types.Nodeinfo) func(context.Context, []uint64) ([]*types.Account, error) {
 	return func(ctx context.Context, nonces []uint64) ([]*types.Account, error) {
-		return nodeinfo.BlockInfo.NewAccountManager().NewAccountNonceIterator(1).GetAccountsByNonces(nonces)
+		iter := nodeinfo.BlockInfo.NewAccountManager().NewAccountNonceIterator(1)
+		defer iter.Close()
+		return iter.GetAccountsByNonces(nonces)
 	}
 }
 
 // ─── SendPage ────────────────────────────────────────────────────────────────
 
-// buildSendPage returns a closure that sends one page and reads the client Ack.
+// buildSendPage returns a closure that dials the client and delivers one page.
 //
-// Steps (all under pageMu):
+// Steps:
 //  1. Convert []*types.Account → proto with balance="0"
-//  2. writeMsg(AccountSyncResponse) → sends page on the existing stream
-//  3. readAck() → blocks until client sends Ack back on the same stream
-//  4. Return error if write fails, read fails, or Ack.Ok is false
+//  2. streamAccounts(ctx, remote, msg) → dials client on AccountsSyncDataProtocol,
+//     sends the AccountSyncResponse, reads back the client's BatchAck
+//  3. Return error if the dial/send fails or BatchAck.Ok is false
+//
+// No mutex needed — each call opens its own stream so workers never share state.
 //
 // Time: O(n) where n = len(accounts) + one network round-trip. Space: O(n).
 func buildSendPage(
-	writeMsg func(*accountspb.AccountSyncServerMessage) error,
-	readAck func() (*ackpb.Ack, error),
+	remote types.Nodeinfo,
+	streamAccounts StreamAccountsFn,
 	auth *authpb.Auth,
-	pageMu *sync.Mutex,
 ) func(context.Context, uint32, []*types.Account) error {
 	return func(ctx context.Context, pageIndex uint32, accounts []*types.Account) error {
+		Log.Logger(Log.Sync).Info(ctx, "accountsync: sending page to client",
+			ion.Int("page_index", int(pageIndex)),
+			ion.Int("account_count", len(accounts)),
+			ion.String("to_peer", remote.PeerID.String()),
+		)
+
 		msg := &accountspb.AccountSyncServerMessage{
 			Payload: &accountspb.AccountSyncServerMessage_Response{
 				Response: &accountspb.AccountSyncResponse{
@@ -98,19 +103,25 @@ func buildSendPage(
 			},
 		}
 
-		pageMu.Lock()
-		defer pageMu.Unlock()
-
-		if err := writeMsg(msg); err != nil {
+		ack, err := streamAccounts(ctx, remote, msg)
+		if err != nil {
 			return fmt.Errorf("accountsync send page %d: %w", pageIndex, err)
 		}
-		ack, err := readAck()
-		if err != nil {
-			return fmt.Errorf("accountsync read ack page %d: %w", pageIndex, err)
+		if ack == nil {
+			return fmt.Errorf("accountsync send page %d: nil ack with nil error", pageIndex)
 		}
-		if !ack.Ok {
-			return fmt.Errorf("accountsync client rejected page %d: %s", pageIndex, ack.Error)
+		if ack.GetBatchAck() == nil {
+			return fmt.Errorf("accountsync send page %d: unexpected response type %T", pageIndex, ack.Payload)
 		}
+		if !ack.GetBatchAck().GetAck().GetOk() {
+			return fmt.Errorf("accountsync client rejected page %d: %s", pageIndex, ack.GetBatchAck().GetAck().GetError())
+		}
+
+		Log.Logger(Log.Sync).Info(ctx, "accountsync: client ACKed page",
+			ion.Int("page_index", int(pageIndex)),
+			ion.Int("account_count", len(accounts)),
+			ion.String("from_peer", remote.PeerID.String()),
+		)
 		return nil
 	}
 }
@@ -118,7 +129,6 @@ func buildSendPage(
 // ─── OnPageMetrics ───────────────────────────────────────────────────────────
 
 // buildOnPageMetrics logs per-page delivery timings after every dispatch attempt.
-// Runs off the hotpath — never blocks a worker.
 //
 // Time: O(1). Space: O(1).
 func buildOnPageMetrics() func(context.Context, types.DispatchPageMetrics) {
@@ -146,21 +156,19 @@ func buildOnPageMetrics() func(context.Context, types.DispatchPageMetrics) {
 // ─── OnDeadLetter ────────────────────────────────────────────────────────────
 
 // buildOnDeadLetter fires when a page exhausts all dispatcher retries.
-// Runs away from the hotpath — workers have moved on when this is called.
 //
 // Makes one final synchronous attempt:
 //  1. Re-fetches accounts from DB (transient errors may have cleared).
-//  2. Sends via writeMsg + reads Ack under pageMu — same contract as normal pages.
-//     page_index=0 signals a recovery page to the client.
+//  2. Calls streamAccounts — same dial-back contract as normal pages.
+//     PageIndex=0 signals a recovery page to the client.
 //  3. On failure: logs and abandons. No further retries.
 //
 // Time: O(n). Space: O(n).
 func buildOnDeadLetter(
 	nodeinfo *types.Nodeinfo,
-	writeMsg func(*accountspb.AccountSyncServerMessage) error,
-	readAck func() (*ackpb.Ack, error),
+	remote types.Nodeinfo,
+	streamAccounts StreamAccountsFn,
 	auth *authpb.Auth,
-	pageMu *sync.Mutex,
 ) func(context.Context, types.DeadLetterPage) {
 	return func(ctx context.Context, dead types.DeadLetterPage) {
 		Log.Logger(Log.Sync).Warn(ctx, "accountsync: dead-lettered — final recovery attempt",
@@ -192,23 +200,15 @@ func buildOnDeadLetter(
 			},
 		}
 
-		pageMu.Lock()
-		defer pageMu.Unlock()
-
-		if sendErr := writeMsg(msg); sendErr != nil {
+		ack, sendErr := streamAccounts(ctx, remote, msg)
+		if sendErr != nil {
 			Log.Logger(Log.Sync).Error(ctx, "accountsync: dead-letter send failed — permanently lost",
 				sendErr, ion.Int("nonce_count", len(dead.Nonces)))
 			return
 		}
-		ack, ackErr := readAck()
-		if ackErr != nil {
-			Log.Logger(Log.Sync).Error(ctx, "accountsync: dead-letter ack read failed — permanently lost",
-				ackErr, ion.Int("nonce_count", len(dead.Nonces)))
-			return
-		}
-		if !ack.Ok {
+		if ack.GetBatchAck() != nil && !ack.GetBatchAck().GetAck().GetOk() {
 			Log.Logger(Log.Sync).Error(ctx, "accountsync: dead-letter ack rejected — permanently lost",
-				fmt.Errorf("%s", ack.Error), ion.Int("nonce_count", len(dead.Nonces)))
+				fmt.Errorf("%s", ack.GetBatchAck().GetAck().GetError()), ion.Int("nonce_count", len(dead.Nonces)))
 			return
 		}
 		Log.Logger(Log.Sync).Info(ctx, "accountsync: dead-letter recovery succeeded",
