@@ -237,6 +237,62 @@ func (x *AccountNonceSyncRequest) GetChecksum() *checksum.Checksum {
 	return nil
 }
 
+// AccountSyncRequestAccounts is a stateless targeted fetch request.
+// map<string, bool> gives set semantics at the wire level — duplicate addresses
+// are structurally impossible (map keys are unique in protobuf).
+// Used post-PoTS / post-Reconciliation when tagging identifies missing accounts.
+type AccountSyncRequestAccounts struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Addresses     map[string]bool        `protobuf:"bytes,1,rep,name=addresses,proto3" json:"addresses,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"` // key = address hex or DID string
+	Phase         *phase.Phase           `protobuf:"bytes,2,opt,name=phase,proto3" json:"phase,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AccountSyncRequestAccounts) Reset() {
+	*x = AccountSyncRequestAccounts{}
+	mi := &file_accounts_accounts_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AccountSyncRequestAccounts) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AccountSyncRequestAccounts) ProtoMessage() {}
+
+func (x *AccountSyncRequestAccounts) ProtoReflect() protoreflect.Message {
+	mi := &file_accounts_accounts_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AccountSyncRequestAccounts.ProtoReflect.Descriptor instead.
+func (*AccountSyncRequestAccounts) Descriptor() ([]byte, []int) {
+	return file_accounts_accounts_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *AccountSyncRequestAccounts) GetAddresses() map[string]bool {
+	if x != nil {
+		return x.Addresses
+	}
+	return nil
+}
+
+func (x *AccountSyncRequestAccounts) GetPhase() *phase.Phase {
+	if x != nil {
+		return x.Phase
+	}
+	return nil
+}
+
 // AccountBatchAck acknowledges receipt of one ART batch.
 // Client waits for this before sending the next batch.
 type AccountBatchAck struct {
@@ -249,7 +305,7 @@ type AccountBatchAck struct {
 
 func (x *AccountBatchAck) Reset() {
 	*x = AccountBatchAck{}
-	mi := &file_accounts_accounts_proto_msgTypes[2]
+	mi := &file_accounts_accounts_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -261,7 +317,7 @@ func (x *AccountBatchAck) String() string {
 func (*AccountBatchAck) ProtoMessage() {}
 
 func (x *AccountBatchAck) ProtoReflect() protoreflect.Message {
-	mi := &file_accounts_accounts_proto_msgTypes[2]
+	mi := &file_accounts_accounts_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -274,7 +330,7 @@ func (x *AccountBatchAck) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AccountBatchAck.ProtoReflect.Descriptor instead.
 func (*AccountBatchAck) Descriptor() ([]byte, []int) {
-	return file_accounts_accounts_proto_rawDescGZIP(), []int{2}
+	return file_accounts_accounts_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *AccountBatchAck) GetBatchIndex() uint32 {
@@ -303,7 +359,7 @@ type AccountSyncHeartbeat struct {
 
 func (x *AccountSyncHeartbeat) Reset() {
 	*x = AccountSyncHeartbeat{}
-	mi := &file_accounts_accounts_proto_msgTypes[3]
+	mi := &file_accounts_accounts_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -315,7 +371,7 @@ func (x *AccountSyncHeartbeat) String() string {
 func (*AccountSyncHeartbeat) ProtoMessage() {}
 
 func (x *AccountSyncHeartbeat) ProtoReflect() protoreflect.Message {
-	mi := &file_accounts_accounts_proto_msgTypes[3]
+	mi := &file_accounts_accounts_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -328,7 +384,7 @@ func (x *AccountSyncHeartbeat) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AccountSyncHeartbeat.ProtoReflect.Descriptor instead.
 func (*AccountSyncHeartbeat) Descriptor() ([]byte, []int) {
-	return file_accounts_accounts_proto_rawDescGZIP(), []int{3}
+	return file_accounts_accounts_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *AccountSyncHeartbeat) GetTimestamp() int64 {
@@ -356,7 +412,7 @@ type AccountSyncResponse struct {
 
 func (x *AccountSyncResponse) Reset() {
 	*x = AccountSyncResponse{}
-	mi := &file_accounts_accounts_proto_msgTypes[4]
+	mi := &file_accounts_accounts_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -368,7 +424,7 @@ func (x *AccountSyncResponse) String() string {
 func (*AccountSyncResponse) ProtoMessage() {}
 
 func (x *AccountSyncResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_accounts_accounts_proto_msgTypes[4]
+	mi := &file_accounts_accounts_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -381,7 +437,7 @@ func (x *AccountSyncResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AccountSyncResponse.ProtoReflect.Descriptor instead.
 func (*AccountSyncResponse) Descriptor() ([]byte, []int) {
-	return file_accounts_accounts_proto_rawDescGZIP(), []int{4}
+	return file_accounts_accounts_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *AccountSyncResponse) GetAccounts() []*Account {
@@ -438,7 +494,7 @@ type AccountSyncEndOfStream struct {
 
 func (x *AccountSyncEndOfStream) Reset() {
 	*x = AccountSyncEndOfStream{}
-	mi := &file_accounts_accounts_proto_msgTypes[5]
+	mi := &file_accounts_accounts_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -450,7 +506,7 @@ func (x *AccountSyncEndOfStream) String() string {
 func (*AccountSyncEndOfStream) ProtoMessage() {}
 
 func (x *AccountSyncEndOfStream) ProtoReflect() protoreflect.Message {
-	mi := &file_accounts_accounts_proto_msgTypes[5]
+	mi := &file_accounts_accounts_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -463,7 +519,7 @@ func (x *AccountSyncEndOfStream) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AccountSyncEndOfStream.ProtoReflect.Descriptor instead.
 func (*AccountSyncEndOfStream) Descriptor() ([]byte, []int) {
-	return file_accounts_accounts_proto_rawDescGZIP(), []int{5}
+	return file_accounts_accounts_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *AccountSyncEndOfStream) GetTotalPages() uint32 {
@@ -515,7 +571,7 @@ type AccountSyncServerMessage struct {
 
 func (x *AccountSyncServerMessage) Reset() {
 	*x = AccountSyncServerMessage{}
-	mi := &file_accounts_accounts_proto_msgTypes[6]
+	mi := &file_accounts_accounts_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -527,7 +583,7 @@ func (x *AccountSyncServerMessage) String() string {
 func (*AccountSyncServerMessage) ProtoMessage() {}
 
 func (x *AccountSyncServerMessage) ProtoReflect() protoreflect.Message {
-	mi := &file_accounts_accounts_proto_msgTypes[6]
+	mi := &file_accounts_accounts_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -540,7 +596,7 @@ func (x *AccountSyncServerMessage) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AccountSyncServerMessage.ProtoReflect.Descriptor instead.
 func (*AccountSyncServerMessage) Descriptor() ([]byte, []int) {
-	return file_accounts_accounts_proto_rawDescGZIP(), []int{6}
+	return file_accounts_accounts_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *AccountSyncServerMessage) GetPayload() isAccountSyncServerMessage_Payload {
@@ -641,7 +697,13 @@ const file_accounts_accounts_proto_rawDesc = "" +
 	"batchIndex\x12\x17\n" +
 	"\ais_last\x18\x06 \x01(\bR\x06isLast\x12\"\n" +
 	"\x05phase\x18\a \x01(\v2\f.phase.PhaseR\x05phase\x12.\n" +
-	"\bchecksum\x18\b \x01(\v2\x12.checksum.ChecksumR\bchecksum\"N\n" +
+	"\bchecksum\x18\b \x01(\v2\x12.checksum.ChecksumR\bchecksum\"\xd1\x01\n" +
+	"\x1aAccountSyncRequestAccounts\x12Q\n" +
+	"\taddresses\x18\x01 \x03(\v23.accounts.AccountSyncRequestAccounts.AddressesEntryR\taddresses\x12\"\n" +
+	"\x05phase\x18\x02 \x01(\v2\f.phase.PhaseR\x05phase\x1a<\n" +
+	"\x0eAddressesEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\bR\x05value:\x028\x01\"N\n" +
 	"\x0fAccountBatchAck\x12\x1f\n" +
 	"\vbatch_index\x18\x01 \x01(\rR\n" +
 	"batchIndex\x12\x1a\n" +
@@ -679,41 +741,45 @@ func file_accounts_accounts_proto_rawDescGZIP() []byte {
 	return file_accounts_accounts_proto_rawDescData
 }
 
-var file_accounts_accounts_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+var file_accounts_accounts_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
 var file_accounts_accounts_proto_goTypes = []any{
-	(*Account)(nil),                  // 0: accounts.Account
-	(*AccountNonceSyncRequest)(nil),  // 1: accounts.AccountNonceSyncRequest
-	(*AccountBatchAck)(nil),          // 2: accounts.AccountBatchAck
-	(*AccountSyncHeartbeat)(nil),     // 3: accounts.AccountSyncHeartbeat
-	(*AccountSyncResponse)(nil),      // 4: accounts.AccountSyncResponse
-	(*AccountSyncEndOfStream)(nil),   // 5: accounts.AccountSyncEndOfStream
-	(*AccountSyncServerMessage)(nil), // 6: accounts.AccountSyncServerMessage
-	(*structpb.Struct)(nil),          // 7: google.protobuf.Struct
-	(*tagging.RangeTag)(nil),         // 8: tagging.RangeTag
-	(*phase.Phase)(nil),              // 9: phase.Phase
-	(*checksum.Checksum)(nil),        // 10: checksum.Checksum
-	(*ack.Ack)(nil),                  // 11: ack.Ack
+	(*Account)(nil),                    // 0: accounts.Account
+	(*AccountNonceSyncRequest)(nil),    // 1: accounts.AccountNonceSyncRequest
+	(*AccountSyncRequestAccounts)(nil), // 2: accounts.AccountSyncRequestAccounts
+	(*AccountBatchAck)(nil),            // 3: accounts.AccountBatchAck
+	(*AccountSyncHeartbeat)(nil),       // 4: accounts.AccountSyncHeartbeat
+	(*AccountSyncResponse)(nil),        // 5: accounts.AccountSyncResponse
+	(*AccountSyncEndOfStream)(nil),     // 6: accounts.AccountSyncEndOfStream
+	(*AccountSyncServerMessage)(nil),   // 7: accounts.AccountSyncServerMessage
+	nil,                                // 8: accounts.AccountSyncRequestAccounts.AddressesEntry
+	(*structpb.Struct)(nil),            // 9: google.protobuf.Struct
+	(*tagging.RangeTag)(nil),           // 10: tagging.RangeTag
+	(*phase.Phase)(nil),                // 11: phase.Phase
+	(*checksum.Checksum)(nil),          // 12: checksum.Checksum
+	(*ack.Ack)(nil),                    // 13: ack.Ack
 }
 var file_accounts_accounts_proto_depIdxs = []int32{
-	7,  // 0: accounts.Account.metadata:type_name -> google.protobuf.Struct
-	8,  // 1: accounts.AccountNonceSyncRequest.keys_range:type_name -> tagging.RangeTag
-	9,  // 2: accounts.AccountNonceSyncRequest.phase:type_name -> phase.Phase
-	10, // 3: accounts.AccountNonceSyncRequest.checksum:type_name -> checksum.Checksum
-	11, // 4: accounts.AccountBatchAck.ack:type_name -> ack.Ack
-	0,  // 5: accounts.AccountSyncResponse.accounts:type_name -> accounts.Account
-	11, // 6: accounts.AccountSyncResponse.ack:type_name -> ack.Ack
-	9,  // 7: accounts.AccountSyncResponse.phase:type_name -> phase.Phase
-	11, // 8: accounts.AccountSyncEndOfStream.ack:type_name -> ack.Ack
-	9,  // 9: accounts.AccountSyncEndOfStream.phase:type_name -> phase.Phase
-	2,  // 10: accounts.AccountSyncServerMessage.batch_ack:type_name -> accounts.AccountBatchAck
-	3,  // 11: accounts.AccountSyncServerMessage.heartbeat:type_name -> accounts.AccountSyncHeartbeat
-	4,  // 12: accounts.AccountSyncServerMessage.response:type_name -> accounts.AccountSyncResponse
-	5,  // 13: accounts.AccountSyncServerMessage.end:type_name -> accounts.AccountSyncEndOfStream
-	14, // [14:14] is the sub-list for method output_type
-	14, // [14:14] is the sub-list for method input_type
-	14, // [14:14] is the sub-list for extension type_name
-	14, // [14:14] is the sub-list for extension extendee
-	0,  // [0:14] is the sub-list for field type_name
+	9,  // 0: accounts.Account.metadata:type_name -> google.protobuf.Struct
+	10, // 1: accounts.AccountNonceSyncRequest.keys_range:type_name -> tagging.RangeTag
+	11, // 2: accounts.AccountNonceSyncRequest.phase:type_name -> phase.Phase
+	12, // 3: accounts.AccountNonceSyncRequest.checksum:type_name -> checksum.Checksum
+	8,  // 4: accounts.AccountSyncRequestAccounts.addresses:type_name -> accounts.AccountSyncRequestAccounts.AddressesEntry
+	11, // 5: accounts.AccountSyncRequestAccounts.phase:type_name -> phase.Phase
+	13, // 6: accounts.AccountBatchAck.ack:type_name -> ack.Ack
+	0,  // 7: accounts.AccountSyncResponse.accounts:type_name -> accounts.Account
+	13, // 8: accounts.AccountSyncResponse.ack:type_name -> ack.Ack
+	11, // 9: accounts.AccountSyncResponse.phase:type_name -> phase.Phase
+	13, // 10: accounts.AccountSyncEndOfStream.ack:type_name -> ack.Ack
+	11, // 11: accounts.AccountSyncEndOfStream.phase:type_name -> phase.Phase
+	3,  // 12: accounts.AccountSyncServerMessage.batch_ack:type_name -> accounts.AccountBatchAck
+	4,  // 13: accounts.AccountSyncServerMessage.heartbeat:type_name -> accounts.AccountSyncHeartbeat
+	5,  // 14: accounts.AccountSyncServerMessage.response:type_name -> accounts.AccountSyncResponse
+	6,  // 15: accounts.AccountSyncServerMessage.end:type_name -> accounts.AccountSyncEndOfStream
+	16, // [16:16] is the sub-list for method output_type
+	16, // [16:16] is the sub-list for method input_type
+	16, // [16:16] is the sub-list for extension type_name
+	16, // [16:16] is the sub-list for extension extendee
+	0,  // [0:16] is the sub-list for field type_name
 }
 
 func init() { file_accounts_accounts_proto_init() }
@@ -721,7 +787,7 @@ func file_accounts_accounts_proto_init() {
 	if File_accounts_accounts_proto != nil {
 		return
 	}
-	file_accounts_accounts_proto_msgTypes[6].OneofWrappers = []any{
+	file_accounts_accounts_proto_msgTypes[7].OneofWrappers = []any{
 		(*AccountSyncServerMessage_BatchAck)(nil),
 		(*AccountSyncServerMessage_Heartbeat)(nil),
 		(*AccountSyncServerMessage_Response)(nil),
@@ -733,7 +799,7 @@ func file_accounts_accounts_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_accounts_accounts_proto_rawDesc), len(file_accounts_accounts_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   7,
+			NumMessages:   9,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
