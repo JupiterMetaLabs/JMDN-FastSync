@@ -48,7 +48,7 @@ func FetchAccountsByAddresses(ctx context.Context, blockInfo types.BlockInfo, ad
 		protoAccounts = append(protoAccounts, &accountspb.Account{
 			DidAddress:  acc.DIDAddress,
 			Address:     acc.Address.Bytes(),
-			Balance:     acc.Balance,
+			Balance:     "0", // Server should only send the zero balance during fetch accounts steps
 			Nonce:       acc.Nonce,
 			AccountType: acc.AccountType,
 			CreatedAt:   acc.CreatedAt,

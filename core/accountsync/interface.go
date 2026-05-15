@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/WAL"
+	accountspb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/accounts"
 	availabilitypb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/availability"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
 	"github.com/libp2p/go-libp2p/core/host"
@@ -47,6 +48,17 @@ type AccountSync_router interface {
 	// as reported in the EndOfStream frame. Returns an error if the upload,
 	// diff, or stream delivery fails.
 	AccountSync(remote *availabilitypb.AvailabilityResponse) (uint64, error)
+
+	// FetchAccounts sends a targeted request for specific accounts (by hex address or DID
+	// string) to the server. The server strips DIDs and looks up only plain accounts in
+	// its DB, returning them as a single AccountSyncResponse with page_index=0.
+	//
+	// Used post-PoTS / post-Reconciliation when tagging identifies accounts the client
+	// is missing that are not covered by the streaming AccountSync diff.
+	//
+	// Returns the server response. The caller is responsible for writing the returned
+	// accounts to the local DB.
+	FetchAccounts(remote *availabilitypb.AvailabilityResponse, addresses map[string]bool) (*accountspb.AccountSyncResponse, error)
 
 	// Close releases resources held by the router.
 	Close()

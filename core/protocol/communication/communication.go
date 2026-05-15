@@ -50,6 +50,11 @@ type Communicator interface {
 	// StreamAccounts delivers one AccountSyncResponse page from the server to the
 	// client by dialling AccountsSyncDataProtocol (dial-back). Returns the client ack.
 	StreamAccounts(ctx context.Context, peerNode types.Nodeinfo, resp *accountspb.AccountSyncServerMessage) (*accountspb.AccountSyncServerMessage, error)
+
+	// FetchAccounts sends a targeted AccountSyncRequestAccounts to the server and
+	// returns a single AccountSyncResponse (page_index=0). Used post-PoTS /
+	// post-Reconciliation when specific missing accounts are identified by address or DID.
+	FetchAccounts(ctx context.Context, peerNode types.Nodeinfo, req *accountspb.AccountSyncRequestAccounts) (*accountspb.AccountSyncResponse, error)
 }
 
 func NewCommunication(host host.Host, protocolVersion uint16) Communicator {
@@ -347,6 +352,39 @@ func (c *communication) StreamAccounts(
 	}
 
 	return ack, nil
+}
+
+// FetchAccounts sends an AccountSyncRequestAccounts to the server on
+// AccountsSyncFetchProtocol and returns the single-page AccountSyncResponse.
+func (c *communication) FetchAccounts(
+	ctx context.Context,
+	peerNode types.Nodeinfo,
+	req *accountspb.AccountSyncRequestAccounts,
+) (*accountspb.AccountSyncResponse, error) {
+	if c.host == nil {
+		return nil, errors.New("host is nil")
+	}
+
+	peerInfo := libp2p_peer.AddrInfo{
+		ID:    peerNode.PeerID,
+		Addrs: peerNode.Multiaddr,
+	}
+
+	resp := &accountspb.AccountSyncResponse{}
+
+	if err := messaging.SendProtoDelimited(
+		ctx,
+		c.protocolVersion,
+		c.host,
+		peerInfo,
+		constants.AccountsSyncFetchProtocol,
+		req,
+		resp,
+	); err != nil {
+		return nil, errors.New("failed to send accounts fetch request: " + err.Error())
+	}
+
+	return resp, nil
 }
 
 func (c *communication) SendPoTSRequest(
