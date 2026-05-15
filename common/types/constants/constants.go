@@ -41,6 +41,10 @@ const (
 	ACCOUNTS_SYNC_REQUEST_END = "state:accountssync:accountssyncrequest:end"
 	ACCOUNTS_SYNC_REQUEST = "state:accountssync:accountssyncrequest"
 	ACCOUNTS_SYNC_RESPONSE = "state:accountssync:accountssyncresponse"
+
+	// Take the array of accounts required from the client as request, and send the array of accounts to the server.
+	ACCOUNTS_SYNC_REQUEST_ACCOUNTS = "state:accountssync:accountssyncrequest:accounts"
+	ACCOUNTS_SYNC_REQUEST_ACCOUNTS_RESPONSE = "state:accountssync:accountssyncrequest:accounts:response"
 )
 
 const (

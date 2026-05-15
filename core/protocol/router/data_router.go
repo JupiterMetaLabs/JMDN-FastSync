@@ -1587,3 +1587,76 @@ func (router *Datarouter) ACCOUNTS_SYNC(ctx context.Context, req *accountspb.Acc
 		},
 	}
 }
+
+func (router *Datarouter) HandleAccountsFetch(ctx context.Context, req *accountspb.AccountSyncRequestAccounts, remote *types.Nodeinfo) *accountspb.AccountSyncResponse {
+	if req.Phase == nil || req.Phase.Auth == nil || req.Phase.Auth.UUID == "" {
+		return &accountspb.AccountSyncResponse{
+			Ack: &ackpb.Ack{Ok: false, Error: errors.AuthRequired.Error()},
+			Phase: &phasepb.Phase{
+				PresentPhase:    constants.ACCOUNTS_SYNC_REQUEST_ACCOUNTS,
+				SuccessivePhase: constants.FAILURE,
+				Success:         false,
+				Error:           errors.AuthRequired.Error(),
+			},
+		}
+	}
+
+	authenticated, err := router.Authenticate(ctx, req.Phase.Auth, remote)
+	if err != nil || !authenticated {
+		return &accountspb.AccountSyncResponse{
+			Ack: &ackpb.Ack{Ok: false, Error: errors.AuthenticationFailed.Error()},
+			Phase: &phasepb.Phase{
+				PresentPhase:    constants.ACCOUNTS_SYNC_REQUEST_ACCOUNTS,
+				SuccessivePhase: constants.FAILURE,
+				Success:         false,
+				Error:           errors.AuthenticationFailed.Error(),
+				Auth:            req.Phase.Auth,
+			},
+		}
+	}
+
+	defer func() {
+		if resetErr := router.ResetTTL(ctx, req.Phase.Auth, remote); resetErr != nil {
+			Log.Logger(namedlogger).Error(ctx, "Failed to reset TTL", resetErr)
+		}
+	}()
+
+	switch req.Phase.PresentPhase {
+	case constants.ACCOUNTS_SYNC_REQUEST_ACCOUNTS:
+		protoAccounts, fetchErr := accountshelper.FetchAccountsByAddresses(ctx, router.Nodeinfo.BlockInfo, req.GetAddresses())
+		if fetchErr != nil {
+			return &accountspb.AccountSyncResponse{
+				Ack: &ackpb.Ack{Ok: false, Error: fetchErr.Error()},
+				Phase: &phasepb.Phase{
+					PresentPhase:    constants.ACCOUNTS_SYNC_REQUEST_ACCOUNTS,
+					SuccessivePhase: constants.FAILURE,
+					Success:         false,
+					Error:           fetchErr.Error(),
+					Auth:            req.Phase.Auth,
+				},
+			}
+		}
+		return &accountspb.AccountSyncResponse{
+			Accounts:  protoAccounts,
+			PageIndex: 0,
+			Ack:       &ackpb.Ack{Ok: true},
+			Phase: &phasepb.Phase{
+				PresentPhase:    constants.ACCOUNTS_SYNC_REQUEST_ACCOUNTS_RESPONSE,
+				SuccessivePhase: constants.SUCCESS,
+				Success:         true,
+				Auth:            req.Phase.Auth,
+			},
+		}
+	default:
+		return &accountspb.AccountSyncResponse{
+			Ack: &ackpb.Ack{Ok: false, Error: "unknown state: " + req.Phase.PresentPhase},
+			Phase: &phasepb.Phase{
+				PresentPhase:    req.Phase.PresentPhase,
+				SuccessivePhase: constants.FAILURE,
+				Success:         false,
+				Error:           "unknown state: " + req.Phase.PresentPhase,
+				Auth:            req.Phase.Auth,
+			},
+		}
+	}
+}
