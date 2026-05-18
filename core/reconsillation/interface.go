@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/WAL"
+	availabilitypb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/availability"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/tagging"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
 )
@@ -24,7 +25,7 @@ type Reconciliation_router interface {
 	// Reconcile calculates updated balances for all tagged accounts by querying
 	// their transactions and updates the accounts table in the database.
 	// Returns the number of accounts successfully reconciled and list of failed accounts.
-	Reconcile(taggedAccounts *tagging.TaggedAccounts) (int, []string, error)
+	Reconcile(taggedAccounts *tagging.TaggedAccounts, remote *availabilitypb.AvailabilityResponse) (int, []string, error)
 
 	// Close releases resources and cleans up.
 	Close()

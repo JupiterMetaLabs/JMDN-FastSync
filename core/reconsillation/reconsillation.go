@@ -11,9 +11,11 @@ import (
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/WAL"
 	blockpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/block"
 	"github.com/ethereum/go-ethereum/common"
+	availabilitypb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/availability"
 	taggingpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/tagging"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/constants"
+	"github.com/JupiterMetaLabs/JMDN-FastSync/core/accountsync"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/reconsillation/LRUCache"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/reconsillation/helper"
 	Log "github.com/JupiterMetaLabs/JMDN-FastSync/logging"
@@ -72,6 +74,7 @@ func (r *Reconciliation) GetLRUCache() LRUCache.LRUCacheInterface {
 	return r.headerCache
 }
 
+
 // GetSyncVars returns the current sync configuration.
 func (r *Reconciliation) GetSyncVars() *types.Syncvars {
 	return r.SyncVars
@@ -123,7 +126,7 @@ func (r *Reconciliation) GetBlockFromLRUCache(blockNumber uint64) (*blockpb.Head
 //
 // Returns the number of accounts reconciled and the list of any accounts that failed
 // during the computation phase. A non-nil error always means the DB was NOT mutated.
-func (r *Reconciliation) Reconcile(taggedAccounts *taggingpb.TaggedAccounts) (int, []string, error) {
+func (r *Reconciliation) Reconcile(taggedAccounts *taggingpb.TaggedAccounts, remote *availabilitypb.AvailabilityResponse) (int, []string, error) {
 	if taggedAccounts == nil || len(taggedAccounts.Accounts) == 0 {
 		Log.Logger(namedlogger).Info(r.SyncVars.Ctx, "No tagged accounts to reconcile")
 		return 0, nil, nil
@@ -208,6 +211,61 @@ func (r *Reconciliation) Reconcile(taggedAccounts *taggingpb.TaggedAccounts) (in
 
 	Log.Logger(namedlogger).Info(ctx, "Phase 1 complete — all account states ready",
 		ion.Int("accounts_ready", len(updates)))
+
+	// ----------------------------------------------------------------
+	// Phase 1.5: Pre-create accounts missing from local DB.
+	// AccountSync covers ~99% of zero-balance accounts before reconciliation;
+	// this handles stragglers. Fetching from the remote and writing them with
+	// zero balance lets Phase 3 issue an UPDATE instead of a CREATE, keeping
+	// the flow uniform. Accounts the remote also doesn't know about remain
+	// IsNewAccount=true and are handled by BatchUpdateAccounts as before.
+	// ----------------------------------------------------------------
+	if remote != nil {
+		missingAddrs := make(map[string]bool)
+		missingIdx := make(map[string]int)
+		for updateIdx, update := range updates {
+			if update.IsNewAccount {
+				missingAddrs[update.Address] = true
+				missingIdx[update.Address] = updateIdx
+			}
+		}
+
+		if len(missingAddrs) > 0 {
+			Log.Logger(namedlogger).Debug(ctx, "Phase 1.5: fetching missing accounts from remote",
+				ion.Int("missing_count", len(missingAddrs)))
+
+			syncVars := r.GetSyncVars()
+			acctSync := accountsync.NewAccountSync().SetSyncVars(syncVars.Ctx, syncVars.Version, syncVars.NodeInfo, syncVars.Node, syncVars.WAL)
+			resp, err := acctSync.FetchAccounts(remote, missingAddrs)
+			if err != nil {
+				Log.Logger(namedlogger).Warn(ctx, "Phase 1.5: remote fetch failed — BatchUpdateAccounts will create them",
+					ion.Err(err))
+			} else if resp != nil {
+				created := 0
+				for _, acc := range resp.GetAccounts() {
+					addrBytes := acc.GetAddress()
+					if len(addrBytes) == 0 {
+						continue
+					}
+					addr := strings.ToLower(common.BytesToAddress(addrBytes).Hex())
+					idx, ok := missingIdx[addr]
+					if !ok {
+						continue
+					}
+					if err := accountManager.CreateAccount(addr, big.NewInt(0), acc.GetNonce()); err != nil {
+						Log.Logger(namedlogger).Warn(ctx, "Phase 1.5: failed to pre-create account",
+							ion.String("address", addr), ion.Err(err))
+						continue
+					}
+					updates[idx].IsNewAccount = false
+					created++
+				}
+				Log.Logger(namedlogger).Info(ctx, "Phase 1.5 complete — pre-created missing accounts from remote",
+					ion.Int("requested", len(missingAddrs)),
+					ion.Int("created", created))
+			}
+		}
+	}
 
 	// ----------------------------------------------------------------
 	// Phase 2: Write all planned changes to WAL as a single batch event.
