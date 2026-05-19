@@ -11,6 +11,7 @@ const (
 	DataSyncProtocol           protocol.ID = "/fastsync/v1/datasync"
 	AccountsSyncProtocol       protocol.ID = "/fastsync/v1/accountssync"
 	AccountsSyncDataProtocol   protocol.ID = "/fastsync/v1/accountssync/data"
+	AccountsSyncFetchProtocol  protocol.ID = "/fastsync/v1/accountssync/fetch"
 	PoTSProtocol               protocol.ID = "/fastsync/v1/pots"
 )
 

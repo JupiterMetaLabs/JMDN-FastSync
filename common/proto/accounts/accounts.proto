@@ -63,6 +63,15 @@ message AccountNonceSyncRequest {
     checksum.Checksum checksum = 8; // optional: versioned digest (shared checksum.proto)
 }
 
+// AccountSyncRequestAccounts is a stateless targeted fetch request.
+// map<string, bool> gives set semantics at the wire level — duplicate addresses
+// are structurally impossible (map keys are unique in protobuf).
+// Used post-PoTS / post-Reconciliation when tagging identifies missing accounts.
+message AccountSyncRequestAccounts {
+    map<string, bool> addresses = 1; // key = address hex or DID string
+    phase.Phase       phase     = 2;
+}
+
 // ================================================================
 // Server-side stream envelope (server → client)
 // ================================================================

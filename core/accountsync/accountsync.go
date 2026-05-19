@@ -128,6 +128,58 @@ func (as *AccountSync) AccountSync(remote *availabilitypb.AvailabilityResponse) 
 	return totalAccounts, nil
 }
 
+// FetchAccounts sends a targeted AccountSyncRequestAccounts to the server on
+// AccountsSyncFetchProtocol and returns the single-page AccountSyncResponse.
+// Empty address maps short-circuit without a network round-trip.
+func (as *AccountSync) FetchAccounts(remote *availabilitypb.AvailabilityResponse, addresses map[string]bool) (*accountspb.AccountSyncResponse, error) {
+	if remote == nil || remote.Nodeinfo == nil {
+		return nil, fmt.Errorf("accountsfetch: remote is nil")
+	}
+	if remote.Auth == nil || remote.Auth.UUID == "" {
+		return nil, fmt.Errorf("accountsfetch: remote has no auth UUID")
+	}
+	if as.Comm == nil {
+		return nil, fmt.Errorf("accountsfetch: communicator not set — call SetSyncVars first")
+	}
+	if len(addresses) == 0 {
+		return &accountspb.AccountSyncResponse{PageIndex: 0}, nil
+	}
+
+	ctx := as.SyncVars.Ctx
+
+	remoteNodeInfo, err := routerhelper.NewNodeInfoHelper().ToNodeinfo(remote.Nodeinfo)
+	if err != nil {
+		return nil, fmt.Errorf("accountsfetch: parse remote nodeinfo: %w", err)
+	}
+
+	req := &accountspb.AccountSyncRequestAccounts{
+		Addresses: addresses,
+		Phase: &phasepb.Phase{
+			PresentPhase:    constants.ACCOUNTS_SYNC_REQUEST_ACCOUNTS,
+			SuccessivePhase: constants.ACCOUNTS_SYNC_REQUEST_ACCOUNTS,
+			Auth:            remote.Auth,
+		},
+	}
+
+	resp, err := as.Comm.FetchAccounts(ctx, *remoteNodeInfo, req)
+	if err != nil {
+		return nil, fmt.Errorf("accountsfetch: %w", err)
+	}
+	if resp == nil || !resp.GetAck().GetOk() {
+		errMsg := "unknown error"
+		if resp != nil {
+			errMsg = resp.GetAck().GetError()
+		}
+		return nil, fmt.Errorf("accountsfetch: server error: %s", errMsg)
+	}
+
+	Log.Logger(Log.Sync).Info(ctx, "accountsfetch: complete",
+		ion.Int("requested", len(addresses)),
+		ion.Int("received", len(resp.GetAccounts())))
+
+	return resp, nil
+}
+
 func (as *AccountSync) Close() {
 	if as.SyncVars != nil {
 		as.SyncVars = nil

@@ -60,6 +60,7 @@ type sync_interface interface {
 	HandlePubsub(ctx context.Context, node host.Host) error
 	HandleAccountsSync(ctx context.Context, node host.Host) error
 	HandleAccountsSyncData(ctx context.Context, node host.Host) error
+	HandleAccountsFetch(ctx context.Context, node host.Host) error
 	Debug(ctx context.Context, protocol protocol.ID, node host.Host, remote *types.Nodeinfo)
 }
 
@@ -713,6 +714,45 @@ func (s *Sync) HandleAccountsSyncData(ctx context.Context, node host.Host) error
 		)
 
 		_ = pbstream.WriteDelimited(str, ack)
+	})
+	return nil
+}
+
+// HandleAccountsFetch registers the server-side handler for AccountsSyncFetchProtocol.
+// The client sends one AccountSyncRequestAccounts; the server resolves the addresses,
+// strips DIDs, and returns a single AccountSyncResponse (page_index=0).
+// Pattern: stateless read → route → write (no heartbeat — targeted DB lookup).
+func (s *Sync) HandleAccountsFetch(ctx context.Context, node host.Host) error {
+	node.SetStreamHandler(constants.AccountsSyncFetchProtocol, func(str network.Stream) {
+		defer str.Close()
+
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		_ = str.SetReadDeadline(time.Now().Add(constants.StreamDeadline))
+		defer str.SetReadDeadline(time.Time{})
+
+		req := &accountspb.AccountSyncRequestAccounts{}
+		if err := pbstream.ReadDelimited(str, req); err != nil {
+			return
+		}
+
+		remoteNodeInfo := &types.Nodeinfo{
+			PeerID:    str.Conn().RemotePeer(),
+			Multiaddr: []multiaddr.Multiaddr{str.Conn().RemoteMultiaddr()},
+			Version:   s.nodeinfo.Version,
+		}
+
+		resp := s.Datarouter.HandleAccountsFetch(ctx, req, remoteNodeInfo)
+		s.Debug(ctx, constants.AccountsSyncFetchProtocol, node, remoteNodeInfo)
+
+		_ = str.SetWriteDeadline(time.Now().Add(constants.StreamDeadline))
+		defer str.SetWriteDeadline(time.Time{})
+
+		_ = pbstream.WriteDelimited(str, resp)
 	})
 	return nil
 }
