@@ -166,10 +166,18 @@ func (b *AsyncBuffer) writeToWAL(snapshot []stackEntry) {
 					}
 				}
 			}
-			if err := b.wal.flushBuffer(); err != nil {
-				log.Printf("async WAL: flush error: %v", err)
+			var flushErr error
+			var lastLSN uint64
+			if flushErr = b.wal.flushBuffer(); flushErr != nil {
+				log.Printf("async WAL: flush error: %v", flushErr)
+			} else {
+				lastLSN = b.wal.lastFlushedLSN
 			}
 			b.wal.Mu.Unlock()
+			if flushErr == nil {
+				log.Printf("[WAL] %d coalesced entries committed to disk — last LSN %d",
+					len(se.entries), lastLSN)
+			}
 
 		case kindCheckpoint:
 			if _, err := b.wal.CreateCheckpoint(); err != nil {
