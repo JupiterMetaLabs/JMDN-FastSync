@@ -31,6 +31,10 @@ type WAL struct {
 
 	// lastFlushedLSN tracks the last LSN that was persisted to disk
 	lastFlushedLSN uint64
+
+	// asyncBuf is the CAS slot for the active async write buffer.
+	// Nil means no buffer is running; AddToBufferWAL creates one on demand.
+	asyncBuf atomic.Pointer[AsyncBuffer]
 }
 
 // WALEntry represents a single event in the WAL
