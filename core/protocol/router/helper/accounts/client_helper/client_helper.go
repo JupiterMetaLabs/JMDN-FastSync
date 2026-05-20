@@ -45,11 +45,10 @@ func (clienthelper *clientHelper) GetSyncVars() *types.Syncvars {
 
 // WriteAccounts persists a page of accounts received from the server.
 //
-// If WAL is configured:
-//  1. Write AccountSyncEvent to WAL (crash-safe record before DB touch)
-//  2. Flush WAL to disk
-//  3. Write accounts to DB
-//  4. Create WAL checkpoint (mark these entries as applied)
+// WAL writes are async: the event is serialised and enqueued into the async
+// buffer (no disk I/O on the hot path). The background buffer goroutine flushes
+// to disk every 60 ms. The DB write happens immediately without waiting for the
+// WAL flush — CreateAccount is idempotent so crash recovery via WAL replay is safe.
 //
 // If WAL is nil, writes directly to DB (e.g. in tests).
 func (clienthelper *clientHelper) WriteAccounts(protoaccounts []*accountspb.Account) (bool, error) {
@@ -64,7 +63,7 @@ func (clienthelper *clientHelper) WriteAccounts(protoaccounts []*accountspb.Acco
 
 	ctx := clienthelper.SyncVars.Ctx
 
-	// ── 1. WAL write ──────────────────────────────────────────────────────────
+	// ── 1. Async WAL enqueue (non-blocking) ───────────────────────────────────
 	if clienthelper.SyncVars.WAL != nil {
 		event := &WAL.AccountSyncEvent{
 			BaseEvent: wal_types.BaseEvent{Operation: wal_types.OpAppend},
@@ -72,26 +71,17 @@ func (clienthelper *clientHelper) WriteAccounts(protoaccounts []*accountspb.Acco
 				Accounts: protoaccounts,
 			},
 		}
-		lsn, err := clienthelper.SyncVars.WAL.WriteEvent(event)
-		if err != nil {
-			return false, fmt.Errorf("accountsync client: WAL write failed: %w", err)
+		if err := clienthelper.SyncVars.WAL.AddToBufferWAL(event); err != nil {
+			return false, fmt.Errorf("accountsync client: async WAL enqueue failed: %w", err)
 		}
-		Log.Logger(Log.Sync).Debug(ctx, "accountsync client: WAL event written",
-			ion.Int64("lsn", int64(lsn)),
+		Log.Logger(Log.Sync).Debug(ctx, "accountsync client: WAL entry enqueued async",
 			ion.Int("account_count", len(protoaccounts)))
-
-		// ── 2. WAL flush ──────────────────────────────────────────────────────
-		if err := clienthelper.SyncVars.WAL.Flush(); err != nil {
-			return false, fmt.Errorf("accountsync client: WAL flush failed: %w", err)
-		}
-		Log.Logger(Log.Sync).Debug(ctx, "accountsync client: WAL flushed",
-			ion.Int64("last_flushed_lsn", int64(clienthelper.SyncVars.WAL.GetLastFlushedLSN())))
 	} else {
 		Log.Logger(Log.Sync).Warn(ctx, "accountsync client: WAL is nil — skipping WAL write",
 			ion.Int("account_count", len(protoaccounts)))
 	}
 
-	// ── 3. DB write ───────────────────────────────────────────────────────────
+	// ── 2. DB write ───────────────────────────────────────────────────────────
 	if err := clienthelper.SyncVars.NodeInfo.BlockInfo.NewAccountManager().WriteAccounts(accounts); err != nil {
 		return false, fmt.Errorf("accountsync client: DB write failed: %w", err)
 	}
@@ -99,12 +89,9 @@ func (clienthelper *clientHelper) WriteAccounts(protoaccounts []*accountspb.Acco
 	Log.Logger(Log.Sync).Info(ctx, "accountsync client: accounts written to DB",
 		ion.Int("account_count", len(accounts)))
 
-	// ── 4. WAL checkpoint ─────────────────────────────────────────────────────
+	// ── 3. Async checkpoint enqueue ───────────────────────────────────────────
 	if clienthelper.SyncVars.WAL != nil {
-		if _, err := clienthelper.SyncVars.WAL.CreateCheckpoint(); err != nil {
-			Log.Logger(Log.Sync).Warn(ctx, "accountsync client: WAL checkpoint failed after DB write",
-				ion.Err(err))
-		}
+		clienthelper.SyncVars.WAL.AddCheckpointToBuffer()
 	}
 
 	return true, nil

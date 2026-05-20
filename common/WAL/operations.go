@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 
 	wal_types "github.com/JupiterMetaLabs/JMDN-FastSync/common/types/wal"
@@ -297,22 +298,87 @@ func (w *WAL) GetLastFlushedLSN() uint64 {
 	return w.lastFlushedLSN
 }
 
-// Close ensures all buffered data is flushed before closing the underlying log.
+// Close drains the async buffer (if any), flushes all remaining buffered entries,
+// then closes the underlying log.
 func (w *WAL) Close() error {
+	// Drain async buffer before acquiring Mu: writeToWAL inside Drain needs Mu.Lock.
+	w.DrainAsyncBuffer()
+
 	w.Mu.Lock()
 	defer w.Mu.Unlock()
 
-	// Flush remaining buffer
 	if err := w.flushBuffer(); err != nil {
 		return fmt.Errorf("failed to flush on close: %w", err)
 	}
-
-	// Close the WAL
 	if err := w.Log.Close(); err != nil {
 		return fmt.Errorf("failed to close WAL: %w", err)
 	}
-
 	return nil
+}
+
+// AddToBufferWAL serialises event immediately (no lock) and enqueues it into the
+// async write buffer. The LSN is assigned and the entry is flushed to disk by the
+// background goroutine every asyncFlushInterval (60 ms).
+//
+// The buffer is created on the first call and reused until it idles out.
+// If a buffer is in the process of closing, this spins (rare, nanoseconds) until
+// the CAS slot is clear, then creates a fresh buffer.
+func (w *WAL) AddToBufferWAL(event wal_types.EventAdapter) error {
+	data, err := event.Serialize()
+	if err != nil {
+		return fmt.Errorf("async WAL: serialize: %w", err)
+	}
+	pe := pendingEntry{walType: event.GetType(), data: data}
+
+	for {
+		buf := w.asyncBuf.Load()
+		if buf != nil {
+			if buf.pushData(pe) {
+				return nil
+			}
+			// Buffer is closed but hasn't CAS-nil'd the slot yet. Yield and retry.
+			runtime.Gosched()
+			continue
+		}
+		nb := newAsyncBuffer(w, &w.asyncBuf)
+		if w.asyncBuf.CompareAndSwap(nil, nb) {
+			go nb.run()
+			nb.pushData(pe)
+			return nil
+		}
+		// Lost the CAS race to another goroutine — retry from top.
+	}
+}
+
+// AddCheckpointToBuffer enqueues a checkpoint sentinel into the async buffer.
+// The checkpoint fires after all data entries already in the buffer have been
+// flushed to WAL. Creates a buffer if none is active.
+func (w *WAL) AddCheckpointToBuffer() {
+	for {
+		buf := w.asyncBuf.Load()
+		if buf != nil {
+			if buf.pushCheckpoint() {
+				return
+			}
+			runtime.Gosched()
+			continue
+		}
+		nb := newAsyncBuffer(w, &w.asyncBuf)
+		if w.asyncBuf.CompareAndSwap(nil, nb) {
+			go nb.run()
+			nb.pushCheckpoint()
+			return
+		}
+	}
+}
+
+// DrainAsyncBuffer synchronously flushes all pending async entries to WAL
+// and closes the buffer. No-op if no buffer is active.
+// Must be called before WAL.Close() and before the process exits.
+func (w *WAL) DrainAsyncBuffer() {
+	if buf := w.asyncBuf.Load(); buf != nil {
+		buf.Drain()
+	}
 }
 
 // TruncateBefore eliminates all log entries with an LSN lower than the specified value.
