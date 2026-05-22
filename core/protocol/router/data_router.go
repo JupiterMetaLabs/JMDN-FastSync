@@ -1478,27 +1478,16 @@ func (router *Datarouter) FULL_SYNC(ctx context.Context, req *priorsyncpb.PriorS
 	}
 }
 
-// HandleAccountsSyncData stores one incoming account page received via the
-// AccountsSyncDataProtocol dial-back and returns a BatchAck for the server.
-func (router *Datarouter) HandleAccountsSyncData(ctx context.Context, resp *accountspb.AccountSyncResponse, remote *types.Nodeinfo) *accountspb.AccountSyncServerMessage {
-	if resp == nil {
-		return accountshelper.NewResultFactory(0).ErrBatchAck("nil response")
+// WriteAccountsBatch persists all accounts accumulated from one dispatch worker's
+// persistent stream in a single DB transaction.
+func (router *Datarouter) WriteAccountsBatch(ctx context.Context, accounts []*accountspb.Account) error {
+	if len(accounts) == 0 {
+		return nil
 	}
-
-	f := accountshelper.NewResultFactory(resp.GetPageIndex())
-
 	writer := clienthelper.NewClientWriter().SetSyncVars(ctx, *router.Nodeinfo, router.wal)
 	defer writer.Close()
-
-	status, err := writer.WriteAccounts(resp.GetAccounts())
-	if err != nil {
-		return f.ErrBatchAck(err.Error())
-	}
-	if !status {
-		return f.ErrBatchAck("write returned false with no error")
-	}
-
-	return f.BatchAck()
+	_, err := writer.WriteAccounts(accounts)
+	return err
 }
 
 func (router *Datarouter) ACCOUNTS_SYNC(ctx context.Context, req *accountspb.AccountNonceSyncRequest, remote *types.Nodeinfo, sessionLockedART *accountshelper.LockedART) *accountspb.AccountSyncServerMessage {
@@ -1542,7 +1531,14 @@ func (router *Datarouter) ACCOUNTS_SYNC(ctx context.Context, req *accountspb.Acc
 		return f.ErrEndOfStream(err.Error())
 	}
 
-	callbacks := accountshelper.NewDispatcherCallbacks(router.Nodeinfo, *remote, router.Comm.StreamAccounts, req.Phase.Auth)
+	callbacks := accountshelper.NewDispatcherCallbacks(
+		router.Nodeinfo,
+		*remote,
+		router.Comm.OpenAccountsDataStream,
+		router.Comm.SendAccountPageOnStream,
+		constants.DispatchWorkers,
+		req.Phase.Auth,
+	)
 
 	d, dispErr := accountsdispatcher.New(accountsdispatcher.Default(), callbacks)
 	if dispErr != nil {

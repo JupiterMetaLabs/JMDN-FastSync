@@ -16,6 +16,7 @@ import (
 	"github.com/JupiterMetaLabs/JMDN-FastSync/logging"
 	"github.com/JupiterMetaLabs/ion"
 	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/multiformats/go-multiaddr"
@@ -669,4 +670,89 @@ type AccountSyncHandlers struct {
 	// Use total_pages to verify all response pages were received before the
 	// function returns.
 	OnEnd func(*accountspb.AccountSyncEndOfStream) error
+}
+
+// streamReadWriter is the minimal interface WriteAccountPageAndReadACK needs.
+// libp2p network.Stream and any types.AccountSyncStream implementation satisfy it.
+type streamReadWriter interface {
+	io.ReadWriter
+	SetReadDeadline(t time.Time) error
+	SetWriteDeadline(t time.Time) error
+}
+
+// OpenAccountsSyncDataStream connects to peerInfo and opens a stream on
+// AccountsSyncDataProtocol without closing it — the caller owns the lifetime.
+//
+// Use this to open a persistent per-worker stream. Call WriteAccountPageAndReadACK
+// in a loop on the returned stream, then Close() when the worker is done.
+func OpenAccountsSyncDataStream(
+	ctx context.Context,
+	version uint16,
+	h host.Host,
+	peerInfo peer.AddrInfo,
+) (network.Stream, error) {
+	if h == nil {
+		return nil, errors.New("host is nil")
+	}
+	if len(peerInfo.Addrs) == 0 {
+		return nil, errors.New("peer has no addresses")
+	}
+
+	primaryAddr, fallbackAddr, err := SelectTransportAddrWithFallback(peerInfo.Addrs, version)
+	if err != nil {
+		return nil, fmt.Errorf("transport selection failed: %w", err)
+	}
+
+	targetPeer := peer.AddrInfo{ID: peerInfo.ID, Addrs: []multiaddr.Multiaddr{primaryAddr}}
+
+	connectCtx, cancel := context.WithTimeout(ctx, constants.StreamDeadline)
+	defer cancel()
+
+	connectErr := h.Connect(connectCtx, targetPeer)
+	if connectErr != nil && version >= 2 && fallbackAddr != nil {
+		logging.Logger(logging.Transport).Warn(ctx, "primary transport failed, attempting TCP fallback",
+			ion.Err(connectErr))
+		targetPeer.Addrs = []multiaddr.Multiaddr{fallbackAddr}
+		fallbackCtx, fallbackCancel := context.WithTimeout(ctx, constants.StreamDeadline)
+		defer fallbackCancel()
+		connectErr = h.Connect(fallbackCtx, targetPeer)
+		if connectErr != nil {
+			return nil, fmt.Errorf("failed to connect (QUIC and TCP fallback) to peer %s: %w", peerInfo.ID, connectErr)
+		}
+	} else if connectErr != nil {
+		return nil, fmt.Errorf("failed to connect to peer %s: %w", peerInfo.ID, connectErr)
+	}
+
+	stream, err := h.NewStream(ctx, peerInfo.ID, constants.AccountsSyncDataProtocol)
+	if err != nil {
+		return nil, fmt.Errorf("open AccountsSyncDataProtocol stream: %w", err)
+	}
+	return stream, nil
+}
+
+// WriteAccountPageAndReadACK writes one AccountSyncServerMessage to an open
+// stream and reads back the client's AccountSyncServerMessage ACK.
+//
+// Does NOT open or close the stream — the caller owns its lifetime.
+// deadline is applied independently to the write and read operations.
+func WriteAccountPageAndReadACK(
+	stream streamReadWriter,
+	msg *accountspb.AccountSyncServerMessage,
+	deadline time.Duration,
+) (*accountspb.AccountSyncServerMessage, error) {
+	if err := stream.SetWriteDeadline(time.Now().Add(deadline)); err != nil {
+		return nil, fmt.Errorf("set write deadline: %w", err)
+	}
+	if err := pbstream.WriteDelimited(stream, msg); err != nil {
+		return nil, fmt.Errorf("write account page: %w", err)
+	}
+
+	if err := stream.SetReadDeadline(time.Now().Add(deadline)); err != nil {
+		return nil, fmt.Errorf("set read deadline: %w", err)
+	}
+	ack := &accountspb.AccountSyncServerMessage{}
+	if err := pbstream.ReadDelimited(stream, ack); err != nil {
+		return nil, fmt.Errorf("read account page ACK: %w", err)
+	}
+	return ack, nil
 }

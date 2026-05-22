@@ -84,16 +84,27 @@ func (d *AccountDispatcher) Run(ctx context.Context) (types.DispatchSummary, err
 // Time:  O(1) per iteration overhead.
 // Space: O(NoncePageSize) per active page (one DB result set at a time).
 func (d *AccountDispatcher) dispatchWorker(ctx context.Context) {
+	stream, err := d.callbacks.OpenStream(ctx)
+	if err != nil {
+		return
+	}
+	defer stream.Close()
+
 	for {
 		select {
 		case <-d.done:
-			// All pages are finalised — nothing left to process.
 			return
 		case <-ctx.Done():
-			// Session cancelled — exit immediately.
 			return
 		case page := <-d.nonceChan:
-			d.processPage(ctx, page)
+			streamOK := d.processPage(ctx, stream, page)
+			if !streamOK {
+				stream.Close()
+				stream, err = d.callbacks.OpenStream(ctx)
+				if err != nil {
+					return
+				}
+			}
 		}
 	}
 }
@@ -103,13 +114,16 @@ func (d *AccountDispatcher) dispatchWorker(ctx context.Context) {
 //  1. Decrement nonceBufferCount (page left the channel) → signal resume to diff stage
 //  2. Assign a 1-based page index if this is the first delivery attempt
 //  3. Fetch full account records from the DB via FetchAccounts callback
-//  4. Deliver to client via SendPage callback (with DispatchACKTimeout deadline)
+//  4. Deliver to client via SendPageOnStream callback (with DispatchACKTimeout deadline)
 //  5. On success: record delivery, finalise page
 //  6. On failure: re-enqueue if retries remain; dead-letter if exhausted
 //
+// Returns streamHealthy=false only when the send failed (stream may be broken).
+// DB fetch failures return true — the stream itself is unaffected.
+//
 // Time:  O(n) where n = len(page.Nonces) — dominated by DB fetch.
 // Space: O(n) — one []*Account slice per call, freed after delivery.
-func (d *AccountDispatcher) processPage(ctx context.Context, page noncePage) {
+func (d *AccountDispatcher) processPage(ctx context.Context, stream types.AccountSyncStream, page noncePage) (streamHealthy bool) {
 	// Step 1: page has left the channel — decrement buffer count and
 	// potentially wake paused diff goroutines (hysteresis resume signal).
 	newCount := d.nonceBufferCount.Add(-int64(len(page.Nonces)))
@@ -126,15 +140,14 @@ func (d *AccountDispatcher) processPage(ctx context.Context, page noncePage) {
 	dbMs := time.Since(dbStart).Milliseconds()
 
 	if fetchErr != nil {
-		d.handleFailure(ctx, page, fetchErr,
-			types.DispatchPageMetrics{
-				PageIndex:  page.PageIndex,
-				NonceCount: len(page.Nonces),
-				DBFetchMS:  dbMs,
-				Retries:    page.Retries,
-				Success:    false,
-			})
-		return
+		d.handleFailure(ctx, page, fetchErr, types.DispatchPageMetrics{
+			PageIndex:  page.PageIndex,
+			NonceCount: len(page.Nonces),
+			DBFetchMS:  dbMs,
+			Retries:    page.Retries,
+			Success:    false,
+		})
+		return true // DB failure does not break the stream
 	}
 
 	// Step 4: deliver to client with a per-page ACK deadline.
@@ -142,7 +155,7 @@ func (d *AccountDispatcher) processPage(ctx context.Context, page noncePage) {
 	defer sendCancel()
 
 	sendStart := time.Now()
-	sendErr := d.callbacks.SendPage(sendCtx, page.PageIndex, accounts)
+	sendErr := d.callbacks.SendPageOnStream(sendCtx, stream, page.PageIndex, accounts)
 	sendMs := time.Since(sendStart).Milliseconds()
 
 	metrics := types.DispatchPageMetrics{
@@ -156,7 +169,7 @@ func (d *AccountDispatcher) processPage(ctx context.Context, page noncePage) {
 
 	if sendErr != nil {
 		d.handleFailure(ctx, page, sendErr, metrics)
-		return
+		return false // stream may be broken
 	}
 
 	// Step 5: success — record delivery and finalise.
@@ -169,6 +182,7 @@ func (d *AccountDispatcher) processPage(ctx context.Context, page noncePage) {
 
 	d.inflight.Add(-1)
 	d.tryCloseDone()
+	return true
 }
 
 // handleFailure decides whether to re-queue a failed page or dead-letter it.

@@ -55,6 +55,15 @@ type Communicator interface {
 	// returns a single AccountSyncResponse (page_index=0). Used post-PoTS /
 	// post-Reconciliation when specific missing accounts are identified by address or DID.
 	FetchAccounts(ctx context.Context, peerNode types.Nodeinfo, req *accountspb.AccountSyncRequestAccounts) (*accountspb.AccountSyncResponse, error)
+
+	// OpenAccountsDataStream connects to peerNode and opens a persistent stream on
+	// AccountsSyncDataProtocol without closing it. The caller owns the stream
+	// lifetime — call stream.Close() when the dispatch worker exits.
+	OpenAccountsDataStream(ctx context.Context, peerNode types.Nodeinfo) (types.AccountSyncStream, error)
+
+	// SendAccountPageOnStream writes one AccountSyncServerMessage to an open
+	// stream and reads back the client's ACK. Does not open or close the stream.
+	SendAccountPageOnStream(ctx context.Context, stream types.AccountSyncStream, msg *accountspb.AccountSyncServerMessage) (*accountspb.AccountSyncServerMessage, error)
 }
 
 func NewCommunication(host host.Host, protocolVersion uint16) Communicator {
@@ -385,6 +394,35 @@ func (c *communication) FetchAccounts(
 	}
 
 	return resp, nil
+}
+
+// OpenAccountsDataStream connects to peerNode and opens a persistent stream
+// on AccountsSyncDataProtocol without closing it. The caller owns the stream.
+func (c *communication) OpenAccountsDataStream(
+	ctx context.Context,
+	peerNode types.Nodeinfo,
+) (types.AccountSyncStream, error) {
+	if c.host == nil {
+		return nil, errors.New("host is nil")
+	}
+	peerInfo := libp2p_peer.AddrInfo{
+		ID:    peerNode.PeerID,
+		Addrs: peerNode.Multiaddr,
+	}
+	stream, err := messaging.OpenAccountsSyncDataStream(ctx, c.protocolVersion, c.host, peerInfo)
+	if err != nil {
+		return nil, err
+	}
+	return stream, nil
+}
+
+// SendAccountPageOnStream writes one page to an already-open stream and reads the ACK.
+func (c *communication) SendAccountPageOnStream(
+	ctx context.Context,
+	stream types.AccountSyncStream,
+	msg *accountspb.AccountSyncServerMessage,
+) (*accountspb.AccountSyncServerMessage, error) {
+	return messaging.WriteAccountPageAndReadACK(stream, msg, constants.DispatchACKTimeout)
 }
 
 func (c *communication) SendPoTSRequest(

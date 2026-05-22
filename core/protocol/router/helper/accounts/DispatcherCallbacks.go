@@ -16,77 +16,95 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
-// StreamAccountsFn is the dial-back function used to deliver one page to the client.
-// The server opens a new AccountsSyncDataProtocol stream per call, sends the page,
-// and reads the client's BatchAck. Each call is independent — no shared stream state.
-type StreamAccountsFn func(ctx context.Context, remote types.Nodeinfo, msg *accountspb.AccountSyncServerMessage) (*accountspb.AccountSyncServerMessage, error)
+// OpenStreamFn dials the client on AccountsSyncDataProtocol and returns an open
+// persistent stream. Caller owns the stream lifetime.
+type OpenStreamFn func(ctx context.Context, peerNode types.Nodeinfo) (types.AccountSyncStream, error)
+
+// SendPageOnStreamFn writes one AccountSyncServerMessage to an open stream and
+// reads back the client's ACK. Does NOT open or close the stream.
+type SendPageOnStreamFn func(ctx context.Context, stream types.AccountSyncStream, msg *accountspb.AccountSyncServerMessage) (*accountspb.AccountSyncServerMessage, error)
 
 // NewDispatcherCallbacks builds the types.DispatcherCallbacks for one AccountSync session.
 //
 // Parameters:
-//   - nodeinfo       : provides BlockInfo → AccountManager → GetAccountsByNonces
-//   - remote         : client's Nodeinfo used by streamAccounts to dial back per page
-//   - streamAccounts : dials the client on AccountsSyncDataProtocol, sends the page, reads BatchAck
-//   - auth           : session auth token embedded in every AccountSyncResponse.Phase
+//   - nodeinfo    : provides BlockInfo → AccountManager pool for DB fetches
+//   - remote      : client's Nodeinfo (bound into OpenStream closure)
+//   - openFn      : comm.OpenAccountsDataStream — dials client, returns open stream
+//   - sendFn      : comm.SendAccountPageOnStream — write+read on existing stream
+//   - numWorkers  : number of AccountManagers to pre-create in the fetch pool
+//   - auth        : session auth token embedded in every AccountSyncResponse.Phase
 //
-// Each page is delivered on its own short-lived stream via streamAccounts — no shared
-// stream mutex needed. DB fetches (FetchAccounts) and page deliveries run fully in
-// parallel across all dispatch workers.
-//
-// Time: O(1). Space: O(1).
+// Each dispatch worker opens ONE stream at startup and reuses it for every page.
+// DB fetches use a pool of numWorkers AccountManagers (one per worker) to avoid
+// per-page session creation.
 func NewDispatcherCallbacks(
 	nodeinfo *types.Nodeinfo,
 	remote types.Nodeinfo,
-	streamAccounts StreamAccountsFn,
+	openFn OpenStreamFn,
+	sendFn SendPageOnStreamFn,
+	numWorkers int,
 	auth *authpb.Auth,
 ) types.DispatcherCallbacks {
 	return types.DispatcherCallbacks{
-		FetchAccounts: buildFetchAccounts(nodeinfo),
-		SendPage:      buildSendPage(remote, streamAccounts, auth),
-		OnPageMetrics: buildOnPageMetrics(),
-		OnDeadLetter:  buildOnDeadLetter(nodeinfo, remote, streamAccounts, auth),
+		FetchAccounts:    buildFetchAccountsWithPool(nodeinfo, numWorkers),
+		OpenStream:       buildOpenStream(remote, openFn),
+		SendPageOnStream: buildSendPageOnStream(sendFn, auth),
+		OnPageMetrics:    buildOnPageMetrics(),
+		OnDeadLetter:     buildOnDeadLetter(nodeinfo, remote, openFn, sendFn, auth),
 	}
 }
 
 // ─── FetchAccounts ────────────────────────────────────────────────────────────
 
-// buildFetchAccounts returns a closure that batch-fetches full account rows
-// for up to NoncePageSize nonces via GetAccountsByNonces (single DB query).
+// buildFetchAccountsWithPool pre-creates numWorkers AccountManagers and hands
+// them out one-at-a-time via a buffered channel pool.
 //
-// Time: O(n) where n = len(nonces). Space: O(n).
-func buildFetchAccounts(nodeinfo *types.Nodeinfo) func(context.Context, []uint64) ([]*types.Account, error) {
+// Each borrow creates an AccountNonceIterator for the nonce set, calls
+// GetAccountsByNonces, closes the iterator, and returns the manager to the pool.
+// No new AccountManager is created on the hot path — only numWorkers total are
+// ever created for the lifetime of this session.
+func buildFetchAccountsWithPool(nodeinfo *types.Nodeinfo, numWorkers int) func(context.Context, []uint64) ([]*types.Account, error) {
+	pool := make(chan types.AccountManager, numWorkers)
+	for i := 0; i < numWorkers; i++ {
+		pool <- nodeinfo.BlockInfo.NewAccountManager()
+	}
 	return func(ctx context.Context, nonces []uint64) ([]*types.Account, error) {
-		iter := nodeinfo.BlockInfo.NewAccountManager().NewAccountNonceIterator(1)
+		var mgr types.AccountManager
+		select {
+		case mgr = <-pool:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+		defer func() { pool <- mgr }()
+
+		iter := mgr.NewAccountNonceIterator(len(nonces))
 		defer iter.Close()
 		return iter.GetAccountsByNonces(nonces)
 	}
 }
 
-// ─── SendPage ────────────────────────────────────────────────────────────────
+// ─── OpenStream ───────────────────────────────────────────────────────────────
 
-// buildSendPage returns a closure that dials the client and delivers one page.
-//
-// Steps:
-//  1. Convert []*types.Account → proto with balance="0"
-//  2. streamAccounts(ctx, remote, msg) → dials client on AccountsSyncDataProtocol,
-//     sends the AccountSyncResponse, reads back the client's BatchAck
-//  3. Return error if the dial/send fails or BatchAck.Ok is false
-//
-// No mutex needed — each call opens its own stream so workers never share state.
-//
-// Time: O(n) where n = len(accounts) + one network round-trip. Space: O(n).
-func buildSendPage(
+// buildOpenStream returns a closure that opens a persistent stream to the client.
+// Each dispatch worker calls this once at startup.
+func buildOpenStream(
 	remote types.Nodeinfo,
-	streamAccounts StreamAccountsFn,
-	auth *authpb.Auth,
-) func(context.Context, uint32, []*types.Account) error {
-	return func(ctx context.Context, pageIndex uint32, accounts []*types.Account) error {
-		Log.Logger(Log.Sync).Info(ctx, "accountsync: sending page to client",
-			ion.Int("page_index", int(pageIndex)),
-			ion.Int("account_count", len(accounts)),
-			ion.String("to_peer", remote.PeerID.String()),
-		)
+	openFn OpenStreamFn,
+) func(context.Context) (types.AccountSyncStream, error) {
+	return func(ctx context.Context) (types.AccountSyncStream, error) {
+		return openFn(ctx, remote)
+	}
+}
 
+// ─── SendPageOnStream ─────────────────────────────────────────────────────────
+
+// buildSendPageOnStream returns a closure that serialises accounts to proto,
+// writes the AccountSyncResponse on an existing stream, and reads the ACK.
+func buildSendPageOnStream(
+	sendFn SendPageOnStreamFn,
+	auth *authpb.Auth,
+) func(context.Context, types.AccountSyncStream, uint32, []*types.Account) error {
+	return func(ctx context.Context, stream types.AccountSyncStream, pageIndex uint32, accounts []*types.Account) error {
 		msg := &accountspb.AccountSyncServerMessage{
 			Payload: &accountspb.AccountSyncServerMessage_Response{
 				Response: &accountspb.AccountSyncResponse{
@@ -103,7 +121,7 @@ func buildSendPage(
 			},
 		}
 
-		ack, err := streamAccounts(ctx, remote, msg)
+		ack, err := sendFn(ctx, stream, msg)
 		if err != nil {
 			return fmt.Errorf("accountsync send page %d: %w", pageIndex, err)
 		}
@@ -120,7 +138,6 @@ func buildSendPage(
 		Log.Logger(Log.Sync).Info(ctx, "accountsync: client ACKed page",
 			ion.Int("page_index", int(pageIndex)),
 			ion.Int("account_count", len(accounts)),
-			ion.String("from_peer", remote.PeerID.String()),
 		)
 		return nil
 	}
@@ -128,9 +145,6 @@ func buildSendPage(
 
 // ─── OnPageMetrics ───────────────────────────────────────────────────────────
 
-// buildOnPageMetrics logs per-page delivery timings after every dispatch attempt.
-//
-// Time: O(1). Space: O(1).
 func buildOnPageMetrics() func(context.Context, types.DispatchPageMetrics) {
 	return func(ctx context.Context, m types.DispatchPageMetrics) {
 		if m.Success {
@@ -156,20 +170,17 @@ func buildOnPageMetrics() func(context.Context, types.DispatchPageMetrics) {
 // ─── OnDeadLetter ────────────────────────────────────────────────────────────
 
 // buildOnDeadLetter fires when a page exhausts all dispatcher retries.
-//
-// Makes one final synchronous attempt:
-//  1. Re-fetches accounts from DB (transient errors may have cleared).
-//  2. Calls streamAccounts — same dial-back contract as normal pages.
-//     PageIndex=0 signals a recovery page to the client.
-//  3. On failure: logs and abandons. No further retries.
-//
-// Time: O(n). Space: O(n).
+// Opens a one-off recovery stream, re-fetches accounts, makes one final send.
 func buildOnDeadLetter(
 	nodeinfo *types.Nodeinfo,
 	remote types.Nodeinfo,
-	streamAccounts StreamAccountsFn,
+	openFn OpenStreamFn,
+	sendFn SendPageOnStreamFn,
 	auth *authpb.Auth,
 ) func(context.Context, types.DeadLetterPage) {
+	send := buildSendPageOnStream(sendFn, auth)
+	open := buildOpenStream(remote, openFn)
+
 	return func(ctx context.Context, dead types.DeadLetterPage) {
 		Log.Logger(Log.Sync).Warn(ctx, "accountsync: dead-lettered — final recovery attempt",
 			ion.Int("nonce_count", len(dead.Nonces)),
@@ -177,38 +188,26 @@ func buildOnDeadLetter(
 			ion.String("failure_hint", dead.FailureHint),
 		)
 
-		accounts, err := buildFetchAccounts(nodeinfo)(ctx, dead.Nonces)
+		iter := nodeinfo.BlockInfo.NewAccountManager().NewAccountNonceIterator(len(dead.Nonces))
+		defer iter.Close()
+		accounts, err := iter.GetAccountsByNonces(dead.Nonces)
 		if err != nil {
 			Log.Logger(Log.Sync).Error(ctx, "accountsync: dead-letter fetch failed — permanently lost",
 				err, ion.Int("nonce_count", len(dead.Nonces)))
 			return
 		}
 
-		msg := &accountspb.AccountSyncServerMessage{
-			Payload: &accountspb.AccountSyncServerMessage_Response{
-				Response: &accountspb.AccountSyncResponse{
-					Accounts:  ToProtoAccounts(accounts),
-					PageIndex: 0,
-					Ack:       &ackpb.Ack{Ok: true},
-					Phase: &phasepb.Phase{
-						PresentPhase:    constants.ACCOUNTS_SYNC_RESPONSE,
-						SuccessivePhase: constants.ACCOUNTS_SYNC_RESPONSE,
-						Success:         true,
-						Auth:            auth,
-					},
-				},
-			},
-		}
-
-		ack, sendErr := streamAccounts(ctx, remote, msg)
-		if sendErr != nil {
-			Log.Logger(Log.Sync).Error(ctx, "accountsync: dead-letter send failed — permanently lost",
-				sendErr, ion.Int("nonce_count", len(dead.Nonces)))
+		stream, err := open(ctx)
+		if err != nil {
+			Log.Logger(Log.Sync).Error(ctx, "accountsync: dead-letter stream open failed — permanently lost",
+				err, ion.Int("nonce_count", len(dead.Nonces)))
 			return
 		}
-		if ack.GetBatchAck() != nil && !ack.GetBatchAck().GetAck().GetOk() {
-			Log.Logger(Log.Sync).Error(ctx, "accountsync: dead-letter ack rejected — permanently lost",
-				fmt.Errorf("%s", ack.GetBatchAck().GetAck().GetError()), ion.Int("nonce_count", len(dead.Nonces)))
+		defer stream.Close()
+
+		if err := send(ctx, stream, 0, accounts); err != nil {
+			Log.Logger(Log.Sync).Error(ctx, "accountsync: dead-letter send failed — permanently lost",
+				err, ion.Int("nonce_count", len(dead.Nonces)))
 			return
 		}
 		Log.Logger(Log.Sync).Info(ctx, "accountsync: dead-letter recovery succeeded",
@@ -221,8 +220,6 @@ func buildOnDeadLetter(
 // ToProtoAccounts converts []*types.Account → []*accountspb.Account.
 // Balance is always "0" — Reconciliation fills actual balances post-DataSync.
 // Nil entries are silently skipped.
-//
-// Time: O(n). Space: O(n).
 func ToProtoAccounts(accounts []*types.Account) []*accountspb.Account {
 	out := make([]*accountspb.Account, 0, len(accounts))
 	for _, acc := range accounts {

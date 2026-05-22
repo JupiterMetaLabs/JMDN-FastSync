@@ -47,8 +47,11 @@ func validateDispatcherConfig(cfg types.DispatcherConfig, callbacks types.Dispat
 	if callbacks.FetchAccounts == nil {
 		return errors.New("dispatcher: FetchAccounts callback is required")
 	}
-	if callbacks.SendPage == nil {
-		return errors.New("dispatcher: SendPage callback is required")
+	if callbacks.OpenStream == nil {
+		return errors.New("dispatcher: OpenStream callback is required")
+	}
+	if callbacks.SendPageOnStream == nil {
+		return errors.New("dispatcher: SendPageOnStream callback is required")
 	}
 	return nil
 }

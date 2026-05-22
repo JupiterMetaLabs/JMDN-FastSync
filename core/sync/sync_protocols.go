@@ -666,19 +666,11 @@ func (s *Sync) HandleAccountsSync(ctx context.Context, node host.Host) error {
 func (s *Sync) HandleAccountsSyncData(ctx context.Context, node host.Host) error {
 	node.SetStreamHandler(constants.AccountsSyncDataProtocol, func(str network.Stream) {
 		defer str.Close()
-		
+
 		select {
 		case <-ctx.Done():
 			return
 		default:
-		}
-
-		_ = str.SetReadDeadline(time.Now().Add(constants.StreamDeadline))
-		defer str.SetReadDeadline(time.Time{})
-
-		page := &accountspb.AccountSyncServerMessage{}
-		if err := pbstream.ReadDelimited(str, page); err != nil {
-			return
 		}
 
 		remoteNodeInfo := &types.Nodeinfo{
@@ -689,31 +681,54 @@ func (s *Sync) HandleAccountsSyncData(ctx context.Context, node host.Host) error
 
 		s.Debug(ctx, constants.AccountsSyncDataProtocol, node, remoteNodeInfo)
 
-		_ = str.SetWriteDeadline(time.Now().Add(constants.StreamDeadline))
-		defer str.SetWriteDeadline(time.Time{})
+		var batch []*accountspb.Account
 
-		resp := page.GetResponse()
-		if resp == nil {
-			_ = pbstream.WriteDelimited(str, &accountspb.AccountSyncServerMessage{
-				Payload: &accountspb.AccountSyncServerMessage_BatchAck{
-					BatchAck: &accountspb.AccountBatchAck{
-						Ack: &ackpb.Ack{Ok: false, Error: "expected Response payload"},
+		defer str.SetReadDeadline(time.Time{})
+		defer str.SetWriteDeadline(time.Time{})
+		for {
+			_ = str.SetReadDeadline(time.Now().Add(constants.DispatchACKTimeout))
+			page := &accountspb.AccountSyncServerMessage{}
+			if err := pbstream.ReadDelimited(str, page); err != nil {
+				// EOF = server worker finished sending all its pages
+				break
+			}
+
+			resp := page.GetResponse()
+			if resp == nil {
+				_ = str.SetWriteDeadline(time.Now().Add(constants.DispatchACKTimeout))
+				_ = pbstream.WriteDelimited(str, &accountspb.AccountSyncServerMessage{
+					Payload: &accountspb.AccountSyncServerMessage_BatchAck{
+						BatchAck: &accountspb.AccountBatchAck{
+							Ack: &ackpb.Ack{Ok: false, Error: "expected Response payload"},
+						},
 					},
-				},
-			})
+				})
+				continue
+			}
+
+			batch = append(batch, resp.GetAccounts()...)
+
+			_ = str.SetWriteDeadline(time.Now().Add(constants.DispatchACKTimeout))
+			ack := accountshelper.NewResultFactory(resp.GetPageIndex()).BatchAck()
+			_ = pbstream.WriteDelimited(str, ack)
+		}
+
+		if len(batch) == 0 {
 			return
 		}
 
-		ack := s.Datarouter.HandleAccountsSyncData(ctx, resp, remoteNodeInfo)
+		if err := s.Datarouter.WriteAccountsBatch(ctx, batch); err != nil {
+			logging.Logger(logging.Sync).Error(ctx, "accountsync: batch write failed", err,
+				ion.Int("account_count", len(batch)),
+				ion.String("from_peer", remoteNodeInfo.PeerID.String()),
+			)
+			return
+		}
 
-		logging.Logger(logging.Sync).Info(ctx, "accountsync: page received",
-			ion.Int("page_index", int(resp.GetPageIndex())),
-			ion.Int("account_count", len(resp.GetAccounts())),
+		logging.Logger(logging.Sync).Info(ctx, "accountsync: batch written to DB",
+			ion.Int("account_count", len(batch)),
 			ion.String("from_peer", remoteNodeInfo.PeerID.String()),
-			ion.Bool("ok", ack.GetBatchAck().GetAck().GetOk()),
 		)
-
-		_ = pbstream.WriteDelimited(str, ack)
 	})
 	return nil
 }
