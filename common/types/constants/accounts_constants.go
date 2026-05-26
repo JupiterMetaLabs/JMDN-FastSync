@@ -78,7 +78,7 @@ const (
 	// NonceBufferPauseThreshold is the soft upper limit on nonces buffered in
 	// the dispatcher. Diff goroutines pause when this count is reached and
 	// resume only when the count drops below NonceBufferResumePct % of this.
-	NonceBufferPauseThreshold = 100_000
+	NonceBufferPauseThreshold = 200_000
 
 	// NonceBufferResumePct is the percentage of NonceBufferPauseThreshold at
 	// which paused diff goroutines are allowed to resume.

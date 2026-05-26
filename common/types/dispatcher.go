@@ -2,15 +2,20 @@ package types
 
 import (
 	"context"
+	"io"
 	"time"
 )
 
 // ─── AccountSync Dispatcher Types ─────────────────────────────────────────────
-//
-// These types define the configuration and observable outputs of the
-// AccountSync async streaming dispatcher. They live in common/types so both
-// the dispatcher implementation (core/protocol/router/helper/accounts) and
-// the diff stage (accounts_tag.go) can reference them without import cycles.
+
+// AccountSyncStream is the minimal interface a persistent dispatch stream must
+// satisfy. libp2p network.Stream satisfies this automatically — no adapter needed.
+type AccountSyncStream interface {
+	io.ReadWriter
+	io.Closer
+	SetReadDeadline(t time.Time) error
+	SetWriteDeadline(t time.Time) error
+}
 
 // DispatcherConfig is fully self-describing. After construction, no code path
 // reads the constants package — callers may override any field before passing
@@ -76,28 +81,30 @@ type DispatchSummary struct {
 }
 
 // DispatcherCallbacks decouples the dispatcher from DB and networking details.
-// FetchAccounts and SendPage are required; the On* callbacks are optional.
 //
-// Using callbacks instead of direct dependencies keeps the dispatcher
-// independently testable — pass lightweight mock functions in tests.
+// FetchAccounts, OpenStream, and SendPageOnStream are required.
+// The On* callbacks are optional (set to nil to skip).
+//
+// Change from single-stream-per-page to persistent-stream-per-worker:
+//   - OpenStream is called once per worker at startup.
+//   - SendPageOnStream writes one page to an already-open stream and reads the ACK.
 type DispatcherCallbacks struct {
-	// FetchAccounts fetches full account records for the given nonces from the
-	// DB. One call per page (~3000 nonces). The dispatcher sets balance="0"
-	// before sending; the DB value is intentionally ignored.
-	//
-	// Accounts not found for a given nonce are silently omitted.
+	// FetchAccounts fetches full account records for the given nonces.
+	// Called once per page. Implementations should use a connection pool
+	// to avoid creating a new DB session per call.
 	FetchAccounts func(ctx context.Context, nonces []uint64) ([]*Account, error)
 
-	// SendPage delivers one page of accounts to the client and waits for the
-	// client's Ack. The caller handles proto conversion and network dialing.
-	// pageIndex is the 1-based sequence number for this page in the session.
-	SendPage func(ctx context.Context, pageIndex uint32, accounts []*Account) error
+	// OpenStream opens a persistent stream to the client for this worker.
+	// Called once per worker at startup (and once on reopen after a stream error).
+	OpenStream func(ctx context.Context) (AccountSyncStream, error)
 
-	// OnPageMetrics is called after every dispatch attempt (success or failure).
-	// Optional — set to nil to skip metrics.
+	// SendPageOnStream delivers one page on an already-open stream and waits
+	// for the client's ACK. pageIndex is the 1-based sequence number.
+	SendPageOnStream func(ctx context.Context, stream AccountSyncStream, pageIndex uint32, accounts []*Account) error
+
+	// OnPageMetrics is called after every dispatch attempt. Optional.
 	OnPageMetrics func(ctx context.Context, m DispatchPageMetrics)
 
-	// OnDeadLetter is called when a page exhausts all retries.
-	// Optional — set to nil to skip.
+	// OnDeadLetter is called when a page exhausts all retries. Optional.
 	OnDeadLetter func(ctx context.Context, dead DeadLetterPage)
 }
