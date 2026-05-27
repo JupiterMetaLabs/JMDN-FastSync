@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/WAL"
 	accountspb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/accounts"
@@ -71,11 +72,13 @@ func (clienthelper *clientHelper) WriteAccounts(protoaccounts []*accountspb.Acco
 				Accounts: protoaccounts,
 			},
 		}
+		walStart := time.Now()
 		if err := clienthelper.SyncVars.WAL.AddToBufferWAL(event); err != nil {
 			return false, fmt.Errorf("accountsync client: async WAL enqueue failed: %w", err)
 		}
 		Log.Logger(Log.Sync).Debug(ctx, "accountsync client: WAL entry enqueued async",
-			ion.Int("account_count", len(protoaccounts)))
+			ion.Int("account_count", len(protoaccounts)),
+			ion.Int64("wal_enqueue_us", time.Since(walStart).Microseconds()))
 	} else {
 		Log.Logger(Log.Sync).Warn(ctx, "accountsync client: WAL is nil — skipping WAL write",
 			ion.Int("account_count", len(protoaccounts)))
