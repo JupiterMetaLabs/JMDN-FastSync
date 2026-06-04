@@ -138,9 +138,11 @@ type Account struct {
 	DIDAddress string `json:"did,omitempty"`
 
 	// New PublicKey based fields
-	Address common.Address `json:"address"` // Derived from PublicKey
-	Balance string         `json:"balance,omitempty"`
-	Nonce   uint64         `json:"nonce"`
+	Address     common.Address `json:"address"` // Derived from PublicKey
+	Balance     string         `json:"balance,omitempty"`
+	Nonce       uint64         `json:"nonce"`
+	TxNonce     uint64         `json:"tx_nonce"`
+	TxCountSent uint64         `json:"tx_count_sent"`
 
 	// Account metadata
 	AccountType string `json:"account_type"` // "did" or "publickey"

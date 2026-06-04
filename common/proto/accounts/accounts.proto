@@ -33,8 +33,12 @@ message Account {
     int64 created_at = 6;
     int64 updated_at = 7;
 
+    // Consensus Identity
+    uint64 tx_nonce = 8;
+    uint64 tx_count_sent = 9;
+
     // Optional arbitrary metadata (maps from map[string]interface{} on the wire)
-    google.protobuf.Struct metadata = 8;
+    google.protobuf.Struct metadata = 10;
 }
 
 
