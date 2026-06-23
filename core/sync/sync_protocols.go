@@ -627,7 +627,7 @@ func (s *Sync) HandleAccountsSync(ctx context.Context, node host.Host) error {
 		sessionDir := filepath.Join(os.TempDir(), constants.TEMP_ART_DIR, uuid.New().String())
 		if mkErr := os.MkdirAll(sessionDir, 0755); mkErr != nil {
 			logging.Logger(logging.Sync).Error(ctx, "accountssync: failed to create session dir",
-				ion.Str("path", sessionDir), ion.Err(mkErr))
+				ion.String("path", sessionDir), ion.Err(mkErr))
 			drainAndRejectAccountsSync(str, fmt.Sprintf("session dir setup failed: %v", mkErr))
 			return
 		}
@@ -635,7 +635,7 @@ func (s *Sync) HandleAccountsSync(ctx context.Context, node host.Host) error {
 		sessionSwappable, err := art.NewSwappable(sessionDir, art.DefaultThreshold)
 		if err != nil {
 			logging.Logger(logging.Sync).Error(ctx, "accountssync: failed to create session ART",
-				ion.Str("dir", sessionDir), ion.Err(err))
+				ion.String("dir", sessionDir), ion.Err(err))
 			os.RemoveAll(sessionDir)
 			drainAndRejectAccountsSync(str, fmt.Sprintf("session ART setup failed: %v", err))
 			return
