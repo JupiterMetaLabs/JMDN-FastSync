@@ -52,7 +52,7 @@ const (
 )
 
 const (
-	AUTH_TTL = 2 * time.Minute
+	AUTH_TTL = 48 * time.Hour
 )
 
 const (

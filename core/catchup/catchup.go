@@ -3,6 +3,7 @@ package catchup
 import (
 	"context"
 	"fmt"
+	"math"
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/WAL"
 	ackpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/ack"
@@ -84,7 +85,7 @@ func (c *CatchUp) Run(ctx context.Context, fromBlock uint64, peers []types.Nodei
 		ion.Uint64("from_block", fromBlock))
 
 	avail := availability.NewAvailability().SetSyncVars(ctx, c.SyncVars.Version, c.SyncVars.NodeInfo, c.SyncVars.Node, c.SyncVars.WAL)
-	remotes, err := avail.SendMultipleAvailabilityRequest(ctx, c.SyncVars, peers, fromBlock, 0)
+	remotes, err := avail.SendMultipleAvailabilityRequest(ctx, c.SyncVars, peers, fromBlock, math.MaxUint64)
 	if err != nil {
 		return fmt.Errorf("catchup: availability probe: %w", err)
 	}
@@ -219,7 +220,25 @@ func (c *CatchUp) Run(ctx context.Context, fromBlock uint64, peers []types.Nodei
 	}
 
 	// ── Phase 6: PoTS gap fill ────────────────────────────────────────────
-	// Fetch blocks that were produced on the remote while phases 2-5 ran.
+	// Phases 2-5 can take minutes to hours for large catch-ups; the server-side
+	// AUTH_TTL (2 min) will have long expired. Refresh auth before PoTS so the
+	// PoTS request and the secondary HeaderSync/DataSync pass are authenticated.
+	Log.Logger(namedlogger).Info(ctx, "catchup: phase 6 — re-auth before PoTS")
+
+	freshAvail := availability.NewAvailability().SetSyncVars(ctx, c.SyncVars.Version, c.SyncVars.NodeInfo, c.SyncVars.Node, c.SyncVars.WAL)
+	freshRemotes, refreshErr := freshAvail.SendMultipleAvailabilityRequest(ctx, c.SyncVars, peers, 0, math.MaxUint64)
+	if refreshErr == nil {
+		freshRemotes = filterAvailable(freshRemotes, 0)
+		if len(freshRemotes) > 0 {
+			remotes = freshRemotes
+			Log.Logger(namedlogger).Info(ctx, "catchup: re-auth ok",
+				ion.String("uuid", remotes[0].GetAuth().GetUUID()))
+		}
+	} else {
+		Log.Logger(namedlogger).Warn(ctx, "catchup: re-auth failed — proceeding with original token",
+			ion.Err(refreshErr))
+	}
+
 	Log.Logger(namedlogger).Info(ctx, "catchup: phase 6 — PoTS gap fill")
 
 	if err := c.runPoTS(ctx, potsRouter, remotes, remoteTip); err != nil {
