@@ -364,7 +364,21 @@ func (r *Reconciliation) computeAccountUpdate(accountManager types.AccountManage
 		currentBalance = big.NewInt(0)
 	}
 
-	newBalance := state.ComputedBalance
+	// calculateAccountState starts from 0 and replays only the transactions
+	// present in the local DB. On a bootstrapped node the DB only contains
+	// transactions from the synced range (e.g. 10408–11605); the account's
+	// pre-existing balance comes from the bootstrap snapshot, not from any
+	// transaction in the DB.  If we write state.ComputedBalance directly we
+	// silently discard that snapshot balance.
+	//
+	// For NEW accounts there is no prior balance, so starting from 0 is correct.
+	// For EXISTING accounts we must add the snapshot balance to the replay delta.
+	var newBalance *big.Int
+	if isNewAccount {
+		newBalance = state.ComputedBalance
+	} else {
+		newBalance = new(big.Int).Add(currentBalance, state.ComputedBalance)
+	}
 	if newBalance.Sign() < 0 {
 		newBalance = big.NewInt(0) // Prevent negative balances
 	}
