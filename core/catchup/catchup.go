@@ -202,9 +202,9 @@ func (c *CatchUp) Run(ctx context.Context, fromBlock uint64, peers []types.Nodei
 	Log.Logger(namedlogger).Info(ctx, "catchup: phase 5 — reconciliation")
 
 	lru := LRUCache.NewLRUCache(constants.LRU_CACHE_CAPACITY)
-	rec := reconsillation.NewReconciliation().
-		SetSyncVars(ctx, c.SyncVars.Version, c.SyncVars.NodeInfo, c.SyncVars.WAL).
-		SetLRUCache(lru)
+	reconInst := reconsillation.NewReconciliation()
+	reconInst.SetLRUCache(lru)
+	rec := reconInst.SetSyncVars(ctx, c.SyncVars.Version, c.SyncVars.NodeInfo, c.SyncVars.WAL)
 
 	committed, failed, err := rec.Reconcile(taggedAccounts, remotes[0])
 	if err != nil {
@@ -276,7 +276,7 @@ func (c *CatchUp) runPoTS(ctx context.Context, potsRouter pots.PoTS_router, remo
 	blocks := make(map[uint64][]byte, len(walBlocks))
 	for _, b := range walBlocks {
 		if b != nil {
-			blocks[b.BlockNumber] = b.BlockHash
+			blocks[b.BlockNumber] = b.BlockHash[:]
 		}
 	}
 
@@ -355,9 +355,9 @@ func (c *CatchUp) runPoTS(ctx context.Context, potsRouter pots.PoTS_router, remo
 	// Reconcile gap accounts.
 	if gapTaggedAccounts != nil && len(gapTaggedAccounts.Accounts) > 0 {
 		lru := LRUCache.NewLRUCache(constants.LRU_CACHE_CAPACITY)
-		rec := reconsillation.NewReconciliation().
-			SetSyncVars(ctx, c.SyncVars.Version, c.SyncVars.NodeInfo, c.SyncVars.WAL).
-			SetLRUCache(lru)
+		gapReconInst := reconsillation.NewReconciliation()
+		gapReconInst.SetLRUCache(lru)
+		rec := gapReconInst.SetSyncVars(ctx, c.SyncVars.Version, c.SyncVars.NodeInfo, c.SyncVars.WAL)
 
 		committed, failed, err := rec.Reconcile(gapTaggedAccounts, remotes[0])
 		if err != nil {

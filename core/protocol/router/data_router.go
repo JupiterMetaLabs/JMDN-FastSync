@@ -494,6 +494,7 @@ func (router *Datarouter) HandleAvailability(ctx context.Context, req *availabil
 		}
 
 		template.BlockMerge = uint32(blockmerge.BlockMerge)
+		template.BlockHeight = router.Nodeinfo.BlockInfo.GetBlockNumber()
 
 		template.IsAvailable = true
 		template.Phase.SuccessivePhase = constants.SYNC_REQUEST

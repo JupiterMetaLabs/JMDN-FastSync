@@ -9,6 +9,7 @@ import (
 
 	accountspb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/accounts"
 	datasyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/datasync"
+	headersyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/headersync"
 	potspb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/pots"
 	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/priorsync"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/constants"
@@ -451,6 +452,44 @@ func SendDataSyncProtoDelimitedWithHeartbeat(
 				p, ok := e.Payload.(*datasyncpb.DataSyncStreamMessage_Response)
 				if !ok {
 					return fmt.Errorf("unexpected StreamMessage payload type: %T", e.Payload)
+				}
+				if p.Response != nil {
+					proto.Merge(response, p.Response)
+				}
+				return nil
+			},
+		},
+	)
+}
+
+// SendHeaderSyncProtoDelimitedWithHeartbeat is a heartbeat-aware variant of SendProtoDelimited,
+// designed for the HeaderSync protocol. Fetching large header batches from the server's DB
+// can exceed the 15s stream deadline; heartbeat frames reset the read deadline on each tick.
+func SendHeaderSyncProtoDelimitedWithHeartbeat(
+	ctx context.Context,
+	version uint16,
+	host host.Host,
+	peerInfo peer.AddrInfo,
+	protocolID protocol.ID,
+	request proto.Message,
+	response *headersyncpb.HeaderSyncResponse,
+) error {
+	if response == nil {
+		return errors.New("response message is nil")
+	}
+	return sendProtoDelimitedWithHeartbeatGeneric(ctx, version, host, peerInfo, protocolID, request,
+		streamConfig[*headersyncpb.HeaderSyncStreamMessage]{
+			newEnvelope: func() *headersyncpb.HeaderSyncStreamMessage {
+				return &headersyncpb.HeaderSyncStreamMessage{}
+			},
+			isHeartbeat: func(e *headersyncpb.HeaderSyncStreamMessage) bool {
+				_, ok := e.Payload.(*headersyncpb.HeaderSyncStreamMessage_Heartbeat)
+				return ok
+			},
+			mergeResponse: func(e *headersyncpb.HeaderSyncStreamMessage) error {
+				p, ok := e.Payload.(*headersyncpb.HeaderSyncStreamMessage_Response)
+				if !ok {
+					return fmt.Errorf("unexpected HeaderSyncStreamMessage payload type: %T", e.Payload)
 				}
 				if p.Response != nil {
 					proto.Merge(response, p.Response)

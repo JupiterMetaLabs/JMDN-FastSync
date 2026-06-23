@@ -268,15 +268,66 @@ func (s *Sync) HandleHeaderSync(ctx context.Context, node host.Host) error {
 			Version:   s.nodeinfo.Version,
 		}
 
-		// Route to Datarouter
-		resp := s.Datarouter.HandleHeaderSync(ctx, req, remoteNodeInfo)
+		// ── Start heartbeat goroutine ──────────────────────────────────────
+		// Fetching 1500 headers from DB can exceed the 15s stream deadline.
+		// Heartbeats reset the client's read deadline on every tick.
+		computeCtx, computeCancel := context.WithCancel(ctx)
+		defer computeCancel()
+
+		done := make(chan struct{})
+		var mu gosync.Mutex
+
+		go func() {
+			ticker := time.NewTicker(constants.HeartbeatInterval)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-done:
+					return
+				case <-computeCtx.Done():
+					return
+				case <-ticker.C:
+					hb := &headerpb.HeaderSyncStreamMessage{
+						Payload: &headerpb.HeaderSyncStreamMessage_Heartbeat{
+							Heartbeat: &headerpb.HeaderSyncHeartbeat{
+								Timestamp: time.Now().UnixNano(),
+							},
+						},
+					}
+					mu.Lock()
+					_ = str.SetWriteDeadline(time.Now().Add(constants.StreamDeadline))
+					err := pbstream.WriteDelimited(str, hb)
+					mu.Unlock()
+
+					if err != nil {
+						logging.Logger(logging.Sync).Warn(computeCtx, "headersync heartbeat write failed, cancelling computation",
+							ion.Err(err))
+						computeCancel()
+						return
+					}
+				}
+			}
+		}()
+
+		// ── Run the (potentially long) DB fetch ───────────────────────────
+		resp := s.Datarouter.HandleHeaderSync(computeCtx, req, remoteNodeInfo)
 		s.Debug(ctx, constants.HeaderSyncProtocol, node, remoteNodeInfo)
 
-		// Send response
-		_ = str.SetWriteDeadline(time.Now().Add(10 * time.Second))
-		defer str.SetWriteDeadline(time.Time{})
+		// ── Stop heartbeats and send final response ───────────────────────
+		close(done)
 
-		_ = pbstream.WriteDelimited(str, resp)
+		final := &headerpb.HeaderSyncStreamMessage{
+			Payload: &headerpb.HeaderSyncStreamMessage_Response{Response: resp},
+		}
+
+		mu.Lock()
+		_ = str.SetWriteDeadline(time.Now().Add(constants.StreamDeadline))
+		err := pbstream.WriteDelimited(str, final)
+		if err != nil {
+			logging.Logger(logging.Sync).Warn(ctx, "failed to write final headersync response",
+				ion.Err(err))
+		}
+		mu.Unlock()
 	})
 	return nil
 }
