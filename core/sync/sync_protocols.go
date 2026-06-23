@@ -2,13 +2,13 @@ package sync
 
 import (
 	"context"
-
+	"fmt"
 	"path/filepath"
 	"os"
 	"github.com/google/uuid"
 	art "github.com/JupiterMetaLabs/JMDN_Merkletree/art"
 	accountshelper "github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/router/helper/accounts"
-	
+
 	gosync "sync"
 	"time"
 
@@ -574,15 +574,70 @@ func (s *Sync) HandlePubsub(ctx context.Context, node host.Host) error {
 	return nil
 }
 
+// drainAndRejectAccountsSync gracefully terminates an AccountSync stream when
+// the server cannot service the request (e.g. session ART creation failed).
+//
+// It drains every incoming AccountNonceSyncRequest, sending a BatchAck for each
+// non-final chunk (so the client keeps uploading without blocking), then sends
+// an error EndOfStream for the final chunk so the client receives a readable
+// error instead of a stream reset.
+//
+// Without this drain, closing the stream while the client is still writing
+// causes quic-go to send a STOP_SENDING frame that the client sees as
+// "stream reset (remote): code: 0x1001".
+func drainAndRejectAccountsSync(str network.Stream, errMsg string) {
+	for {
+		_ = str.SetReadDeadline(time.Now().Add(constants.StreamDeadline))
+		req := &accountspb.AccountNonceSyncRequest{}
+		if err := pbstream.ReadDelimited(str, req); err != nil {
+			// Network-level failure — stream is already broken, nothing to send.
+			return
+		}
+		_ = str.SetWriteDeadline(time.Now().Add(constants.StreamDeadline))
+		if req.IsLast {
+			// Send error EndOfStream so the client knows the reason.
+			end := &accountspb.AccountSyncServerMessage{
+				Payload: &accountspb.AccountSyncServerMessage_End{
+					End: &accountspb.AccountSyncEndOfStream{
+						Ack: &ackpb.Ack{Ok: false, Error: errMsg},
+					},
+				},
+			}
+			_ = pbstream.WriteDelimited(str, end)
+			return
+		}
+		// Client is waiting for a BatchAck before sending the next chunk.
+		// Send an ok ack to keep the upload flowing.
+		ack := &accountspb.AccountSyncServerMessage{
+			Payload: &accountspb.AccountSyncServerMessage_BatchAck{
+				BatchAck: &accountspb.AccountBatchAck{
+					Ack: &ackpb.Ack{Ok: true},
+				},
+			},
+		}
+		_ = pbstream.WriteDelimited(str, ack)
+	}
+}
+
 func (s *Sync) HandleAccountsSync(ctx context.Context, node host.Host) error {
 	node.SetStreamHandler(constants.AccountsSyncProtocol, func(str network.Stream) {
 		defer str.Close()
 
-		// Per-session ART: isolated to this connection, cleaned up when goroutine exits.
+		// Pre-create session directory — NewSwappable may not call MkdirAll internally.
 		sessionDir := filepath.Join(os.TempDir(), constants.TEMP_ART_DIR, uuid.New().String())
+		if mkErr := os.MkdirAll(sessionDir, 0755); mkErr != nil {
+			logging.Logger(logging.Sync).Error(ctx, "accountssync: failed to create session dir",
+				ion.Str("path", sessionDir), ion.Err(mkErr))
+			drainAndRejectAccountsSync(str, fmt.Sprintf("session dir setup failed: %v", mkErr))
+			return
+		}
+
 		sessionSwappable, err := art.NewSwappable(sessionDir, art.DefaultThreshold)
 		if err != nil {
-			logging.Logger(logging.Sync).Warn(ctx, "accountssync: failed to create session ART", ion.Err(err))
+			logging.Logger(logging.Sync).Error(ctx, "accountssync: failed to create session ART",
+				ion.Str("dir", sessionDir), ion.Err(err))
+			os.RemoveAll(sessionDir)
+			drainAndRejectAccountsSync(str, fmt.Sprintf("session ART setup failed: %v", err))
 			return
 		}
 		defer os.RemoveAll(sessionDir)
