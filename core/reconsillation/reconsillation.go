@@ -137,7 +137,7 @@ func (r *Reconciliation) Reconcile(taggedAccounts *taggingpb.TaggedAccounts, rem
 	defer cancel()
 
 	numAccounts := len(taggedAccounts.Accounts)
-	Log.Logger(namedlogger).Debug(ctx, "Starting reconciliation",
+	Log.Logger(namedlogger).Info(ctx, "Starting reconciliation",
 		ion.Int("tagged_accounts_count", numAccounts))
 
 	// ----------------------------------------------------------------
@@ -194,7 +194,7 @@ func (r *Reconciliation) Reconcile(taggedAccounts *taggingpb.TaggedAccounts, rem
 		}
 		collected++
 		if collected%logInterval == 0 {
-			Log.Logger(namedlogger).Debug(ctx, "Phase 1 progress — computing account states",
+			Log.Logger(namedlogger).Info(ctx, "Phase 1 progress — computing account states",
 				ion.Int("collected", collected),
 				ion.Int("total", numAccounts),
 				ion.Int("failed_so_far", len(computeErrs)))
@@ -275,7 +275,7 @@ func (r *Reconciliation) Reconcile(taggedAccounts *taggingpb.TaggedAccounts, rem
 	// ----------------------------------------------------------------
 	if r.SyncVars.WAL != nil {
 		walStart := time.Now()
-		Log.Logger(namedlogger).Debug(ctx, "Phase 2 starting — writing WAL batch event",
+		Log.Logger(namedlogger).Info(ctx, "Phase 2 starting — writing WAL batch event",
 			ion.Int("accounts", len(updates)))
 
 		entries := make([]WAL.ReconciliationBatchEntry, len(updates))
@@ -305,7 +305,7 @@ func (r *Reconciliation) Reconcile(taggedAccounts *taggingpb.TaggedAccounts, rem
 	// Phase 3: Atomic DB commit — all or none
 	// ----------------------------------------------------------------
 	dbStart := time.Now()
-	Log.Logger(namedlogger).Debug(ctx, "Phase 3 starting — atomic DB commit",
+	Log.Logger(namedlogger).Info(ctx, "Phase 3 starting — atomic DB commit",
 		ion.Int("accounts_to_commit", len(updates)))
 
 	if err := accountManager.BatchUpdateAccounts(updates); err != nil {
@@ -335,10 +335,20 @@ func (r *Reconciliation) computeAccountUpdate(accountManager types.AccountManage
 		accountAddress = "0x" + accountAddress
 	}
 
+	fetchStart := time.Now()
 	transactions, err := accountManager.GetTransactionsForAccount(accountAddress)
+	fetchDur := time.Since(fetchStart)
 	if err != nil {
+		Log.Logger(namedlogger).Warn(r.SyncVars.Ctx, "GetTransactionsForAccount failed",
+			ion.String("address", accountAddress),
+			ion.String("duration", fetchDur.String()),
+			ion.Err(err))
 		return types.AccountUpdate{}, fmt.Errorf("failed to get transactions for account %s: %w", accountAddress, err)
 	}
+	Log.Logger(namedlogger).Info(r.SyncVars.Ctx, "GetTransactionsForAccount complete",
+		ion.String("address", accountAddress),
+		ion.Int("tx_count", len(transactions)),
+		ion.String("duration", fetchDur.String()))
 
 	state := r.calculateAccountState(accountAddress, transactions)
 
