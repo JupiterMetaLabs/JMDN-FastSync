@@ -67,7 +67,7 @@ const (
 	MAX_DATA_PER_REQUEST    = 30
 	MIN_BLOCKS              = 500 // if number of blocks in the client is less than 500 then do the full sync.
 	MAX_PARALLEL_REQUESTS   = 10
-	ATMOST_ACCOUNT_ROUTINES = 8
+	ATMOST_ACCOUNT_ROUTINES = 3
 	LRU_CACHE_CAPACITY      = 200
 )
 

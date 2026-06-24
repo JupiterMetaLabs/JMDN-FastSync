@@ -325,6 +325,231 @@ func (r *Reconciliation) Reconcile(taggedAccounts *taggingpb.TaggedAccounts, rem
 	return len(updates), nil, nil
 }
 
+// ReconcileWithDeltas applies pre-computed per-account balance deltas without
+// querying the DB per account. Identical three-phase commit structure as Reconcile
+// (compute → WAL → atomic DB write), but skips GetTransactionsForAccountInRange.
+//
+// deltas must be keyed by lowercase 0x-prefixed hex address.
+func (r *Reconciliation) ReconcileWithDeltas(deltas map[string]*types.AccountDelta, remote *availabilitypb.AvailabilityResponse) (int, []string, error) {
+	if len(deltas) == 0 {
+		Log.Logger(namedlogger).Info(r.SyncVars.Ctx, "ReconcileWithDeltas: no deltas to apply")
+		return 0, nil, nil
+	}
+
+	ctx, cancel := context.WithCancel(r.SyncVars.Ctx)
+	defer cancel()
+
+	numAccounts := len(deltas)
+	Log.Logger(namedlogger).Info(ctx, "ReconcileWithDeltas starting",
+		ion.Int("accounts", numAccounts))
+
+	// Build a slice of addresses for batch dispatch.
+	addrs := make([]string, 0, numAccounts)
+	for addr := range deltas {
+		addrs = append(addrs, addr)
+	}
+
+	accountManager := r.SyncVars.NodeInfo.BlockInfo.NewAccountManager()
+
+	type computeResult struct {
+		update types.AccountUpdate
+		addr   string
+		err    error
+	}
+
+	// ----------------------------------------------------------------
+	// Phase 1: Concurrently apply deltas — no DB writes
+	// ----------------------------------------------------------------
+	numRoutines := min(numAccounts, constants.ATMOST_ACCOUNT_ROUTINES)
+	batchSize := (numAccounts + numRoutines - 1) / numRoutines
+
+	resultCh := make(chan computeResult, numAccounts)
+	var wg sync.WaitGroup
+
+	for i := 0; i < len(addrs); i += batchSize {
+		end := i + batchSize
+		if end > len(addrs) {
+			end = len(addrs)
+		}
+		batch := addrs[i:end]
+		wg.Add(1)
+		go func(batch []string) {
+			defer wg.Done()
+			for _, addr := range batch {
+				delta := deltas[addr]
+				update, err := r.computeUpdateFromDelta(accountManager, addr, delta)
+				resultCh <- computeResult{update: update, addr: addr, err: err}
+			}
+		}(batch)
+	}
+
+	go func() {
+		wg.Wait()
+		close(resultCh)
+	}()
+
+	updates := make([]types.AccountUpdate, 0, numAccounts)
+	var failedAccounts []string
+	var computeErrs []error
+
+	logInterval := numAccounts / 10
+	if logInterval == 0 {
+		logInterval = 1
+	}
+	collected := 0
+
+	for res := range resultCh {
+		if res.err != nil {
+			failedAccounts = append(failedAccounts, res.addr)
+			computeErrs = append(computeErrs, res.err)
+		} else {
+			updates = append(updates, res.update)
+		}
+		collected++
+		if collected%logInterval == 0 {
+			Log.Logger(namedlogger).Info(ctx, "ReconcileWithDeltas phase 1 progress",
+				ion.Int("collected", collected),
+				ion.Int("total", numAccounts),
+				ion.Int("failed_so_far", len(computeErrs)))
+		}
+	}
+
+	if len(computeErrs) > 0 {
+		Log.Logger(namedlogger).Warn(ctx, "ReconcileWithDeltas: computation errors — aborting commit",
+			ion.Int("failed", len(computeErrs)),
+			ion.Int("succeeded", len(updates)))
+		return 0, failedAccounts, fmt.Errorf("delta computation failed for %d accounts, no DB changes made: %v",
+			len(computeErrs), computeErrs)
+	}
+
+	// ----------------------------------------------------------------
+	// Phase 1.5: Pre-create accounts missing from local DB.
+	// ----------------------------------------------------------------
+	if remote != nil {
+		missingAddrs := make(map[string]bool)
+		missingIdx := make(map[string]int)
+		for updateIdx, update := range updates {
+			if update.IsNewAccount {
+				missingAddrs[update.Address] = true
+				missingIdx[update.Address] = updateIdx
+			}
+		}
+		if len(missingAddrs) > 0 {
+			Log.Logger(namedlogger).Debug(ctx, "ReconcileWithDeltas phase 1.5: fetching missing accounts from remote",
+				ion.Int("missing", len(missingAddrs)))
+			syncVars := r.GetSyncVars()
+			acctSync := accountsync.NewAccountSync().SetSyncVars(syncVars.Ctx, syncVars.Version, syncVars.NodeInfo, syncVars.Node, syncVars.WAL)
+			resp, err := acctSync.FetchAccounts(remote, missingAddrs)
+			if err != nil {
+				Log.Logger(namedlogger).Warn(ctx, "ReconcileWithDeltas phase 1.5: remote fetch failed",
+					ion.Err(err))
+			} else if resp != nil {
+				created := 0
+				for _, acc := range resp.GetAccounts() {
+					addrBytes := acc.GetAddress()
+					if len(addrBytes) == 0 {
+						continue
+					}
+					addr := strings.ToLower(common.BytesToAddress(addrBytes).Hex())
+					idx, ok := missingIdx[addr]
+					if !ok {
+						continue
+					}
+					if err := accountManager.CreateAccount(addr, big.NewInt(0), acc.GetNonce()); err != nil {
+						Log.Logger(namedlogger).Warn(ctx, "ReconcileWithDeltas phase 1.5: pre-create failed",
+							ion.String("address", addr), ion.Err(err))
+						continue
+					}
+					updates[idx].IsNewAccount = false
+					created++
+				}
+				Log.Logger(namedlogger).Info(ctx, "ReconcileWithDeltas phase 1.5 complete",
+					ion.Int("requested", len(missingAddrs)),
+					ion.Int("created", created))
+			}
+		}
+	}
+
+	// ----------------------------------------------------------------
+	// Phase 2: WAL batch write
+	// ----------------------------------------------------------------
+	if r.SyncVars.WAL != nil {
+		walStart := time.Now()
+		entries := make([]WAL.ReconciliationBatchEntry, len(updates))
+		for i, u := range updates {
+			entries[i] = WAL.ReconciliationBatchEntry{
+				AccountAddress: u.Address,
+				NewBalance:     u.NewBalance.String(),
+				Nonce:          u.Nonce,
+			}
+		}
+		batchEvent := &WAL.ReconciliationBatchEvent{
+			Accounts:  entries,
+			Timestamp: time.Now().Unix(),
+		}
+		if _, err := r.SyncVars.WAL.WriteEvent(batchEvent); err != nil {
+			return 0, nil, fmt.Errorf("WAL batch write failed — aborting commit: %w", err)
+		}
+		if err := r.SyncVars.WAL.Flush(); err != nil {
+			return 0, nil, fmt.Errorf("WAL flush failed — aborting commit: %w", err)
+		}
+		Log.Logger(namedlogger).Info(ctx, "ReconcileWithDeltas phase 2 complete — WAL flushed",
+			ion.Int("accounts", len(updates)),
+			ion.String("duration", time.Since(walStart).String()))
+	}
+
+	// ----------------------------------------------------------------
+	// Phase 3: Atomic DB commit
+	// ----------------------------------------------------------------
+	dbStart := time.Now()
+	if err := accountManager.BatchUpdateAccounts(updates); err != nil {
+		return 0, nil, fmt.Errorf("atomic DB commit failed — no accounts updated: %w", err)
+	}
+	Log.Logger(namedlogger).Info(ctx, "ReconcileWithDeltas phase 3 complete — committed",
+		ion.Int("accounts", len(updates)),
+		ion.String("duration", time.Since(dbStart).String()))
+
+	if r.SyncVars.WAL != nil {
+		if _, err := r.SyncVars.WAL.CreateCheckpoint(); err != nil {
+			Log.Logger(namedlogger).Warn(ctx, "WAL checkpoint failed after ReconcileWithDeltas commit", ion.Err(err))
+		}
+	}
+
+	return len(updates), nil, nil
+}
+
+// computeUpdateFromDelta reads the current account balance and applies the pre-computed
+// delta to produce a ready-to-commit AccountUpdate. Read-only — no DB writes.
+func (r *Reconciliation) computeUpdateFromDelta(accountManager types.AccountManager, addr string, delta *types.AccountDelta) (types.AccountUpdate, error) {
+	if !strings.HasPrefix(addr, "0x") {
+		addr = "0x" + addr
+	}
+
+	currentBalance, _, err := accountManager.GetAccountBalance(addr)
+	if err != nil {
+		return types.AccountUpdate{}, fmt.Errorf("GetAccountBalance %s: %w", addr, err)
+	}
+
+	isNew := currentBalance == nil
+	if currentBalance == nil {
+		currentBalance = big.NewInt(0)
+	}
+
+	newBalance := new(big.Int).Add(currentBalance, delta.BalanceDelta)
+	if newBalance.Sign() < 0 {
+		newBalance = big.NewInt(0)
+	}
+
+	return types.AccountUpdate{
+		Address:      addr,
+		NewBalance:   newBalance,
+		Nonce:        delta.Nonce,
+		TxNonce:      delta.TxNonce,
+		TxCountSent:  delta.TxCountSent,
+		IsNewAccount: isNew,
+	}, nil
+}
+
 // computeAccountUpdate reads all transactions for one account, replays them to get
 // the new balance/nonce, and returns a ready-to-commit AccountUpdate.
 // This is a read-only operation — it does not touch the DB.

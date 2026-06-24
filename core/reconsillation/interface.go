@@ -29,6 +29,12 @@ type Reconciliation_router interface {
 	// Returns the number of accounts successfully reconciled and list of failed accounts.
 	Reconcile(taggedAccounts *tagging.TaggedAccounts, remote *availabilitypb.AvailabilityResponse, fromBlock, toBlock uint64) (int, []string, error)
 
+	// ReconcileWithDeltas applies pre-computed per-account balance deltas, skipping
+	// the per-account GetTransactionsForAccountInRange DB scan entirely.
+	// deltas must be keyed by lowercase 0x-prefixed hex address.
+	// Returns the number of accounts committed and a list of addresses that failed.
+	ReconcileWithDeltas(deltas map[string]*types.AccountDelta, remote *availabilitypb.AvailabilityResponse) (int, []string, error)
+
 	// Close releases resources and cleans up.
 	Close()
 }

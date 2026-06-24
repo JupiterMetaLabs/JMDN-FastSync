@@ -100,8 +100,20 @@ type WriteData interface {
 type AccountUpdate struct {
 	Address      string
 	NewBalance   *big.Int
-	Nonce        uint64
-	IsNewAccount bool // true = CreateAccount, false = UpdateAccountBalance
+	Nonce        uint64   // max outgoing tx.Nonce in this range (0 if account never sent)
+	TxNonce      uint64   // max outgoing tx.Nonce + 1 (next expected nonce per Processing.go)
+	TxCountSent  uint64   // number of outgoing txs in the range
+	IsNewAccount bool     // true = CreateAccount, false = UpdateAccountBalance
+}
+
+// AccountDelta holds the net balance/nonce effect for one account over a block range.
+// Computed in a single O(blocks) BlockIterator pass; avoids per-account DB scans.
+type AccountDelta struct {
+	BalanceDelta *big.Int // net change: negative = debit, positive = credit
+	Nonce        uint64   // max outgoing tx.Nonce (0 if IsSender == false)
+	TxNonce      uint64   // max outgoing tx.Nonce + 1 (per Processing.go TxNonce semantics)
+	TxCountSent  uint64   // number of outgoing txs in the range
+	IsSender     bool     // true if the account sent at least one tx
 }
 
 // AccountManager handles account balance operations for reconciliation.
