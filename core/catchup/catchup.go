@@ -206,7 +206,7 @@ func (c *CatchUp) Run(ctx context.Context, fromBlock uint64, peers []types.Nodei
 	reconInst.SetLRUCache(lru)
 	rec := reconInst.SetSyncVars(ctx, c.SyncVars.Version, c.SyncVars.NodeInfo, c.SyncVars.WAL)
 
-	committed, failed, err := rec.Reconcile(taggedAccounts, remotes[0])
+	committed, failed, err := rec.Reconcile(taggedAccounts, remotes[0], fromBlock, remoteTip)
 	if err != nil {
 		return fmt.Errorf("catchup: reconciliation: %w", err)
 	}
@@ -359,7 +359,8 @@ func (c *CatchUp) runPoTS(ctx context.Context, potsRouter pots.PoTS_router, remo
 		gapReconInst.SetLRUCache(lru)
 		rec := gapReconInst.SetSyncVars(ctx, c.SyncVars.Version, c.SyncVars.NodeInfo, c.SyncVars.WAL)
 
-		committed, failed, err := rec.Reconcile(gapTaggedAccounts, remotes[0])
+		// PoTS blocks are produced after syncedTip — use syncedTip+1 as fromBlock.
+		committed, failed, err := rec.Reconcile(gapTaggedAccounts, remotes[0], syncedTip+1, math.MaxUint64)
 		if err != nil {
 			return fmt.Errorf("PoTS reconciliation: %w", err)
 		}

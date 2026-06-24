@@ -109,6 +109,11 @@ type AccountManager interface {
 	// GetTransactionsForAccount retrieves all transactions where the account is sender or receiver.
 	GetTransactionsForAccount(accountAddress string) ([]DBTransaction, error)
 
+	// GetTransactionsForAccountInRange retrieves transactions in [fromBlock, toBlock] inclusive
+	// where the account is sender or receiver. Pass math.MaxUint64 for toBlock to mean "up to latest."
+	// Used by delta-only reconciliation so each sync pass replays only new transactions.
+	GetTransactionsForAccountInRange(accountAddress string, fromBlock, toBlock uint64) ([]DBTransaction, error)
+
 	// GetAccountBalance retrieves the current balance and nonce for an account.
 	GetAccountBalance(accountAddress string) (*big.Int, uint64, error)
 

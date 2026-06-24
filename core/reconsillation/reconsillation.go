@@ -126,7 +126,7 @@ func (r *Reconciliation) GetBlockFromLRUCache(blockNumber uint64) (*blockpb.Head
 //
 // Returns the number of accounts reconciled and the list of any accounts that failed
 // during the computation phase. A non-nil error always means the DB was NOT mutated.
-func (r *Reconciliation) Reconcile(taggedAccounts *taggingpb.TaggedAccounts, remote *availabilitypb.AvailabilityResponse) (int, []string, error) {
+func (r *Reconciliation) Reconcile(taggedAccounts *taggingpb.TaggedAccounts, remote *availabilitypb.AvailabilityResponse, fromBlock, toBlock uint64) (int, []string, error) {
 	if taggedAccounts == nil || len(taggedAccounts.Accounts) == 0 {
 		Log.Logger(namedlogger).Info(r.SyncVars.Ctx, "No tagged accounts to reconcile")
 		return 0, nil, nil
@@ -163,7 +163,7 @@ func (r *Reconciliation) Reconcile(taggedAccounts *taggingpb.TaggedAccounts, rem
 		go func(accounts map[string]bool) {
 			defer wg.Done()
 			for addr := range accounts {
-				update, err := r.computeAccountUpdate(accountManager, addr)
+				update, err := r.computeAccountUpdate(accountManager, addr, fromBlock, toBlock)
 				resultCh <- computeResult{update: update, addr: addr, err: err}
 			}
 		}(batch)
@@ -328,7 +328,7 @@ func (r *Reconciliation) Reconcile(taggedAccounts *taggingpb.TaggedAccounts, rem
 // computeAccountUpdate reads all transactions for one account, replays them to get
 // the new balance/nonce, and returns a ready-to-commit AccountUpdate.
 // This is a read-only operation — it does not touch the DB.
-func (r *Reconciliation) computeAccountUpdate(accountManager types.AccountManager, accountAddress string) (types.AccountUpdate, error) {
+func (r *Reconciliation) computeAccountUpdate(accountManager types.AccountManager, accountAddress string, fromBlock, toBlock uint64) (types.AccountUpdate, error) {
 	// Normalize address to 0x-prefixed lowercase so calculateAccountState comparisons
 	// against tx.From.Hex() / tx.To.Hex() (which always carry the 0x prefix) are correct.
 	if !strings.HasPrefix(accountAddress, "0x") {
@@ -336,18 +336,22 @@ func (r *Reconciliation) computeAccountUpdate(accountManager types.AccountManage
 	}
 
 	fetchStart := time.Now()
-	transactions, err := accountManager.GetTransactionsForAccount(accountAddress)
+	transactions, err := accountManager.GetTransactionsForAccountInRange(accountAddress, fromBlock, toBlock)
 	fetchDur := time.Since(fetchStart)
 	if err != nil {
-		Log.Logger(namedlogger).Warn(r.SyncVars.Ctx, "GetTransactionsForAccount failed",
+		Log.Logger(namedlogger).Warn(r.SyncVars.Ctx, "GetTransactionsForAccountInRange failed",
 			ion.String("address", accountAddress),
+			ion.Uint64("from_block", fromBlock),
+			ion.Uint64("to_block", toBlock),
 			ion.String("duration", fetchDur.String()),
 			ion.Err(err))
 		return types.AccountUpdate{}, fmt.Errorf("failed to get transactions for account %s: %w", accountAddress, err)
 	}
-	Log.Logger(namedlogger).Info(r.SyncVars.Ctx, "GetTransactionsForAccount complete",
+	Log.Logger(namedlogger).Info(r.SyncVars.Ctx, "GetTransactionsForAccountInRange complete",
 		ion.String("address", accountAddress),
 		ion.Int("tx_count", len(transactions)),
+		ion.Uint64("from_block", fromBlock),
+		ion.Uint64("to_block", toBlock),
 		ion.String("duration", fetchDur.String()))
 
 	state := r.calculateAccountState(accountAddress, transactions)
@@ -364,21 +368,14 @@ func (r *Reconciliation) computeAccountUpdate(accountManager types.AccountManage
 		currentBalance = big.NewInt(0)
 	}
 
-	// calculateAccountState starts from 0 and replays only the transactions
-	// present in the local DB. On a bootstrapped node the DB only contains
-	// transactions from the synced range (e.g. 10408–11605); the account's
-	// pre-existing balance comes from the bootstrap snapshot, not from any
-	// transaction in the DB.  If we write state.ComputedBalance directly we
-	// silently discard that snapshot balance.
-	//
-	// For NEW accounts there is no prior balance, so starting from 0 is correct.
-	// For EXISTING accounts we must add the snapshot balance to the replay delta.
-	var newBalance *big.Int
-	if isNewAccount {
-		newBalance = state.ComputedBalance
-	} else {
-		newBalance = new(big.Int).Add(currentBalance, state.ComputedBalance)
-	}
+	// Delta-only reconciliation:
+	//   currentBalance = whatever is in DB right now
+	//     - New account:  0  (GetAccountBalance returns 0 for not-found)
+	//     - First sync:   bootstrap snapshot balance
+	//     - Nth sync:     result of previous reconciliation
+	//   state.ComputedBalance = net effect of transactions in [fromBlock..toBlock] only
+	//   newBalance = currentBalance + delta — correct for all cases and all sync runs.
+	newBalance := new(big.Int).Add(currentBalance, state.ComputedBalance)
 	if newBalance.Sign() < 0 {
 		newBalance = big.NewInt(0) // Prevent negative balances
 	}
