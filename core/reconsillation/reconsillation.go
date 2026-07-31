@@ -9,9 +9,8 @@ import (
 	"time"
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/WAL"
-	blockpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/block"
-	"github.com/ethereum/go-ethereum/common"
 	availabilitypb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/availability"
+	blockpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/block"
 	taggingpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/tagging"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/constants"
@@ -20,6 +19,7 @@ import (
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/reconsillation/helper"
 	Log "github.com/JupiterMetaLabs/JMDN-FastSync/logging"
 	"github.com/JupiterMetaLabs/ion"
+	"github.com/ethereum/go-ethereum/common"
 )
 
 const (
@@ -73,7 +73,6 @@ func (r *Reconciliation) SetLRUCache(cache LRUCache.LRUCacheInterface) Reconcili
 func (r *Reconciliation) GetLRUCache() LRUCache.LRUCacheInterface {
 	return r.headerCache
 }
-
 
 // GetSyncVars returns the current sync configuration.
 func (r *Reconciliation) GetSyncVars() *types.Syncvars {
@@ -597,7 +596,7 @@ func (r *Reconciliation) computeAccountUpdate(accountManager types.AccountManage
 
 	state := r.calculateAccountState(accountAddress, transactions)
 
-	currentBalance, _, err := accountManager.GetAccountBalance(accountAddress)
+	currentBalance, identityNonce, err := accountManager.GetAccountBalance(accountAddress)
 	if err != nil {
 		return types.AccountUpdate{}, fmt.Errorf("failed to get current balance for account %s: %w", accountAddress, err)
 	}
@@ -621,10 +620,15 @@ func (r *Reconciliation) computeAccountUpdate(accountManager types.AccountManage
 		newBalance = big.NewInt(0) // Prevent negative balances
 	}
 
+	// IDENTITY NONCE: AccountUpdate.Nonce is the account's ART identity (the
+	// AccountSync set key), NOT a transaction counter — carry the STORED identity
+	// unchanged (0 = "no identity information"; writers preserve it). state.Nonce
+	// is the max outgoing tx nonce from the replay and must never reach this
+	// field (see computeUpdateFromDelta for the history of that bug).
 	return types.AccountUpdate{
 		Address:      accountAddress,
 		NewBalance:   newBalance,
-		Nonce:        state.Nonce,
+		Nonce:        identityNonce,
 		IsNewAccount: isNewAccount,
 	}, nil
 }
