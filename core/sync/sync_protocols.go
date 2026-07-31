@@ -3,11 +3,11 @@ package sync
 import (
 	"context"
 	"fmt"
-	"path/filepath"
-	"os"
-	"github.com/google/uuid"
-	art "github.com/JupiterMetaLabs/JMDN_Merkletree/art"
 	accountshelper "github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/router/helper/accounts"
+	art "github.com/JupiterMetaLabs/JMDN_Merkletree/art"
+	"github.com/google/uuid"
+	"os"
+	"path/filepath"
 
 	gosync "sync"
 	"time"
@@ -16,16 +16,15 @@ import (
 	"github.com/JupiterMetaLabs/JMDN-FastSync/logging"
 	"github.com/JupiterMetaLabs/ion"
 
+	accountspb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/accounts"
+	ackpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/ack"
 	availabilitypb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/availability"
 	datasyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/datasync"
 	headerpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/headersync"
 	merklepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/merkle"
 	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/priorsync"
 	pubsubpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/pubsub"
-	accountspb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/accounts"
-	ackpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/ack"
 
-	
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/constants"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/errors"
@@ -243,7 +242,13 @@ func (s *Sync) HandleMerkle(ctx context.Context, node host.Host) error {
 }
 
 func (s *Sync) HandleHeaderSync(ctx context.Context, node host.Host) error {
-	node.SetStreamHandler(constants.HeaderSyncProtocol, func(str network.Stream) {
+	// v2 — HeaderSyncStreamMessage ENVELOPE (heartbeats + wrapped response).
+	// The envelope is a different wire format from the original bare
+	// HeaderSyncResponse, and shipping it on the v1 ID made mixed versions
+	// misparse SILENTLY (headers decode as a heartbeat; nil error both ways —
+	// review finding FS1). Envelope traffic therefore lives on its own ID; the
+	// v1 handler below keeps serving the pre-envelope bare wire for old clients.
+	node.SetStreamHandler(constants.HeaderSyncProtocolV2, func(str network.Stream) {
 		defer str.Close()
 
 		// refuse work if shutting down
@@ -311,7 +316,7 @@ func (s *Sync) HandleHeaderSync(ctx context.Context, node host.Host) error {
 
 		// ── Run the (potentially long) DB fetch ───────────────────────────
 		resp := s.Datarouter.HandleHeaderSync(computeCtx, req, remoteNodeInfo)
-		s.Debug(ctx, constants.HeaderSyncProtocol, node, remoteNodeInfo)
+		s.Debug(ctx, constants.HeaderSyncProtocolV2, node, remoteNodeInfo)
 
 		// ── Stop heartbeats and send final response ───────────────────────
 		close(done)
@@ -328,6 +333,46 @@ func (s *Sync) HandleHeaderSync(ctx context.Context, node host.Host) error {
 				ion.Err(err))
 		}
 		mu.Unlock()
+	})
+
+	// v1 — LEGACY bare wire for pre-envelope clients: read HeaderSyncRequest,
+	// write a single bare HeaderSyncResponse. Deliberately NO heartbeats: an old
+	// client's reader does not understand envelope frames, and a heartbeat on
+	// this wire is exactly the silent misparse FS1 describes. Old clients keep
+	// the pre-envelope behaviour byte-for-byte (including its 15s-deadline
+	// limitation on very large header fetches, which is what motivated the
+	// envelope in the first place — fixed on v2, frozen here).
+	node.SetStreamHandler(constants.HeaderSyncProtocol, func(str network.Stream) {
+		defer str.Close()
+
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		_ = str.SetReadDeadline(time.Now().Add(10 * time.Second))
+		defer str.SetReadDeadline(time.Time{})
+
+		req := &headerpb.HeaderSyncRequest{}
+		if err := pbstream.ReadDelimited(str, req); err != nil {
+			return
+		}
+
+		remoteNodeInfo := &types.Nodeinfo{
+			PeerID:    str.Conn().RemotePeer(),
+			Multiaddr: []multiaddr.Multiaddr{str.Conn().RemoteMultiaddr()},
+			Version:   s.nodeinfo.Version,
+		}
+
+		resp := s.Datarouter.HandleHeaderSync(ctx, req, remoteNodeInfo)
+		s.Debug(ctx, constants.HeaderSyncProtocol, node, remoteNodeInfo)
+
+		_ = str.SetWriteDeadline(time.Now().Add(constants.StreamDeadline))
+		if err := pbstream.WriteDelimited(str, resp); err != nil {
+			logging.Logger(logging.Sync).Warn(ctx, "failed to write legacy (v1) headersync response",
+				ion.Err(err))
+		}
 	})
 	return nil
 }

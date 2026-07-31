@@ -19,7 +19,7 @@ import (
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/communication"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/merkle"
 	sync_proto "github.com/JupiterMetaLabs/JMDN-FastSync/core/sync"
-	
+
 	"github.com/JupiterMetaLabs/JMDN-FastSync/logging"
 	"github.com/JupiterMetaLabs/ion"
 	"github.com/libp2p/go-libp2p/core/host"
@@ -95,6 +95,7 @@ func (ps *PriorSync) SetupNetworkHandlers(debug bool) error {
 		ps.SyncVars.Node.RemoveStreamHandler(constants.PriorSyncProtocol)
 		ps.SyncVars.Node.RemoveStreamHandler(constants.MerkleProtocol)
 		ps.SyncVars.Node.RemoveStreamHandler(constants.HeaderSyncProtocol)
+		ps.SyncVars.Node.RemoveStreamHandler(constants.HeaderSyncProtocolV2)
 		ps.SyncVars.Node.RemoveStreamHandler(constants.DataSyncProtocol)
 		ps.SyncVars.Node.RemoveStreamHandler(constants.AvailabilityProtocol)
 		ps.SyncVars.Node.RemoveStreamHandler(constants.PoTSProtocol)
@@ -137,7 +138,7 @@ func (ps *PriorSync) SetupNetworkHandlers(debug bool) error {
 	if err := syncHandler.HandlePoTSSync(ctx, ps.SyncVars.Node); err != nil {
 		return err
 	}
-	
+
 	if err := syncHandler.HandlePubsub(ctx, ps.SyncVars.Node); err != nil {
 		return err
 	}
@@ -262,6 +263,7 @@ func (ps *PriorSync) Close() {
 		node.RemoveStreamHandler(constants.PriorSyncProtocol)
 		node.RemoveStreamHandler(constants.MerkleProtocol)
 		node.RemoveStreamHandler(constants.HeaderSyncProtocol)
+		node.RemoveStreamHandler(constants.HeaderSyncProtocolV2)
 		node.RemoveStreamHandler(constants.DataSyncProtocol)
 		node.RemoveStreamHandler(constants.AvailabilityProtocol)
 		node.RemoveStreamHandler(constants.PoTSProtocol)

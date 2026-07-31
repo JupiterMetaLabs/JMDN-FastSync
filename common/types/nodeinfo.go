@@ -98,12 +98,19 @@ type WriteData interface {
 
 // AccountUpdate describes a single account balance/nonce change for atomic batch commits.
 type AccountUpdate struct {
-	Address      string
-	NewBalance   *big.Int
-	Nonce        uint64   // max outgoing tx.Nonce in this range (0 if account never sent)
-	TxNonce      uint64   // max outgoing tx.Nonce + 1 (next expected nonce per Processing.go)
-	TxCountSent  uint64   // number of outgoing txs in the range
-	IsNewAccount bool     // true = CreateAccount, false = UpdateAccountBalance
+	Address    string
+	NewBalance *big.Int
+	// Nonce is the account's ART IDENTITY nonce (the AccountSync set key),
+	// carried through UNCHANGED from stored state — it is NOT a transaction
+	// counter. 0 means "no identity information": writers MUST preserve a
+	// stored identity when they receive 0, and must never write 0 over one.
+	// Transaction-nonce effects live in TxNonce. (Misreading this exact field
+	// as the max outgoing tx.Nonce is what silently overwrote every reconciled
+	// sender's identity — see computeUpdateFromDelta.)
+	Nonce        uint64
+	TxNonce      uint64 // max outgoing tx.Nonce + 1 (next expected nonce per Processing.go)
+	TxCountSent  uint64 // number of outgoing txs in the range
+	IsNewAccount bool   // true = CreateAccount, false = UpdateAccountBalance
 }
 
 // AccountDelta holds the net balance/nonce effect for one account over a block range.

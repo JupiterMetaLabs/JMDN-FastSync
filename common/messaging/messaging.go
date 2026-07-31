@@ -465,6 +465,15 @@ func SendDataSyncProtoDelimitedWithHeartbeat(
 // SendHeaderSyncProtoDelimitedWithHeartbeat is a heartbeat-aware variant of SendProtoDelimited,
 // designed for the HeaderSync protocol. Fetching large header batches from the server's DB
 // can exceed the 15s stream deadline; heartbeat frames reset the read deadline on each tick.
+// SendHeaderSyncProtoDelimitedWithHeartbeat sends a header-sync request and reads
+// the response, NEGOTIATING the wire format via the protocol ID (review finding
+// FS1): the client offers [v2, v1] and libp2p selects the first the server
+// supports. v2 speaks the HeaderSyncStreamMessage envelope (heartbeats reset the
+// read deadline; response arrives wrapped). v1 is the frozen pre-envelope wire —
+// one bare HeaderSyncResponse, no heartbeats — for old servers. Branching on the
+// NEGOTIATED ID is what makes mixed fleets parse correctly instead of silently
+// reading real headers as heartbeats. protocolID names the v1/legacy ID (kept in
+// the signature for call-site compatibility); v2 is offered first automatically.
 func SendHeaderSyncProtoDelimitedWithHeartbeat(
 	ctx context.Context,
 	version uint16,
@@ -477,27 +486,93 @@ func SendHeaderSyncProtoDelimitedWithHeartbeat(
 	if response == nil {
 		return errors.New("response message is nil")
 	}
-	return sendProtoDelimitedWithHeartbeatGeneric(ctx, version, host, peerInfo, protocolID, request,
-		streamConfig[*headersyncpb.HeaderSyncStreamMessage]{
-			newEnvelope: func() *headersyncpb.HeaderSyncStreamMessage {
-				return &headersyncpb.HeaderSyncStreamMessage{}
-			},
-			isHeartbeat: func(e *headersyncpb.HeaderSyncStreamMessage) bool {
-				_, ok := e.Payload.(*headersyncpb.HeaderSyncStreamMessage_Heartbeat)
-				return ok
-			},
-			mergeResponse: func(e *headersyncpb.HeaderSyncStreamMessage) error {
-				p, ok := e.Payload.(*headersyncpb.HeaderSyncStreamMessage_Response)
-				if !ok {
-					return fmt.Errorf("unexpected HeaderSyncStreamMessage payload type: %T", e.Payload)
-				}
-				if p.Response != nil {
-					proto.Merge(response, p.Response)
-				}
-				return nil
-			},
-		},
-	)
+	if host == nil {
+		return errors.New("host is nil")
+	}
+	if request == nil {
+		return errors.New("request message is nil")
+	}
+	if len(peerInfo.Addrs) == 0 {
+		return errors.New("peer has no addresses")
+	}
+
+	// Transport selection + connect with fallback — same dance as the generic
+	// heartbeat sender (QUIC primary for V2+, TCP fallback).
+	primaryAddr, fallbackAddr, err := SelectTransportAddrWithFallback(peerInfo.Addrs, version)
+	if err != nil {
+		return fmt.Errorf("transport selection failed: %w", err)
+	}
+	targetPeer := peer.AddrInfo{ID: peerInfo.ID, Addrs: []multiaddr.Multiaddr{primaryAddr}}
+
+	connectCtx, cancel := context.WithTimeout(ctx, constants.StreamDeadline)
+	defer cancel()
+	connectErr := host.Connect(connectCtx, targetPeer)
+	if connectErr != nil && version >= 2 && fallbackAddr != nil {
+		logging.Logger(logging.Transport).Warn(ctx, "primary transport failed, attempting TCP fallback",
+			ion.Err(connectErr))
+		targetPeer.Addrs = []multiaddr.Multiaddr{fallbackAddr}
+		fallbackCtx, fallbackCancel := context.WithTimeout(ctx, constants.StreamDeadline)
+		defer fallbackCancel()
+		connectErr = host.Connect(fallbackCtx, targetPeer)
+		if connectErr != nil {
+			return fmt.Errorf("failed to connect (QUIC and TCP fallback) to peer %s: %w", peerInfo.ID, connectErr)
+		}
+	} else if connectErr != nil {
+		return fmt.Errorf("failed to connect to peer %s at %v: %w", peerInfo.ID, targetPeer.Addrs, connectErr)
+	}
+
+	// Offer v2 first, legacy v1 second; libp2p negotiates the first match.
+	stream, err := host.NewStream(ctx, peerInfo.ID, constants.HeaderSyncProtocolV2, protocolID)
+	if err != nil {
+		return fmt.Errorf("failed to create header-sync stream: %w", err)
+	}
+	defer stream.Close()
+
+	if err := stream.SetWriteDeadline(time.Now().Add(constants.StreamDeadline)); err != nil {
+		return fmt.Errorf("failed to set write deadline: %w", err)
+	}
+	defer stream.SetWriteDeadline(time.Time{})
+	if err := pbstream.WriteDelimited(stream, request); err != nil {
+		return fmt.Errorf("failed to write request: %w", err)
+	}
+
+	if stream.Protocol() != constants.HeaderSyncProtocolV2 {
+		// Legacy v1 server: one bare HeaderSyncResponse, no heartbeats. A single
+		// deadline window, exactly the pre-envelope client behaviour.
+		if err := stream.SetReadDeadline(time.Now().Add(constants.StreamDeadline)); err != nil {
+			return fmt.Errorf("failed to set read deadline: %w", err)
+		}
+		defer stream.SetReadDeadline(time.Time{})
+		bare := &headersyncpb.HeaderSyncResponse{}
+		if err := pbstream.ReadDelimited(stream, bare); err != nil {
+			return fmt.Errorf("failed to read legacy (v1) header-sync response: %w", err)
+		}
+		proto.Merge(response, bare)
+		return nil
+	}
+
+	// v2: envelope loop — heartbeats reset the read deadline; the wrapped
+	// response terminates the stream.
+	for {
+		if err := stream.SetReadDeadline(time.Now().Add(constants.StreamDeadline)); err != nil {
+			return fmt.Errorf("failed to set read deadline: %w", err)
+		}
+		envelope := &headersyncpb.HeaderSyncStreamMessage{}
+		if err := pbstream.ReadDelimited(stream, envelope); err != nil {
+			return fmt.Errorf("failed to read stream message: %w", err)
+		}
+		switch p := envelope.Payload.(type) {
+		case *headersyncpb.HeaderSyncStreamMessage_Heartbeat:
+			continue
+		case *headersyncpb.HeaderSyncStreamMessage_Response:
+			if p.Response != nil {
+				proto.Merge(response, p.Response)
+			}
+			return nil
+		default:
+			return fmt.Errorf("unexpected HeaderSyncStreamMessage payload type: %T", envelope.Payload)
+		}
+	}
 }
 
 // SendPoTSProtoDelimitedWithHeartbeat is a heartbeat-aware variant of SendProtoDelimited,
