@@ -520,12 +520,28 @@ func (r *Reconciliation) ReconcileWithDeltas(deltas map[string]*types.AccountDel
 
 // computeUpdateFromDelta reads the current account balance and applies the pre-computed
 // delta to produce a ready-to-commit AccountUpdate. Read-only — no DB writes.
+//
+// IDENTITY NONCE SEMANTICS (AccountUpdate.Nonce): every downstream writer treats
+// this field as the account's ART IDENTITY nonce — the Fastsync AccountSync set
+// key — not a transaction counter: the queue path merges it into the stored
+// account's identity, the direct path writes it to the account document, and the
+// pre-create path passes it to CreateAccount. It must therefore carry the
+// account's EXISTING identity nonce (second return of GetAccountBalance),
+// unchanged, or 0 ("no identity information" — the sentinel every writer
+// preserves) for an account this node does not hold yet.
+//
+// HISTORY: this previously assigned delta.Nonce — the MAX OUTGOING TRANSACTION
+// nonce in the reconciled range — into the identity field, silently overwriting
+// every reconciled sender's ART identity with a small tx counter (and zeroing
+// receiver-only accounts on the direct path). That divergence broke AccountSync
+// diffs fleet-wide. Transaction-nonce effects belong ONLY in TxNonce
+// (delta.TxNonce); delta.Nonce must never reach the identity field.
 func (r *Reconciliation) computeUpdateFromDelta(accountManager types.AccountManager, addr string, delta *types.AccountDelta) (types.AccountUpdate, error) {
 	if !strings.HasPrefix(addr, "0x") {
 		addr = "0x" + addr
 	}
 
-	currentBalance, _, err := accountManager.GetAccountBalance(addr)
+	currentBalance, identityNonce, err := accountManager.GetAccountBalance(addr)
 	if err != nil {
 		return types.AccountUpdate{}, fmt.Errorf("GetAccountBalance %s: %w", addr, err)
 	}
@@ -543,7 +559,7 @@ func (r *Reconciliation) computeUpdateFromDelta(accountManager types.AccountMana
 	return types.AccountUpdate{
 		Address:      addr,
 		NewBalance:   newBalance,
-		Nonce:        delta.Nonce,
+		Nonce:        identityNonce, // preserve stored ART identity (0 = none held → writers preserve/create-with-sentinel)
 		TxNonce:      delta.TxNonce,
 		TxCountSent:  delta.TxCountSent,
 		IsNewAccount: isNew,
