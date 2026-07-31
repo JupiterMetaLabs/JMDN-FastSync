@@ -98,16 +98,40 @@ type WriteData interface {
 
 // AccountUpdate describes a single account balance/nonce change for atomic batch commits.
 type AccountUpdate struct {
-	Address      string
-	NewBalance   *big.Int
+	Address    string
+	NewBalance *big.Int
+	// Nonce is the account's ART IDENTITY nonce (the AccountSync set key),
+	// carried through UNCHANGED from stored state — it is NOT a transaction
+	// counter. 0 means "no identity information": writers MUST preserve a
+	// stored identity when they receive 0, and must never write 0 over one.
+	// Transaction-nonce effects live in TxNonce. (Misreading this exact field
+	// as the max outgoing tx.Nonce is what silently overwrote every reconciled
+	// sender's identity — see computeUpdateFromDelta.)
 	Nonce        uint64
-	IsNewAccount bool // true = CreateAccount, false = UpdateAccountBalance
+	TxNonce      uint64 // max outgoing tx.Nonce + 1 (next expected nonce per Processing.go)
+	TxCountSent  uint64 // number of outgoing txs in the range
+	IsNewAccount bool   // true = CreateAccount, false = UpdateAccountBalance
+}
+
+// AccountDelta holds the net balance/nonce effect for one account over a block range.
+// Computed in a single O(blocks) BlockIterator pass; avoids per-account DB scans.
+type AccountDelta struct {
+	BalanceDelta *big.Int // net change: negative = debit, positive = credit
+	Nonce        uint64   // max outgoing tx.Nonce (0 if IsSender == false)
+	TxNonce      uint64   // max outgoing tx.Nonce + 1 (per Processing.go TxNonce semantics)
+	TxCountSent  uint64   // number of outgoing txs in the range
+	IsSender     bool     // true if the account sent at least one tx
 }
 
 // AccountManager handles account balance operations for reconciliation.
 type AccountManager interface {
 	// GetTransactionsForAccount retrieves all transactions where the account is sender or receiver.
 	GetTransactionsForAccount(accountAddress string) ([]DBTransaction, error)
+
+	// GetTransactionsForAccountInRange retrieves transactions in [fromBlock, toBlock] inclusive
+	// where the account is sender or receiver. Pass math.MaxUint64 for toBlock to mean "up to latest."
+	// Used by delta-only reconciliation so each sync pass replays only new transactions.
+	GetTransactionsForAccountInRange(accountAddress string, fromBlock, toBlock uint64) ([]DBTransaction, error)
 
 	// GetAccountBalance retrieves the current balance and nonce for an account.
 	GetAccountBalance(accountAddress string) (*big.Int, uint64, error)

@@ -9,9 +9,8 @@ import (
 	"time"
 
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/WAL"
-	blockpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/block"
-	"github.com/ethereum/go-ethereum/common"
 	availabilitypb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/availability"
+	blockpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/block"
 	taggingpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/tagging"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/constants"
@@ -20,6 +19,7 @@ import (
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/reconsillation/helper"
 	Log "github.com/JupiterMetaLabs/JMDN-FastSync/logging"
 	"github.com/JupiterMetaLabs/ion"
+	"github.com/ethereum/go-ethereum/common"
 )
 
 const (
@@ -74,7 +74,6 @@ func (r *Reconciliation) GetLRUCache() LRUCache.LRUCacheInterface {
 	return r.headerCache
 }
 
-
 // GetSyncVars returns the current sync configuration.
 func (r *Reconciliation) GetSyncVars() *types.Syncvars {
 	return r.SyncVars
@@ -126,7 +125,7 @@ func (r *Reconciliation) GetBlockFromLRUCache(blockNumber uint64) (*blockpb.Head
 //
 // Returns the number of accounts reconciled and the list of any accounts that failed
 // during the computation phase. A non-nil error always means the DB was NOT mutated.
-func (r *Reconciliation) Reconcile(taggedAccounts *taggingpb.TaggedAccounts, remote *availabilitypb.AvailabilityResponse) (int, []string, error) {
+func (r *Reconciliation) Reconcile(taggedAccounts *taggingpb.TaggedAccounts, remote *availabilitypb.AvailabilityResponse, fromBlock, toBlock uint64) (int, []string, error) {
 	if taggedAccounts == nil || len(taggedAccounts.Accounts) == 0 {
 		Log.Logger(namedlogger).Info(r.SyncVars.Ctx, "No tagged accounts to reconcile")
 		return 0, nil, nil
@@ -137,7 +136,7 @@ func (r *Reconciliation) Reconcile(taggedAccounts *taggingpb.TaggedAccounts, rem
 	defer cancel()
 
 	numAccounts := len(taggedAccounts.Accounts)
-	Log.Logger(namedlogger).Debug(ctx, "Starting reconciliation",
+	Log.Logger(namedlogger).Info(ctx, "Starting reconciliation",
 		ion.Int("tagged_accounts_count", numAccounts))
 
 	// ----------------------------------------------------------------
@@ -163,7 +162,7 @@ func (r *Reconciliation) Reconcile(taggedAccounts *taggingpb.TaggedAccounts, rem
 		go func(accounts map[string]bool) {
 			defer wg.Done()
 			for addr := range accounts {
-				update, err := r.computeAccountUpdate(accountManager, addr)
+				update, err := r.computeAccountUpdate(accountManager, addr, fromBlock, toBlock)
 				resultCh <- computeResult{update: update, addr: addr, err: err}
 			}
 		}(batch)
@@ -194,7 +193,7 @@ func (r *Reconciliation) Reconcile(taggedAccounts *taggingpb.TaggedAccounts, rem
 		}
 		collected++
 		if collected%logInterval == 0 {
-			Log.Logger(namedlogger).Debug(ctx, "Phase 1 progress — computing account states",
+			Log.Logger(namedlogger).Info(ctx, "Phase 1 progress — computing account states",
 				ion.Int("collected", collected),
 				ion.Int("total", numAccounts),
 				ion.Int("failed_so_far", len(computeErrs)))
@@ -275,7 +274,7 @@ func (r *Reconciliation) Reconcile(taggedAccounts *taggingpb.TaggedAccounts, rem
 	// ----------------------------------------------------------------
 	if r.SyncVars.WAL != nil {
 		walStart := time.Now()
-		Log.Logger(namedlogger).Debug(ctx, "Phase 2 starting — writing WAL batch event",
+		Log.Logger(namedlogger).Info(ctx, "Phase 2 starting — writing WAL batch event",
 			ion.Int("accounts", len(updates)))
 
 		entries := make([]WAL.ReconciliationBatchEntry, len(updates))
@@ -305,7 +304,7 @@ func (r *Reconciliation) Reconcile(taggedAccounts *taggingpb.TaggedAccounts, rem
 	// Phase 3: Atomic DB commit — all or none
 	// ----------------------------------------------------------------
 	dbStart := time.Now()
-	Log.Logger(namedlogger).Debug(ctx, "Phase 3 starting — atomic DB commit",
+	Log.Logger(namedlogger).Info(ctx, "Phase 3 starting — atomic DB commit",
 		ion.Int("accounts_to_commit", len(updates)))
 
 	if err := accountManager.BatchUpdateAccounts(updates); err != nil {
@@ -325,24 +324,279 @@ func (r *Reconciliation) Reconcile(taggedAccounts *taggingpb.TaggedAccounts, rem
 	return len(updates), nil, nil
 }
 
+// ReconcileWithDeltas applies pre-computed per-account balance deltas without
+// querying the DB per account. Identical three-phase commit structure as Reconcile
+// (compute → WAL → atomic DB write), but skips GetTransactionsForAccountInRange.
+//
+// deltas must be keyed by lowercase 0x-prefixed hex address.
+func (r *Reconciliation) ReconcileWithDeltas(deltas map[string]*types.AccountDelta, remote *availabilitypb.AvailabilityResponse) (int, []string, error) {
+	if len(deltas) == 0 {
+		Log.Logger(namedlogger).Info(r.SyncVars.Ctx, "ReconcileWithDeltas: no deltas to apply")
+		return 0, nil, nil
+	}
+
+	ctx, cancel := context.WithCancel(r.SyncVars.Ctx)
+	defer cancel()
+
+	numAccounts := len(deltas)
+	Log.Logger(namedlogger).Info(ctx, "ReconcileWithDeltas starting",
+		ion.Int("accounts", numAccounts))
+
+	// Build a slice of addresses for batch dispatch.
+	addrs := make([]string, 0, numAccounts)
+	for addr := range deltas {
+		addrs = append(addrs, addr)
+	}
+
+	accountManager := r.SyncVars.NodeInfo.BlockInfo.NewAccountManager()
+
+	type computeResult struct {
+		update types.AccountUpdate
+		addr   string
+		err    error
+	}
+
+	// ----------------------------------------------------------------
+	// Phase 1: Concurrently apply deltas — no DB writes
+	// ----------------------------------------------------------------
+	numRoutines := min(numAccounts, constants.ATMOST_ACCOUNT_ROUTINES)
+	batchSize := (numAccounts + numRoutines - 1) / numRoutines
+
+	resultCh := make(chan computeResult, numAccounts)
+	var wg sync.WaitGroup
+
+	for i := 0; i < len(addrs); i += batchSize {
+		end := i + batchSize
+		if end > len(addrs) {
+			end = len(addrs)
+		}
+		batch := addrs[i:end]
+		wg.Add(1)
+		go func(batch []string) {
+			defer wg.Done()
+			for _, addr := range batch {
+				delta := deltas[addr]
+				update, err := r.computeUpdateFromDelta(accountManager, addr, delta)
+				resultCh <- computeResult{update: update, addr: addr, err: err}
+			}
+		}(batch)
+	}
+
+	go func() {
+		wg.Wait()
+		close(resultCh)
+	}()
+
+	updates := make([]types.AccountUpdate, 0, numAccounts)
+	var failedAccounts []string
+	var computeErrs []error
+
+	logInterval := numAccounts / 10
+	if logInterval == 0 {
+		logInterval = 1
+	}
+	collected := 0
+
+	for res := range resultCh {
+		if res.err != nil {
+			failedAccounts = append(failedAccounts, res.addr)
+			computeErrs = append(computeErrs, res.err)
+		} else {
+			updates = append(updates, res.update)
+		}
+		collected++
+		if collected%logInterval == 0 {
+			Log.Logger(namedlogger).Info(ctx, "ReconcileWithDeltas phase 1 progress",
+				ion.Int("collected", collected),
+				ion.Int("total", numAccounts),
+				ion.Int("failed_so_far", len(computeErrs)))
+		}
+	}
+
+	if len(computeErrs) > 0 {
+		Log.Logger(namedlogger).Warn(ctx, "ReconcileWithDeltas: computation errors — aborting commit",
+			ion.Int("failed", len(computeErrs)),
+			ion.Int("succeeded", len(updates)))
+		return 0, failedAccounts, fmt.Errorf("delta computation failed for %d accounts, no DB changes made: %v",
+			len(computeErrs), computeErrs)
+	}
+
+	// ----------------------------------------------------------------
+	// Phase 1.5: Pre-create accounts missing from local DB.
+	// ----------------------------------------------------------------
+	if remote != nil {
+		missingAddrs := make(map[string]bool)
+		missingIdx := make(map[string]int)
+		for updateIdx, update := range updates {
+			if update.IsNewAccount {
+				missingAddrs[update.Address] = true
+				missingIdx[update.Address] = updateIdx
+			}
+		}
+		if len(missingAddrs) > 0 {
+			Log.Logger(namedlogger).Debug(ctx, "ReconcileWithDeltas phase 1.5: fetching missing accounts from remote",
+				ion.Int("missing", len(missingAddrs)))
+			syncVars := r.GetSyncVars()
+			acctSync := accountsync.NewAccountSync().SetSyncVars(syncVars.Ctx, syncVars.Version, syncVars.NodeInfo, syncVars.Node, syncVars.WAL)
+			resp, err := acctSync.FetchAccounts(remote, missingAddrs)
+			if err != nil {
+				Log.Logger(namedlogger).Warn(ctx, "ReconcileWithDeltas phase 1.5: remote fetch failed",
+					ion.Err(err))
+			} else if resp != nil {
+				created := 0
+				for _, acc := range resp.GetAccounts() {
+					addrBytes := acc.GetAddress()
+					if len(addrBytes) == 0 {
+						continue
+					}
+					addr := strings.ToLower(common.BytesToAddress(addrBytes).Hex())
+					idx, ok := missingIdx[addr]
+					if !ok {
+						continue
+					}
+					if err := accountManager.CreateAccount(addr, big.NewInt(0), acc.GetNonce()); err != nil {
+						Log.Logger(namedlogger).Warn(ctx, "ReconcileWithDeltas phase 1.5: pre-create failed",
+							ion.String("address", addr), ion.Err(err))
+						continue
+					}
+					updates[idx].IsNewAccount = false
+					created++
+				}
+				Log.Logger(namedlogger).Info(ctx, "ReconcileWithDeltas phase 1.5 complete",
+					ion.Int("requested", len(missingAddrs)),
+					ion.Int("created", created))
+			}
+		}
+	}
+
+	// ----------------------------------------------------------------
+	// Phase 2: WAL batch write
+	// ----------------------------------------------------------------
+	if r.SyncVars.WAL != nil {
+		walStart := time.Now()
+		entries := make([]WAL.ReconciliationBatchEntry, len(updates))
+		for i, u := range updates {
+			entries[i] = WAL.ReconciliationBatchEntry{
+				AccountAddress: u.Address,
+				NewBalance:     u.NewBalance.String(),
+				Nonce:          u.Nonce,
+			}
+		}
+		batchEvent := &WAL.ReconciliationBatchEvent{
+			Accounts:  entries,
+			Timestamp: time.Now().Unix(),
+		}
+		if _, err := r.SyncVars.WAL.WriteEvent(batchEvent); err != nil {
+			return 0, nil, fmt.Errorf("WAL batch write failed — aborting commit: %w", err)
+		}
+		if err := r.SyncVars.WAL.Flush(); err != nil {
+			return 0, nil, fmt.Errorf("WAL flush failed — aborting commit: %w", err)
+		}
+		Log.Logger(namedlogger).Info(ctx, "ReconcileWithDeltas phase 2 complete — WAL flushed",
+			ion.Int("accounts", len(updates)),
+			ion.String("duration", time.Since(walStart).String()))
+	}
+
+	// ----------------------------------------------------------------
+	// Phase 3: Atomic DB commit
+	// ----------------------------------------------------------------
+	dbStart := time.Now()
+	if err := accountManager.BatchUpdateAccounts(updates); err != nil {
+		return 0, nil, fmt.Errorf("atomic DB commit failed — no accounts updated: %w", err)
+	}
+	Log.Logger(namedlogger).Info(ctx, "ReconcileWithDeltas phase 3 complete — committed",
+		ion.Int("accounts", len(updates)),
+		ion.String("duration", time.Since(dbStart).String()))
+
+	if r.SyncVars.WAL != nil {
+		if _, err := r.SyncVars.WAL.CreateCheckpoint(); err != nil {
+			Log.Logger(namedlogger).Warn(ctx, "WAL checkpoint failed after ReconcileWithDeltas commit", ion.Err(err))
+		}
+	}
+
+	return len(updates), nil, nil
+}
+
+// computeUpdateFromDelta reads the current account balance and applies the pre-computed
+// delta to produce a ready-to-commit AccountUpdate. Read-only — no DB writes.
+//
+// IDENTITY NONCE SEMANTICS (AccountUpdate.Nonce): every downstream writer treats
+// this field as the account's ART IDENTITY nonce — the Fastsync AccountSync set
+// key — not a transaction counter: the queue path merges it into the stored
+// account's identity, the direct path writes it to the account document, and the
+// pre-create path passes it to CreateAccount. It must therefore carry the
+// account's EXISTING identity nonce (second return of GetAccountBalance),
+// unchanged, or 0 ("no identity information" — the sentinel every writer
+// preserves) for an account this node does not hold yet.
+//
+// HISTORY: this previously assigned delta.Nonce — the MAX OUTGOING TRANSACTION
+// nonce in the reconciled range — into the identity field, silently overwriting
+// every reconciled sender's ART identity with a small tx counter (and zeroing
+// receiver-only accounts on the direct path). That divergence broke AccountSync
+// diffs fleet-wide. Transaction-nonce effects belong ONLY in TxNonce
+// (delta.TxNonce); delta.Nonce must never reach the identity field.
+func (r *Reconciliation) computeUpdateFromDelta(accountManager types.AccountManager, addr string, delta *types.AccountDelta) (types.AccountUpdate, error) {
+	if !strings.HasPrefix(addr, "0x") {
+		addr = "0x" + addr
+	}
+
+	currentBalance, identityNonce, err := accountManager.GetAccountBalance(addr)
+	if err != nil {
+		return types.AccountUpdate{}, fmt.Errorf("GetAccountBalance %s: %w", addr, err)
+	}
+
+	isNew := currentBalance == nil
+	if currentBalance == nil {
+		currentBalance = big.NewInt(0)
+	}
+
+	newBalance := new(big.Int).Add(currentBalance, delta.BalanceDelta)
+	if newBalance.Sign() < 0 {
+		newBalance = big.NewInt(0)
+	}
+
+	return types.AccountUpdate{
+		Address:      addr,
+		NewBalance:   newBalance,
+		Nonce:        identityNonce, // preserve stored ART identity (0 = none held → writers preserve/create-with-sentinel)
+		TxNonce:      delta.TxNonce,
+		TxCountSent:  delta.TxCountSent,
+		IsNewAccount: isNew,
+	}, nil
+}
+
 // computeAccountUpdate reads all transactions for one account, replays them to get
 // the new balance/nonce, and returns a ready-to-commit AccountUpdate.
 // This is a read-only operation — it does not touch the DB.
-func (r *Reconciliation) computeAccountUpdate(accountManager types.AccountManager, accountAddress string) (types.AccountUpdate, error) {
+func (r *Reconciliation) computeAccountUpdate(accountManager types.AccountManager, accountAddress string, fromBlock, toBlock uint64) (types.AccountUpdate, error) {
 	// Normalize address to 0x-prefixed lowercase so calculateAccountState comparisons
 	// against tx.From.Hex() / tx.To.Hex() (which always carry the 0x prefix) are correct.
 	if !strings.HasPrefix(accountAddress, "0x") {
 		accountAddress = "0x" + accountAddress
 	}
 
-	transactions, err := accountManager.GetTransactionsForAccount(accountAddress)
+	fetchStart := time.Now()
+	transactions, err := accountManager.GetTransactionsForAccountInRange(accountAddress, fromBlock, toBlock)
+	fetchDur := time.Since(fetchStart)
 	if err != nil {
+		Log.Logger(namedlogger).Warn(r.SyncVars.Ctx, "GetTransactionsForAccountInRange failed",
+			ion.String("address", accountAddress),
+			ion.Uint64("from_block", fromBlock),
+			ion.Uint64("to_block", toBlock),
+			ion.String("duration", fetchDur.String()),
+			ion.Err(err))
 		return types.AccountUpdate{}, fmt.Errorf("failed to get transactions for account %s: %w", accountAddress, err)
 	}
+	Log.Logger(namedlogger).Info(r.SyncVars.Ctx, "GetTransactionsForAccountInRange complete",
+		ion.String("address", accountAddress),
+		ion.Int("tx_count", len(transactions)),
+		ion.Uint64("from_block", fromBlock),
+		ion.Uint64("to_block", toBlock),
+		ion.String("duration", fetchDur.String()))
 
 	state := r.calculateAccountState(accountAddress, transactions)
 
-	currentBalance, _, err := accountManager.GetAccountBalance(accountAddress)
+	currentBalance, identityNonce, err := accountManager.GetAccountBalance(accountAddress)
 	if err != nil {
 		return types.AccountUpdate{}, fmt.Errorf("failed to get current balance for account %s: %w", accountAddress, err)
 	}
@@ -354,15 +608,27 @@ func (r *Reconciliation) computeAccountUpdate(accountManager types.AccountManage
 		currentBalance = big.NewInt(0)
 	}
 
-	newBalance := state.ComputedBalance
+	// Delta-only reconciliation:
+	//   currentBalance = whatever is in DB right now
+	//     - New account:  0  (GetAccountBalance returns 0 for not-found)
+	//     - First sync:   bootstrap snapshot balance
+	//     - Nth sync:     result of previous reconciliation
+	//   state.ComputedBalance = net effect of transactions in [fromBlock..toBlock] only
+	//   newBalance = currentBalance + delta — correct for all cases and all sync runs.
+	newBalance := new(big.Int).Add(currentBalance, state.ComputedBalance)
 	if newBalance.Sign() < 0 {
 		newBalance = big.NewInt(0) // Prevent negative balances
 	}
 
+	// IDENTITY NONCE: AccountUpdate.Nonce is the account's ART identity (the
+	// AccountSync set key), NOT a transaction counter — carry the STORED identity
+	// unchanged (0 = "no identity information"; writers preserve it). state.Nonce
+	// is the max outgoing tx nonce from the replay and must never reach this
+	// field (see computeUpdateFromDelta for the history of that bug).
 	return types.AccountUpdate{
 		Address:      accountAddress,
 		NewBalance:   newBalance,
-		Nonce:        state.Nonce,
+		Nonce:        identityNonce,
 		IsNewAccount: isNewAccount,
 	}, nil
 }

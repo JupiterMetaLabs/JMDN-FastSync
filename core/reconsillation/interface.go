@@ -23,9 +23,17 @@ type Reconciliation_router interface {
 	GetSyncVars() *types.Syncvars
 
 	// Reconcile calculates updated balances for all tagged accounts by querying
-	// their transactions and updates the accounts table in the database.
+	// transactions in [fromBlock, toBlock] and adding the delta to each account's
+	// current DB balance (delta-only approach — safe for repeated sync runs).
+	// Pass math.MaxUint64 for toBlock to mean "up to latest block in DB."
 	// Returns the number of accounts successfully reconciled and list of failed accounts.
-	Reconcile(taggedAccounts *tagging.TaggedAccounts, remote *availabilitypb.AvailabilityResponse) (int, []string, error)
+	Reconcile(taggedAccounts *tagging.TaggedAccounts, remote *availabilitypb.AvailabilityResponse, fromBlock, toBlock uint64) (int, []string, error)
+
+	// ReconcileWithDeltas applies pre-computed per-account balance deltas, skipping
+	// the per-account GetTransactionsForAccountInRange DB scan entirely.
+	// deltas must be keyed by lowercase 0x-prefixed hex address.
+	// Returns the number of accounts committed and a list of addresses that failed.
+	ReconcileWithDeltas(deltas map[string]*types.AccountDelta, remote *availabilitypb.AvailabilityResponse) (int, []string, error)
 
 	// Close releases resources and cleans up.
 	Close()

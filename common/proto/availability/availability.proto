@@ -18,4 +18,5 @@ message AvailabilityResponse {
     uint32 block_merge = 3;
     auth.Auth auth = 4;
     phase.Phase phase = 5;
+    uint64 block_height = 6;
 }

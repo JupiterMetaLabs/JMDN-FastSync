@@ -2,13 +2,13 @@ package sync
 
 import (
 	"context"
-
-	"path/filepath"
-	"os"
-	"github.com/google/uuid"
-	art "github.com/JupiterMetaLabs/JMDN_Merkletree/art"
+	"fmt"
 	accountshelper "github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/router/helper/accounts"
-	
+	art "github.com/JupiterMetaLabs/JMDN_Merkletree/art"
+	"github.com/google/uuid"
+	"os"
+	"path/filepath"
+
 	gosync "sync"
 	"time"
 
@@ -16,16 +16,15 @@ import (
 	"github.com/JupiterMetaLabs/JMDN-FastSync/logging"
 	"github.com/JupiterMetaLabs/ion"
 
+	accountspb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/accounts"
+	ackpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/ack"
 	availabilitypb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/availability"
 	datasyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/datasync"
 	headerpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/headersync"
 	merklepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/merkle"
 	priorsyncpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/priorsync"
 	pubsubpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/pubsub"
-	accountspb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/accounts"
-	ackpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/ack"
 
-	
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/constants"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types/errors"
@@ -243,7 +242,13 @@ func (s *Sync) HandleMerkle(ctx context.Context, node host.Host) error {
 }
 
 func (s *Sync) HandleHeaderSync(ctx context.Context, node host.Host) error {
-	node.SetStreamHandler(constants.HeaderSyncProtocol, func(str network.Stream) {
+	// v2 — HeaderSyncStreamMessage ENVELOPE (heartbeats + wrapped response).
+	// The envelope is a different wire format from the original bare
+	// HeaderSyncResponse, and shipping it on the v1 ID made mixed versions
+	// misparse SILENTLY (headers decode as a heartbeat; nil error both ways —
+	// review finding FS1). Envelope traffic therefore lives on its own ID; the
+	// v1 handler below keeps serving the pre-envelope bare wire for old clients.
+	node.SetStreamHandler(constants.HeaderSyncProtocolV2, func(str network.Stream) {
 		defer str.Close()
 
 		// refuse work if shutting down
@@ -268,15 +273,106 @@ func (s *Sync) HandleHeaderSync(ctx context.Context, node host.Host) error {
 			Version:   s.nodeinfo.Version,
 		}
 
-		// Route to Datarouter
+		// ── Start heartbeat goroutine ──────────────────────────────────────
+		// Fetching 1500 headers from DB can exceed the 15s stream deadline.
+		// Heartbeats reset the client's read deadline on every tick.
+		computeCtx, computeCancel := context.WithCancel(ctx)
+		defer computeCancel()
+
+		done := make(chan struct{})
+		var mu gosync.Mutex
+
+		go func() {
+			ticker := time.NewTicker(constants.HeartbeatInterval)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-done:
+					return
+				case <-computeCtx.Done():
+					return
+				case <-ticker.C:
+					hb := &headerpb.HeaderSyncStreamMessage{
+						Payload: &headerpb.HeaderSyncStreamMessage_Heartbeat{
+							Heartbeat: &headerpb.HeaderSyncHeartbeat{
+								Timestamp: time.Now().UnixNano(),
+							},
+						},
+					}
+					mu.Lock()
+					_ = str.SetWriteDeadline(time.Now().Add(constants.StreamDeadline))
+					err := pbstream.WriteDelimited(str, hb)
+					mu.Unlock()
+
+					if err != nil {
+						logging.Logger(logging.Sync).Warn(computeCtx, "headersync heartbeat write failed, cancelling computation",
+							ion.Err(err))
+						computeCancel()
+						return
+					}
+				}
+			}
+		}()
+
+		// ── Run the (potentially long) DB fetch ───────────────────────────
+		resp := s.Datarouter.HandleHeaderSync(computeCtx, req, remoteNodeInfo)
+		s.Debug(ctx, constants.HeaderSyncProtocolV2, node, remoteNodeInfo)
+
+		// ── Stop heartbeats and send final response ───────────────────────
+		close(done)
+
+		final := &headerpb.HeaderSyncStreamMessage{
+			Payload: &headerpb.HeaderSyncStreamMessage_Response{Response: resp},
+		}
+
+		mu.Lock()
+		_ = str.SetWriteDeadline(time.Now().Add(constants.StreamDeadline))
+		err := pbstream.WriteDelimited(str, final)
+		if err != nil {
+			logging.Logger(logging.Sync).Warn(ctx, "failed to write final headersync response",
+				ion.Err(err))
+		}
+		mu.Unlock()
+	})
+
+	// v1 — LEGACY bare wire for pre-envelope clients: read HeaderSyncRequest,
+	// write a single bare HeaderSyncResponse. Deliberately NO heartbeats: an old
+	// client's reader does not understand envelope frames, and a heartbeat on
+	// this wire is exactly the silent misparse FS1 describes. Old clients keep
+	// the pre-envelope behaviour byte-for-byte (including its 15s-deadline
+	// limitation on very large header fetches, which is what motivated the
+	// envelope in the first place — fixed on v2, frozen here).
+	node.SetStreamHandler(constants.HeaderSyncProtocol, func(str network.Stream) {
+		defer str.Close()
+
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		_ = str.SetReadDeadline(time.Now().Add(10 * time.Second))
+		defer str.SetReadDeadline(time.Time{})
+
+		req := &headerpb.HeaderSyncRequest{}
+		if err := pbstream.ReadDelimited(str, req); err != nil {
+			return
+		}
+
+		remoteNodeInfo := &types.Nodeinfo{
+			PeerID:    str.Conn().RemotePeer(),
+			Multiaddr: []multiaddr.Multiaddr{str.Conn().RemoteMultiaddr()},
+			Version:   s.nodeinfo.Version,
+		}
+
 		resp := s.Datarouter.HandleHeaderSync(ctx, req, remoteNodeInfo)
 		s.Debug(ctx, constants.HeaderSyncProtocol, node, remoteNodeInfo)
 
-		// Send response
-		_ = str.SetWriteDeadline(time.Now().Add(10 * time.Second))
-		defer str.SetWriteDeadline(time.Time{})
-
-		_ = pbstream.WriteDelimited(str, resp)
+		_ = str.SetWriteDeadline(time.Now().Add(constants.StreamDeadline))
+		if err := pbstream.WriteDelimited(str, resp); err != nil {
+			logging.Logger(logging.Sync).Warn(ctx, "failed to write legacy (v1) headersync response",
+				ion.Err(err))
+		}
 	})
 	return nil
 }
@@ -523,15 +619,70 @@ func (s *Sync) HandlePubsub(ctx context.Context, node host.Host) error {
 	return nil
 }
 
+// drainAndRejectAccountsSync gracefully terminates an AccountSync stream when
+// the server cannot service the request (e.g. session ART creation failed).
+//
+// It drains every incoming AccountNonceSyncRequest, sending a BatchAck for each
+// non-final chunk (so the client keeps uploading without blocking), then sends
+// an error EndOfStream for the final chunk so the client receives a readable
+// error instead of a stream reset.
+//
+// Without this drain, closing the stream while the client is still writing
+// causes quic-go to send a STOP_SENDING frame that the client sees as
+// "stream reset (remote): code: 0x1001".
+func drainAndRejectAccountsSync(str network.Stream, errMsg string) {
+	for {
+		_ = str.SetReadDeadline(time.Now().Add(constants.StreamDeadline))
+		req := &accountspb.AccountNonceSyncRequest{}
+		if err := pbstream.ReadDelimited(str, req); err != nil {
+			// Network-level failure — stream is already broken, nothing to send.
+			return
+		}
+		_ = str.SetWriteDeadline(time.Now().Add(constants.StreamDeadline))
+		if req.IsLast {
+			// Send error EndOfStream so the client knows the reason.
+			end := &accountspb.AccountSyncServerMessage{
+				Payload: &accountspb.AccountSyncServerMessage_End{
+					End: &accountspb.AccountSyncEndOfStream{
+						Ack: &ackpb.Ack{Ok: false, Error: errMsg},
+					},
+				},
+			}
+			_ = pbstream.WriteDelimited(str, end)
+			return
+		}
+		// Client is waiting for a BatchAck before sending the next chunk.
+		// Send an ok ack to keep the upload flowing.
+		ack := &accountspb.AccountSyncServerMessage{
+			Payload: &accountspb.AccountSyncServerMessage_BatchAck{
+				BatchAck: &accountspb.AccountBatchAck{
+					Ack: &ackpb.Ack{Ok: true},
+				},
+			},
+		}
+		_ = pbstream.WriteDelimited(str, ack)
+	}
+}
+
 func (s *Sync) HandleAccountsSync(ctx context.Context, node host.Host) error {
 	node.SetStreamHandler(constants.AccountsSyncProtocol, func(str network.Stream) {
 		defer str.Close()
 
-		// Per-session ART: isolated to this connection, cleaned up when goroutine exits.
+		// Pre-create session directory — NewSwappable may not call MkdirAll internally.
 		sessionDir := filepath.Join(os.TempDir(), constants.TEMP_ART_DIR, uuid.New().String())
+		if mkErr := os.MkdirAll(sessionDir, 0755); mkErr != nil {
+			logging.Logger(logging.Sync).Warn(ctx,
+				fmt.Sprintf("accountssync: failed to create session dir %s: %v", sessionDir, mkErr))
+			drainAndRejectAccountsSync(str, fmt.Sprintf("session dir setup failed: %v", mkErr))
+			return
+		}
+
 		sessionSwappable, err := art.NewSwappable(sessionDir, art.DefaultThreshold)
 		if err != nil {
-			logging.Logger(logging.Sync).Warn(ctx, "accountssync: failed to create session ART", ion.Err(err))
+			logging.Logger(logging.Sync).Warn(ctx,
+				fmt.Sprintf("accountssync: failed to create session ART %s: %v", sessionDir, err))
+			os.RemoveAll(sessionDir)
+			drainAndRejectAccountsSync(str, fmt.Sprintf("session ART setup failed: %v", err))
 			return
 		}
 		defer os.RemoveAll(sessionDir)

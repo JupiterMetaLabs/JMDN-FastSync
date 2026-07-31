@@ -190,6 +190,7 @@ func (c *communication) SendMerkleRequest(
 }
 
 // SendHeaderSyncRequest sends a HeaderSyncRequest to a peer and returns the HeaderSyncResponse.
+// Uses a heartbeat-aware stream so large header batches don't hit the 15s read deadline.
 func (c *communication) SendHeaderSyncRequest(
 	ctx context.Context,
 	peerNode types.Nodeinfo,
@@ -199,17 +200,14 @@ func (c *communication) SendHeaderSyncRequest(
 		return nil, errors.New("host is nil")
 	}
 
-	// Prepare peer.AddrInfo from types.Nodeinfo
 	peerInfo := libp2p_peer.AddrInfo{
 		ID:    peerNode.PeerID,
 		Addrs: peerNode.Multiaddr,
 	}
 
-	// Prepare response container
 	resp := &headersyncpb.HeaderSyncResponse{}
 
-	// Send using SendProtoDelimited with HeaderSyncProtocol
-	if err := messaging.SendProtoDelimited(
+	if err := messaging.SendHeaderSyncProtoDelimitedWithHeartbeat(
 		ctx,
 		c.protocolVersion,
 		c.host,

@@ -22,3 +22,14 @@ message HeaderSyncResponse {
     ack.Ack ack = 3;
     phase.Phase phase = 4;
 }
+
+message HeaderSyncHeartbeat {
+    int64 timestamp = 1;
+}
+
+message HeaderSyncStreamMessage {
+    oneof payload {
+        HeaderSyncHeartbeat heartbeat = 1;
+        HeaderSyncResponse  response  = 2;
+    }
+}

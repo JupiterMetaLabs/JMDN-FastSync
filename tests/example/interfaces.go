@@ -150,6 +150,10 @@ func (e example_accountmanager) GetTransactionsForAccount(accountAddress string)
 	return nil, nil
 }
 
+func (e example_accountmanager) GetTransactionsForAccountInRange(accountAddress string, fromBlock, toBlock uint64) ([]types.DBTransaction, error) {
+	return nil, nil
+}
+
 func (e example_accountmanager) CreateAccount(address string, balance *big.Int, nonce uint64) error {
 	return nil
 }
