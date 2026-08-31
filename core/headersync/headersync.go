@@ -590,7 +590,7 @@ func (hs *HeaderSync) sendPriorSyncToRemotes(
 			ion.String("uuid", msg.Phase.GetAuth().GetUUID()))
 
 		childCtx, cancel := context.WithCancel(ctx)
-		resp, err := hs.Comm.SendPriorSync(childCtx, snapshot, *remote.nodeInfo, *msg)
+		resp, err := hs.Comm.SendPriorSync(childCtx, snapshot, *remote.nodeInfo, msg)
 		cancel() // called directly to avoid defer accumulation in a loop
 
 		if err != nil {

@@ -24,6 +24,7 @@ import (
 	Log "github.com/JupiterMetaLabs/JMDN-FastSync/logging"
 	"github.com/JupiterMetaLabs/ion"
 	"github.com/libp2p/go-libp2p/core/host"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -306,12 +307,13 @@ func dataFetchWorker(
 			// Create a copy of the request with the auth from the availability response for this specific remote
 			batchRequest := job.Request
 			if batchRequest.Phase != nil && availResp.Auth != nil {
-				// Create a shallow copy of the request to avoid mutation races
-				requestCopy := *batchRequest
-				phaseCopy := *batchRequest.Phase
-				phaseCopy.Auth = availResp.Auth
-				requestCopy.Phase = &phaseCopy
-				batchRequest = &requestCopy
+				// Deep-copy the request via proto.Clone to avoid mutation races.
+				// A shallow struct copy (*batchRequest) copies the protobuf
+				// internal state lock (go vet copylocks) and still shares nested
+				// pointers; proto.Clone yields an independent message.
+				requestCopy := proto.Clone(batchRequest).(*datasyncpb.DataSyncRequest)
+				requestCopy.Phase.Auth = availResp.Auth
+				batchRequest = requestCopy
 			}
 
 			for attempt := 1; attempt <= maxRetries; attempt++ {

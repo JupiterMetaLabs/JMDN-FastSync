@@ -228,7 +228,7 @@ func (ps *PriorSync) PriorSync(local_start, local_end, remote_start, remote_end 
 
 	// 5. Send the PriorSync request to the remote peer
 	comm := communication.NewCommunication(ps.SyncVars.Node, ps.SyncVars.Version)
-	resp, err := comm.SendPriorSync(ctx, pbSnapshot, *remote, reqMsg)
+	resp, err := comm.SendPriorSync(ctx, pbSnapshot, *remote, &reqMsg)
 	if err != nil {
 		return nil, fmt.Errorf("PriorSync request failed: %w", err)
 	}

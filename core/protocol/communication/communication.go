@@ -26,7 +26,7 @@ type communication struct {
 
 type Communicator interface {
 	// SendPriorSync sends a PriorSync request to a specific peer and returns the response
-	SendPriorSync(ctx context.Context, merkle *merklepb.MerkleSnapshot, peer types.Nodeinfo, data priorsyncpb.PriorSyncMessage) (*priorsyncpb.PriorSyncMessage, error)
+	SendPriorSync(ctx context.Context, merkle *merklepb.MerkleSnapshot, peer types.Nodeinfo, data *priorsyncpb.PriorSyncMessage) (*priorsyncpb.PriorSyncMessage, error)
 
 	// This is to send the request for merkle tree for the given range.
 	SendMerkleRequest(ctx context.Context, peerNode types.Nodeinfo, req *merklepb.MerkleRequestMessage) (*merklepb.MerkleMessage, error)
@@ -81,13 +81,16 @@ func (c *communication) SendPriorSync(
 	merkle_snapshot *merklepb.MerkleSnapshot,
 	// this peer is the one we are sending the prior sync to
 	peerNode types.Nodeinfo,
-	data priorsyncpb.PriorSyncMessage,
+	data *priorsyncpb.PriorSyncMessage,
 ) (*priorsyncpb.PriorSyncMessage, error) {
 	if c.host == nil {
 		return nil, errors.New("host is nil")
 	}
 	if merkle_snapshot == nil {
 		return nil, errors.New("merkle is nil")
+	}
+	if data == nil {
+		return nil, errors.New("data is nil")
 	}
 
 	// Make sure we have a valid Phase
