@@ -2,9 +2,13 @@ name: CI
 
 on:
   push:
-    branches: [ main ]
+    branches: [ main, v3base ]
   pull_request:
-    branches: [ main ]
+    branches: [ main, v3base ]
+
+env:
+  # Never let a developer's go.work leak into a CI build.
+  GOWORK: "off"
 
 jobs:
   build:
@@ -12,13 +16,20 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    # go.mod is the single source of truth for the Go version. Do not pin a
+    # literal here: a literal that is lower than the go directive does not fail,
+    # it silently makes GOTOOLCHAIN download a different toolchain than declared.
     - name: Set up Go
       uses: actions/setup-go@v5
       with:
-        go-version: '1.21'
+        go-version-file: go.mod
+        cache: true
+
+    - name: Verify Go modules
+      run: go mod verify
 
     - name: Build
       run: go build ./...
 
-    - name: Verify Go modules
-      run: go mod verify
+    - name: Vet
+      run: go vet ./...

@@ -7,3 +7,5 @@ graphify-out/*
 docs/superpowers/*
 docs/issues/*
 .env
+.DS_Store
+**/.DS_Store
