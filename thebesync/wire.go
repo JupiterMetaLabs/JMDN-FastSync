@@ -25,12 +25,18 @@ const (
 	MaxBlocksPerRequest = 30
 
 	// Frame-size caps for the newline-delimited JSON reads (OOM guard). A GetBlocks
-	// response carries full serialized blocks, so it is generous.
-	maxHeadReqBytes       int64 = 512
-	maxHeadRespBytes      int64 = 4 * 1024
-	maxGetBlocksReqBytes  int64 = 512
-	maxGetBlocksRespBytes int64 = 64 * 1024 * 1024
+	// response carries full serialized blocks — with STARK proofs ~2.8 MB each as
+	// base64 JSON — so MaxBlocksPerRequest of them can reach ~85 MB. The client
+	// bisects the range when a response exceeds this cap (FetchBlocks), so the cap
+	// only needs to admit a handful of worst-case blocks, not a full batch.
+	maxHeadReqBytes      int64 = 512
+	maxHeadRespBytes     int64 = 4 * 1024
+	maxGetBlocksReqBytes int64 = 512
 )
+
+// maxGetBlocksRespBytes is a var (not const) so tests can lower it to exercise
+// the FetchBlocks bisection without fabricating 100 MB responses.
+var maxGetBlocksRespBytes int64 = 128 * 1024 * 1024
 
 // HeadRequest is the head-handshake request. Version lets the wire evolve.
 type HeadRequest struct {
