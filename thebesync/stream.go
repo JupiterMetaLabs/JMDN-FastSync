@@ -8,10 +8,15 @@ package thebesync
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"io"
 
 	"github.com/libp2p/go-libp2p/core/network"
 )
+
+// ErrFrameTooLarge: a peer frame exceeded the read cap before its newline. For
+// GetBlocks the client reacts by splitting the range (see FetchBlocks).
+var ErrFrameTooLarge = errors.New("thebesync: frame exceeds read cap")
 
 // readLine reads one newline-delimited frame, capping the read at max bytes so a
 // hostile/oversized peer frame cannot OOM us. A trailing EOF without a newline is
@@ -21,6 +26,13 @@ func readLine(stream network.Stream, max int64) ([]byte, error) {
 	b, err := reader.ReadBytes('\n')
 	if err != nil && err != io.EOF {
 		return nil, err
+	}
+	if err == io.EOF && int64(len(b)) >= max {
+		// The LimitReader cut the frame: the peer sent more than max bytes with no
+		// newline inside the cap. Returning the partial frame as success made the
+		// caller fail with "unexpected end of JSON input" (testnet 2026-10-09: a 30-block
+		// GetBlocks response of ~2.8 MB proof-carrying blocks is ~84 MB, cap was 64 MiB).
+		return nil, ErrFrameTooLarge
 	}
 	return b, nil
 }

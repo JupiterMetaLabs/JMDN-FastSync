@@ -4,6 +4,7 @@ package thebesync
 // GetBlocks request. Returns raw (opaque) block bytes for the host to parse.
 
 import (
+	"errors"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -46,7 +47,32 @@ func FetchBlocks(ctx context.Context, h host.Host, p peer.ID, from, to uint64) (
 	if to < from {
 		return nil, fmt.Errorf("thebesync FetchBlocks: invalid range [%d..%d]", from, to)
 	}
+	blocks, err := fetchBlocksOnce(ctx, h, p, from, to)
+	if !errors.Is(err, ErrFrameTooLarge) || to == from {
+		return blocks, err
+	}
+	// The whole range did not fit under maxGetBlocksRespBytes (blocks carry STARK
+	// proofs, so 30 of them can exceed the cap). Bisect: fetch the halves and
+	// concatenate. Each half is strictly smaller, so this terminates; a single
+	// block that still exceeds the cap is reported as the error it is.
+	mid := from + (to-from)/2
+	lo, err := FetchBlocks(ctx, h, p, from, mid)
+	if err != nil {
+		return nil, err
+	}
+	if uint64(len(lo)) < mid-from+1 {
+		// server stopped at its tip inside the lower half; nothing more to fetch
+		return lo, nil
+	}
+	hi, err := FetchBlocks(ctx, h, p, mid+1, to)
+	if err != nil {
+		return nil, err
+	}
+	return append(lo, hi...), nil
+}
 
+// fetchBlocksOnce is one GetBlocks round trip for [from..to] with no splitting.
+func fetchBlocksOnce(ctx context.Context, h host.Host, p peer.ID, from, to uint64) ([][]byte, error) {
 	stream, err := h.NewStream(ctx, p, GetBlocksProtocol)
 	if err != nil {
 		return nil, fmt.Errorf("thebesync FetchBlocks: open stream to %s: %w", p, err)
