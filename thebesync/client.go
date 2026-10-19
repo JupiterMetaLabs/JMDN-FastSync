@@ -4,9 +4,9 @@ package thebesync
 // GetBlocks request. Returns raw (opaque) block bytes for the host to parse.
 
 import (
-	"errors"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/libp2p/go-libp2p/core/host"
@@ -43,10 +43,35 @@ func FetchHead(ctx context.Context, h host.Host, p peer.ID) (HeadResponse, error
 // FetchBlocks requests the inclusive range [from..to] from peer p and returns the
 // opaque block bytes. The server clamps to MaxBlocksPerRequest and stops at its
 // tip, so the returned slice may be shorter than requested.
+//
+// A server may also stop early to keep a response under its byte budget, so a
+// short response is followed up from the next height; only an empty response
+// means the server's tip was reached.
 func FetchBlocks(ctx context.Context, h host.Host, p peer.ID, from, to uint64) ([][]byte, error) {
 	if to < from {
 		return nil, fmt.Errorf("thebesync FetchBlocks: invalid range [%d..%d]", from, to)
 	}
+	var out [][]byte
+	for cur := from; cur <= to; {
+		blocks, err := fetchBlocksSplit(ctx, h, p, cur, to)
+		if err != nil {
+			if len(out) > 0 {
+				return out, nil // keep the progress made; the caller resumes from here
+			}
+			return nil, err
+		}
+		if len(blocks) == 0 {
+			break // tip reached
+		}
+		out = append(out, blocks...)
+		cur += uint64(len(blocks))
+	}
+	return out, nil
+}
+
+// fetchBlocksSplit fetches [from..to], bisecting when a response exceeds the
+// read cap.
+func fetchBlocksSplit(ctx context.Context, h host.Host, p peer.ID, from, to uint64) ([][]byte, error) {
 	blocks, err := fetchBlocksOnce(ctx, h, p, from, to)
 	if !errors.Is(err, ErrFrameTooLarge) || to == from {
 		return blocks, err
@@ -56,15 +81,16 @@ func FetchBlocks(ctx context.Context, h host.Host, p peer.ID, from, to uint64) (
 	// concatenate. Each half is strictly smaller, so this terminates; a single
 	// block that still exceeds the cap is reported as the error it is.
 	mid := from + (to-from)/2
-	lo, err := FetchBlocks(ctx, h, p, from, mid)
+	lo, err := fetchBlocksSplit(ctx, h, p, from, mid)
 	if err != nil {
 		return nil, err
 	}
 	if uint64(len(lo)) < mid-from+1 {
-		// server stopped at its tip inside the lower half; nothing more to fetch
+		// server stopped early inside the lower half (tip or byte budget);
+		// FetchBlocks resumes from the next height
 		return lo, nil
 	}
-	hi, err := FetchBlocks(ctx, h, p, mid+1, to)
+	hi, err := fetchBlocksSplit(ctx, h, p, mid+1, to)
 	if err != nil {
 		return nil, err
 	}

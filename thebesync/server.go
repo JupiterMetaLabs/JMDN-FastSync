@@ -18,6 +18,8 @@ import (
 //	h.SetStreamHandler(thebesync.GetBlocksProtocol, srv.GetBlocksHandler)
 type Server struct {
 	Provider BlockProvider
+
+	limits serveLimits // zero value is ready to use
 }
 
 // HeadHandler answers a HeadRequest with this node's chain tip.
@@ -57,6 +59,12 @@ func (s *Server) GetBlocksHandler(stream network.Stream) {
 		writeJSONLine(stream, GetBlocksResponse{Error: "bad request"})
 		return
 	}
+	release, ok := s.limits.acquire(stream.Conn().RemotePeer())
+	if !ok {
+		writeJSONLine(stream, GetBlocksResponse{Error: errBusy})
+		return
+	}
+	defer release()
 	writeJSONLine(stream, s.buildGetBlocks(req))
 }
 
@@ -70,12 +78,21 @@ func (s *Server) buildGetBlocks(req GetBlocksRequest) GetBlocksResponse {
 	to := clampedTo(req.From, req.To)
 
 	blocks := make([][]byte, 0, to-req.From+1)
+	budget := serveByteBudget()
+	var size int64
 	for n := req.From; n <= to; n++ {
 		raw, found, err := s.Provider.RawBlock(n)
 		if err != nil || !found {
 			break // tip reached or read error — return the contiguous prefix
 		}
+		// Stop before the response would outgrow what a client accepts; the
+		// client continues from the last block it received. Always send at
+		// least one block.
+		if len(blocks) > 0 && size+int64(len(raw)) > budget {
+			break
+		}
 		blocks = append(blocks, raw)
+		size += int64(len(raw))
 	}
 	return GetBlocksResponse{Blocks: blocks}
 }
