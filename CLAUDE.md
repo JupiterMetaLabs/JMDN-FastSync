@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 JMDN-FastSync is a **peer-to-peer block synchronization protocol** for the Jupiter Meta L2 blockchain, built on libp2p. It implements an eight-protocol approach: peer availability handshake, Merkle tree bisection to identify differing blocks, concurrent header fetching, full block data sync, point-of-time-sync (PoTS) to catch up on blocks produced during sync, account sync for zero-transaction accounts, Merkle sub-tree requests, and pub/sub block announcements.
 
-**Language**: Go 1.25 | **Network**: libp2p (TCP + QUIC) | **Serialization**: Protocol Buffers | **External**: `JMDN_Merkletree` (ART + Merkle)
+**Language**: Go 1.27 | **Network**: libp2p (TCP + QUIC) | **Serialization**: Protocol Buffers | **External**: `JMDN_Merkletree` (ART + Merkle)
 
 ## Build & Test Commands
 

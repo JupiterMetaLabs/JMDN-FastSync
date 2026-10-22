@@ -1,6 +1,8 @@
 module github.com/JupiterMetaLabs/JMDN-FastSync
 
-go 1.26.0
+go 1.27.0
+
+toolchain go1.27.3
 
 require (
 	github.com/JupiterMetaLabs/JMDN_Merkletree v0.0.0-20260413092720-b819e61566f8
