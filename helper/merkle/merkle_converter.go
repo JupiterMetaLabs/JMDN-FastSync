@@ -66,8 +66,8 @@ func ProtoToMerkleSnapshot(m *pbmerkle.MerkleSnapshot) *merkletree.MerkleTreeSna
 	return &merkletree.MerkleTreeSnapshot{
 		Version: int(m.Version),
 		Config: merkletree.SnapshotConfig{
-			BlockMerge:    int(m.Config.BlockMerge),
-			ExpectedTotal: m.Config.ExpectedTotal,
+			BlockMerge:    int(m.GetConfig().GetBlockMerge()),
+			ExpectedTotal: m.GetConfig().GetExpectedTotal(),
 		},
 		TotalBlocks:        m.TotalBlocks,
 		ExpectedNextHeight: m.ExpectedNextHeight,
