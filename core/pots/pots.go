@@ -134,7 +134,7 @@ func (p *PoTS) SetWAL(ctx context.Context, wal *WAL.WAL) PoTS_router {
 	if p.PoTS_WAL != nil {
 		return p
 	}
-	
+
 	potsWAL, err := NewPoTSWAL(p.SyncVars.Ctx, wal)
 	if err != nil {
 		Log.Logger(namedlogger).Warn(p.SyncVars.Ctx, "Failed to create PoTS WAL",
@@ -159,11 +159,11 @@ func (p *PoTS) SetWAL(ctx context.Context, wal *WAL.WAL) PoTS_router {
 func (p *PoTS) GetWAL() (PoTS_WAL, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	
+
 	if p.PoTS_WAL == nil {
 		return nil, errors.New("PoTS WAL not initialized")
 	}
-	
+
 	return p.PoTS_WAL, nil
 }
 
@@ -190,28 +190,8 @@ func (p *PoTS) Close() {
 	Log.Logger(namedlogger).Info(context.Background(), "PoTS closed")
 }
 
-// Validate returns an error if the PoTS is not ready to operate.
-func (p *PoTS) Validate() error {
-	if p.SyncVars == nil {
-		return fmt.Errorf("PoTS: SetSyncVars not called")
-	}
-	if p.PoTSState == nil {
-		return fmt.Errorf("PoTS: state not initialised")
-	}
-	if p.SyncVars.Ctx == nil {
-		return fmt.Errorf("PoTS: context is nil")
-	}
-	return nil
-}
-
 // ensure *PoTS satisfies the interface at compile time.
 var _ PoTS_router = (*PoTS)(nil)
-
-// PoTSWALDir returns the canonical directory for the PoTS WAL given the base
-// data directory. Keeping this centralised avoids path mismatches.
-func PoTSWALDir(baseDir string) string {
-	return baseDir + "/pots"
-}
 
 // DefaultPoTSWALBatchSize is the buffer depth before the PoTS WAL auto-flushes.
 // Blocks arrive at consensus cadence (~one per slot), so a small buffer is fine.

@@ -45,17 +45,3 @@ Check if the router is registered with a client (has a valid UUID)
 func (router *Datarouter) IsRegistered() bool {
 	return router.clientGeneratedUUID != ""
 }
-
-/*
-Get the stored client UUID
-*/
-func (router *Datarouter) GetClientUUID() string {
-	return router.clientGeneratedUUID
-}
-
-/*
-Clear the stored client UUID (for cleanup)
-*/
-func (router *Datarouter) ClearRegistration() {
-	router.clientGeneratedUUID = ""
-}

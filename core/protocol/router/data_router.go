@@ -1,7 +1,6 @@
 package router
 
 import (
-	"bytes"
 	"context"
 	"encoding/hex"
 	"fmt"
@@ -11,7 +10,7 @@ import (
 
 	"golang.org/x/time/rate"
 
-	clienthelper "github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/router/helper/accounts/client_helper"
+	WAL "github.com/JupiterMetaLabs/JMDN-FastSync/common/WAL"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/checksum/checksum_priorsync"
 	accountspb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/accounts"
 	ackpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/ack"
@@ -34,6 +33,7 @@ import (
 	merkle "github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/merkle"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/router/helper"
 	accountshelper "github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/router/helper/accounts"
+	clienthelper "github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/router/helper/accounts/client_helper"
 	accountsdispatcher "github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/router/helper/accounts/dispatcher"
 	potshelper "github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/router/helper/pots"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/core/protocol/tagging"
@@ -43,7 +43,6 @@ import (
 	"github.com/JupiterMetaLabs/ion"
 	libp2p_peer "github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
-	WAL "github.com/JupiterMetaLabs/JMDN-FastSync/common/WAL"
 )
 
 const (
@@ -55,7 +54,7 @@ type Datarouter struct {
 	Comm                 communication.Communicator
 	clientGeneratedUUID  string
 	availabilityLimiters sync.Map // libp2p_peer.ID -> *rate.Limiter
-	wal 				*WAL.WAL
+	wal                  *WAL.WAL
 }
 
 func NewDatarouter(nodeinfo *types.Nodeinfo, comm communication.Communicator, wal *WAL.WAL) *Datarouter {
@@ -620,205 +619,6 @@ func (router *Datarouter) HandleAccountsSync(ctx context.Context, req *accountsp
 
 	default:
 		return f.ErrEndOfStream("unknown state: " + req.Phase.PresentPhase)
-	}
-}
-
-func (router *Datarouter) SYNC_REQUEST_V2(ctx context.Context, req *priorsyncpb.PriorSync) *priorsyncpb.PriorSyncMessage {
-	/*
-		- Check the checksum to make sure there is no data loss and message sent and received are same.
-		- Load the latest block information from the node using the interface function.
-		- Check if the user block and your block are on the same level. if yes then return message already on same level.
-		- If the s-blockheight < c-blockheight - proceed to phase 2 sync and state SYNC_DATA by returning SYNC_REQUEST_RESPONSE then client will proceed from its side.
-	*/
-	verified, err := checksum_priorsync.PriorSyncChecksum().VerifyfromPB(req, uint16(req.Metadata.Version), req.Metadata.Checksum)
-	if err != nil {
-		Log.Logger(namedlogger).Error(ctx, "Checksum Verification Failed - LOG",
-			err,
-			ion.String("function", "SYNC_REQUEST"))
-		return &priorsyncpb.PriorSyncMessage{
-			Priorsync: req,
-			Ack: &ackpb.Ack{
-				Ok:    false,
-				Error: err.Error()},
-			Phase: &phasepb.Phase{
-				PresentPhase:    constants.SYNC_REQUEST_RESPONSE,
-				SuccessivePhase: constants.FAILURE,
-				Success:         false,
-				Error:           err.Error(),
-			},
-		}
-	}
-
-	if !verified {
-		Log.Logger(namedlogger).Error(ctx, "Checksum Verification Failed - LOG",
-			errors.ChecksumMismatch,
-			ion.String("function", "SYNC_REQUEST"))
-		return &priorsyncpb.PriorSyncMessage{
-			Priorsync: req,
-			Ack: &ackpb.Ack{
-				Ok:    false,
-				Error: errors.ChecksumMismatch.Error()},
-			Phase: &phasepb.Phase{
-				PresentPhase:    constants.SYNC_REQUEST_RESPONSE,
-				SuccessivePhase: constants.FAILURE,
-				Success:         false,
-				Error:           errors.ChecksumMismatch.Error(),
-			},
-		}
-	}
-
-	// 2. Load the latest block information from the node using the interface function.
-	blockInfo := router.Nodeinfo.BlockInfo
-	if blockInfo == nil {
-		Log.Logger(namedlogger).Error(ctx, "BlockInfo is nil - LOG",
-			errors.BlockInfoNil,
-			ion.String("function", "SYNC_REQUEST"))
-
-		return &priorsyncpb.PriorSyncMessage{
-			Priorsync: req,
-			Ack: &ackpb.Ack{
-				Ok:    false,
-				Error: errors.BlockInfoNil.Error()},
-			Phase: &phasepb.Phase{
-				PresentPhase:    constants.SYNC_REQUEST_RESPONSE,
-				SuccessivePhase: constants.FAILURE,
-				Success:         false,
-				Error:           errors.BlockInfoNil.Error(),
-			},
-		}
-	}
-	blockNumber := blockInfo.GetBlockNumber()
-	blockDetails := blockInfo.GetBlockDetails()
-
-	msg := fmt.Sprintf("Block Details: %+v (StateRoot: %s, BlockHash: %s)", blockDetails, string(blockDetails.Stateroot), string(blockDetails.Blockhash))
-	Log.Logger(namedlogger).Debug(ctx, msg,
-		ion.String("function", "SYNC_REQUEST"))
-
-	// 3. Check if the user block and your block are on the same level. if yes then return message already on same level.
-	if blockNumber == req.Blocknumber {
-		if !bytes.Equal(blockDetails.Stateroot, req.Stateroot) {
-			Log.Logger(namedlogger).Error(ctx, "Stateroot Mismatch - LOG",
-				errors.SameBlockHeight_DifferentStateroot,
-				ion.String("function", "SYNC_REQUEST"))
-
-			return &priorsyncpb.PriorSyncMessage{
-				Priorsync: req,
-				Ack: &ackpb.Ack{
-					Ok:    false,
-					Error: errors.SameBlockHeight_DifferentStateroot.Error()},
-				Phase: &phasepb.Phase{
-					PresentPhase:    constants.SYNC_REQUEST_RESPONSE,
-					SuccessivePhase: constants.FAILURE,
-					Success:         false,
-					Error:           errors.SameBlockHeight_DifferentStateroot.Error(),
-				},
-			}
-
-		} else if !bytes.Equal(blockDetails.Blockhash, req.Blockhash) {
-			Log.Logger(namedlogger).Error(ctx, "Blockhash Mismatch - LOG",
-				errors.SameBlockHeight_DifferentBlockhash,
-				ion.String("function", "SYNC_REQUEST"))
-
-			return &priorsyncpb.PriorSyncMessage{
-				Priorsync: req,
-				Ack: &ackpb.Ack{
-					Ok:    false,
-					Error: errors.SameBlockHeight_DifferentBlockhash.Error()},
-				Phase: &phasepb.Phase{
-					PresentPhase:    constants.SYNC_REQUEST_RESPONSE,
-					SuccessivePhase: constants.FAILURE,
-					Success:         false,
-					Error:           errors.SameBlockHeight_DifferentBlockhash.Error(),
-				},
-			}
-
-		} else {
-			Log.Logger(namedlogger).Warn(ctx, "Same Block Height - LOG",
-				ion.Err(errors.SameBlockHeight),
-				ion.String("function", "SYNC_REQUEST"))
-
-			return &priorsyncpb.PriorSyncMessage{
-				Priorsync: req,
-				Ack: &ackpb.Ack{
-					Ok:    true,
-					Error: errors.SameBlockHeight.Error()},
-				Phase: &phasepb.Phase{
-					PresentPhase:    constants.SYNC_REQUEST_RESPONSE,
-					SuccessivePhase: constants.FAILURE,
-					Success:         true,
-					Error:           errors.SameBlockHeight.Error(),
-				},
-			}
-
-		}
-	} else if blockNumber > req.Blocknumber {
-		// If the current node block height is higger than the node from which the request is coming,
-		// then return the message that the current node is already on the same block height.
-		// Note that there is a thin possibility that inbetween blocks might be missing. for this we need to compute the merkle tree of all the blocks and then continue iterating
-		// For now we mark it as TODO
-		Log.Logger(namedlogger).Warn(ctx, "Block Height Higher - LOG",
-			ion.Err(errors.BlockHeightHigher),
-			ion.String("Current Block Number", fmt.Sprintf("%d", blockNumber)),
-			ion.String("Provider Block Number", fmt.Sprintf("%d", req.Blocknumber)),
-			ion.String("function", "SYNC_REQUEST"))
-
-		return &priorsyncpb.PriorSyncMessage{
-			Priorsync: req,
-			Ack: &ackpb.Ack{
-				Ok:    true,
-				Error: errors.BlockHeightHigher.Error()},
-			Phase: &phasepb.Phase{
-				PresentPhase:    constants.SYNC_REQUEST_RESPONSE,
-				SuccessivePhase: constants.FAILURE,
-				Success:         true,
-				Error:           errors.BlockHeightHigher.Error(),
-			},
-		}
-	}
-
-	// If the current node block height is less than the provider node then we need to sync the blocks from the provider node.
-	// We sync only headers in this phase 2 so that we match up the blocks. in the follwoing phase 3 we do parallel sync the transactions and other data of all the blocks.
-	// Now no need to think about the phase 3.
-
-	// Build the struct of the current node block
-	response := &priorsyncpb.PriorSync{
-		Blocknumber: blockNumber,
-		Stateroot:   blockDetails.Stateroot,
-		Blockhash:   blockDetails.Blockhash,
-		Metadata: &priorsyncpb.Metadata{
-			Version: uint32(req.Metadata.Version),
-		},
-	}
-	checksum, err := checksum_priorsync.PriorSyncChecksum().CreatefromPB(response, uint16(req.Metadata.Version))
-	if err != nil {
-		return &priorsyncpb.PriorSyncMessage{
-			Priorsync: req,
-			Ack: &ackpb.Ack{
-				Ok:    false,
-				Error: err.Error()},
-			Phase: &phasepb.Phase{
-				PresentPhase:    constants.SYNC_REQUEST_RESPONSE,
-				SuccessivePhase: constants.FAILURE,
-				Success:         false,
-				Error:           err.Error(),
-			},
-		}
-	}
-
-	response.Metadata.Checksum = checksum
-
-	return &priorsyncpb.PriorSyncMessage{
-		Priorsync: response,
-		Ack: &ackpb.Ack{
-			Ok:    true,
-			Error: "",
-		},
-		Phase: &phasepb.Phase{
-			PresentPhase:    constants.SYNC_REQUEST_RESPONSE,
-			SuccessivePhase: constants.HEADER_SYNC_REQUEST,
-			Success:         true,
-			Error:           "",
-		},
 	}
 }
 
@@ -1554,8 +1354,8 @@ func (router *Datarouter) ACCOUNTS_SYNC(ctx context.Context, req *accountspb.Acc
 
 	isFullSync, diffErr := accountshelper.ComputeAccountDiff(ctx, sessionLockedART.Swappable(), router.Nodeinfo.BlockInfo, req.TotalKeys, d)
 	if diffErr != nil {
-		d.CloseInput()   // unblock d.Run so the goroutine can exit
-		<-summaryCh      // wait for it to finish before returning
+		d.CloseInput() // unblock d.Run so the goroutine can exit
+		<-summaryCh    // wait for it to finish before returning
 		return f.ErrEndOfStream(fmt.Errorf("diff computation: %w", diffErr).Error())
 	}
 

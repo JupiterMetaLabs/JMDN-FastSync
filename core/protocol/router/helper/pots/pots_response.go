@@ -1,7 +1,6 @@
 package potshelper
 
 import (
-	authpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/availability/auth"
 	phasepb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/phase"
 	potspb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/pots"
 	tagpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/tagging"
@@ -39,11 +38,6 @@ func (p *potsresponse_builder) AddErrorMessage(message string) *potsresponse_bui
 
 func (p *potsresponse_builder) AddLatestBlockNumber(latestBlockNumber uint64) *potsresponse_builder {
 	p.PoTSResponse.LatestBlockNumber = latestBlockNumber
-	return p
-}
-
-func (p *potsresponse_builder) AddAuth(auth *authpb.Auth) *potsresponse_builder {
-	p.PoTSResponse.Phase.Auth = auth
 	return p
 }
 

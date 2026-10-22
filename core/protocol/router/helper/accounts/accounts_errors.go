@@ -73,26 +73,3 @@ func (f *resultFactory) ErrBatchAck(msg string) *accountspb.AccountSyncServerMes
 		},
 	}
 }
-
-// DiffReady returns an AccountSyncServerMessage carrying an EndOfStream with
-// Ack.Ok=true and TotalAccounts populated. This is the diff-ready signal for
-// the final (is_last=true) success path.
-//
-// The stream handler inspects GetEnd().GetAck().Ok to distinguish this from an
-// error EndOfStream, then calls router.TakePendingMissing() to retrieve the
-// account slice and dispatch pages before sending its own final EndOfStream.
-func (f *resultFactory) DiffReady(missing []*accountspb.Account) *accountspb.AccountSyncServerMessage {
-	return &accountspb.AccountSyncServerMessage{
-		Payload: &accountspb.AccountSyncServerMessage_End{
-			End: &accountspb.AccountSyncEndOfStream{
-				TotalAccounts: uint64(len(missing)),
-				Ack:           &ackpb.Ack{Ok: true},
-				Phase: &phasepb.Phase{
-					PresentPhase:    constants.ACCOUNTS_SYNC_RESPONSE,
-					SuccessivePhase: constants.ACCOUNTS_SYNC_RESPONSE,
-					Success:         true,
-				},
-			},
-		},
-	}
-}

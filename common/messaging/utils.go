@@ -54,18 +54,6 @@ func ParseMultiaddrs(addrs []multiaddr.Multiaddr) (peer.AddrInfo, error) {
 	return finalInfo, nil
 }
 
-// FormatMultiaddr formats a peer ID and multiaddr into a full multiaddr string.
-//
-// Parameters:
-//   - addr: Base multiaddr (e.g., "/ip4/127.0.0.1/udp/4001/quic-v1")
-//   - peerID: Peer ID to append
-//
-// Returns:
-//   - Full multiaddr string with peer ID
-func FormatMultiaddr(addr multiaddr.Multiaddr, peerID peer.ID) string {
-	return fmt.Sprintf("%s/p2p/%s", addr, peerID)
-}
-
 // HasProtocol checks if a multiaddr contains a specific protocol.
 //
 // Parameters:
@@ -100,54 +88,6 @@ func FilterByTransport(addrs []multiaddr.Multiaddr, transport string) []multiadd
 		}
 	}
 	return filtered
-}
-
-// SelectTransportAddr selects the appropriate multiaddr based on version and transport priority.
-//
-// Version-based selection:
-//   - V1 (version == 1): Returns first TCP address only
-//   - V2 (version >= 2): Prioritizes QUIC, falls back to TCP if no QUIC available
-//
-// Parameters:
-//   - addrs: List of multiaddrs to select from
-//   - version: Protocol version (1 = TCP only, 2+ = QUIC preferred)
-//
-// Returns:
-//   - Selected multiaddr
-//   - Error if no suitable transport is available
-func SelectTransportAddr(addrs []multiaddr.Multiaddr, version uint16) (multiaddr.Multiaddr, error) {
-	if len(addrs) == 0 {
-		return nil, fmt.Errorf("no addresses provided")
-	}
-
-	// Default to V1 if version is 0
-	if version == 0 {
-		version = 1
-	}
-
-	// V1: TCP only
-	if version == 1 {
-		tcpAddrs := FilterByTransport(addrs, "tcp")
-		if len(tcpAddrs) == 0 {
-			return nil, fmt.Errorf("V1 requires TCP transport, but no TCP addresses found")
-		}
-		return tcpAddrs[0], nil
-	}
-
-	// V2+: Prefer QUIC, fallback to TCP
-	// Try QUIC first (quic-v1 or quic)
-	quicAddrs := FilterByTransport(addrs, "quic")
-	if len(quicAddrs) > 0 {
-		return quicAddrs[0], nil
-	}
-
-	// Fallback to TCP
-	tcpAddrs := FilterByTransport(addrs, "tcp")
-	if len(tcpAddrs) > 0 {
-		return tcpAddrs[0], nil
-	}
-
-	return nil, fmt.Errorf("no suitable transport found (tried QUIC and TCP)")
 }
 
 // SelectTransportAddrWithFallback attempts to connect using the selected transport,

@@ -1,10 +1,10 @@
 package logging
 
 import (
-	"context"
 	"fmt"
 	"log"
 	"sync"
+
 	otelsetup "github.com/JupiterMetaLabs/JMDN-FastSync/logging/otelsetup"
 	"github.com/JupiterMetaLabs/ion"
 )
@@ -85,37 +85,4 @@ func (al *AsyncLogger) NamedLogger(topic string, fileName string) (*Logging, err
 		return nil, fmt.Errorf("Something went wrong '%s' not found - this should not happen", topic)
 	}
 	return &namedLogger, nil
-}
-
-func (al *AsyncLogger) GetNamedLogger(topic string) (*Logging, error) {
-	// Defensive nil-check
-	if al.Logging == nil {
-		return nil, fmt.Errorf("Logging map is not initialized")
-	}
-	// Get the named logger instance
-	namedLogger, ok := al.Logging[topic]
-	if !ok {
-		return nil, fmt.Errorf("Named logger for topic '%s' not found", topic)
-	}
-	return &namedLogger, nil
-}
-
-func (al *AsyncLogger) Sync() error {
-	return al.GlobalLogger.Sync()
-}
-
-func (al *AsyncLogger) Shutdown() error {
-	// GlobalLogger is already *ion.Ion, no type assertion needed
-	if al.GlobalLogger == nil {
-		return fmt.Errorf("GlobalLogger is not initialized")
-	}
-	return otelsetup.Shutdown(context.Background(), al.GlobalLogger)
-}
-
-func (al *AsyncLogger) Close(topic string) error {
-	namedLogger, err := al.GetNamedLogger(topic)
-	if err != nil {
-		return err
-	}
-	return (*namedLogger).Close()
 }

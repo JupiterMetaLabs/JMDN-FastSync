@@ -1,20 +1,18 @@
 package otelsetup
 
 import (
-	"context"
 	"sync"
 	"time"
+
 	constants "github.com/JupiterMetaLabs/JMDN-FastSync/common/types/constants"
 	"github.com/JupiterMetaLabs/ion"
 )
 
 var (
-	initOnce        sync.Once
-	originalLogDir  string
-	originalLogFile string
-	globalLogger    *ion.Ion
-	globalWarnings  []ion.Warning
-	globalInitErr   error
+	initOnce       sync.Once
+	globalLogger   *ion.Ion
+	globalWarnings []ion.Warning
+	globalInitErr  error
 )
 
 // Setup initializes Ion with basic logging (console and optional file)
@@ -75,12 +73,4 @@ func Setup(logDir string, logFileName string) (*ion.Ion, []ion.Warning, error) {
 	})
 
 	return globalLogger, globalWarnings, globalInitErr
-}
-
-// Shutdown gracefully shuts down Ion, flushing all pending logs and traces
-func Shutdown(ctx context.Context, ionInstance *ion.Ion) error {
-	if ionInstance == nil {
-		return nil
-	}
-	return ionInstance.Shutdown(ctx)
 }

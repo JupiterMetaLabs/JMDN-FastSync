@@ -11,7 +11,7 @@ type Tagging struct {
 
 func NewTagging() *Tagging {
 	return &Tagging{
-		Tag: &taggingpb.Tag{},
+		Tag:        &taggingpb.Tag{},
 		AccountTag: &taggingpb.TaggedAccounts{},
 	}
 }
@@ -43,8 +43,4 @@ func (t *Tagging) TagAccounts(account string) Tagging {
 
 func (t *Tagging) GetAccountTag() *taggingpb.TaggedAccounts {
 	return t.AccountTag
-}
-
-func (t *Tagging) GetAccount(key string) bool {
-	return t.AccountTag.Accounts[key]
 }

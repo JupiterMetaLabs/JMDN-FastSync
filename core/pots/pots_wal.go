@@ -205,15 +205,6 @@ func (pw *PoTSWAL) ReadByRange(ctx context.Context, startBlock, endBlock uint64)
 	return pw.readByLSNs(lsns)
 }
 
-// HasBlock reports whether a block with the given number is already in the WAL.
-// Used during Phase 2 deduplication.
-func (pw *PoTSWAL) HasBlock(blockNumber uint64) bool {
-	pw.mu.RLock()
-	_, ok := pw.blockIndex[blockNumber]
-	pw.mu.RUnlock()
-	return ok
-}
-
 // GetLatestBlockNumber returns the highest block number currently in the WAL.
 // Returns 0 if the WAL is empty.
 func (pw *PoTSWAL) GetLatestBlockNumber(_ context.Context) (uint64, error) {
