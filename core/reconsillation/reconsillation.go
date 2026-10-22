@@ -75,13 +75,13 @@ func (r *Reconciliation) GetSyncVars() *types.Syncvars {
 }
 
 func (r *Reconciliation) GetBlockFromLRUCache(blockNumber uint64) (*blockpb.Header, bool) {
-	if r.headerCache == nil {
-		return nil, false
-	}
-
-	block, exist := r.headerCache.Get(blockNumber)
-	if exist {
-		return block, true
+	// Without a cache, read the header straight from the DB: the coinbase and
+	// ZKVM fee credits in calculateAccountState depend on it, so a missing
+	// cache must not silently skip them.
+	if r.headerCache != nil {
+		if block, exist := r.headerCache.Get(blockNumber); exist {
+			return block, true
+		}
 	}
 
 	// Cache miss — fetch from DB
@@ -102,7 +102,9 @@ func (r *Reconciliation) GetBlockFromLRUCache(blockNumber uint64) (*blockpb.Head
 	}
 
 	header := headers[0]
-	r.headerCache.Put(blockNumber, header)
+	if r.headerCache != nil {
+		r.headerCache.Put(blockNumber, header)
+	}
 
 	return header, true
 }
