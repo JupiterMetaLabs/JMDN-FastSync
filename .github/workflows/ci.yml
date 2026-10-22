@@ -19,8 +19,10 @@ jobs:
     # go.mod is the single source of truth for the Go version. Do not pin a
     # literal here: a literal that is lower than the go directive does not fail,
     # it silently makes GOTOOLCHAIN download a different toolchain than declared.
+    # setup-go v6+ honours the toolchain directive; v5 read only the go line,
+    # which caused exactly that silent download once go.mod declared a toolchain.
     - name: Set up Go
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@v6
       with:
         go-version-file: go.mod
         cache: true
