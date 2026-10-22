@@ -56,7 +56,11 @@ func writeJSONLineErr(stream network.Stream, v any) error {
 	if err != nil {
 		return err
 	}
-	b = append(b, '\n')
-	_, err = stream.Write(b)
+	return writeFrame(stream, b)
+}
+
+// writeFrame writes already-marshalled JSON b as one newline-terminated frame.
+func writeFrame(stream network.Stream, b []byte) error {
+	_, err := stream.Write(append(b, '\n'))
 	return err
 }

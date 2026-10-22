@@ -8,10 +8,28 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 )
+
+// clientRequestTimeout bounds one round trip (write request, read response)
+// when ctx carries no earlier deadline, so a peer that accepts the stream and
+// then stalls cannot hang a sync forever. Sized for a full byte-budget response
+// over a slow link; a var so tests can shorten it.
+var clientRequestTimeout = 3 * time.Minute
+
+// setRequestDeadline applies the earlier of ctx's deadline and
+// clientRequestTimeout to the stream.
+func setRequestDeadline(ctx context.Context, stream network.Stream) {
+	d := time.Now().Add(clientRequestTimeout)
+	if cd, ok := ctx.Deadline(); ok && cd.Before(d) {
+		d = cd
+	}
+	_ = stream.SetDeadline(d)
+}
 
 // FetchHead opens the head-handshake stream to peer p and returns its chain tip.
 // A peer that reports an Error (e.g. empty chain) surfaces as a non-nil error.
@@ -23,6 +41,7 @@ func FetchHead(ctx context.Context, h host.Host, p peer.ID) (HeadResponse, error
 		return resp, fmt.Errorf("thebesync FetchHead: open stream to %s: %w", p, err)
 	}
 	defer stream.Close()
+	setRequestDeadline(ctx, stream)
 
 	if err := writeJSONLineErr(stream, HeadRequest{Version: 1}); err != nil {
 		return resp, fmt.Errorf("thebesync FetchHead: write: %w", err)
@@ -104,6 +123,7 @@ func fetchBlocksOnce(ctx context.Context, h host.Host, p peer.ID, from, to uint6
 		return nil, fmt.Errorf("thebesync FetchBlocks: open stream to %s: %w", p, err)
 	}
 	defer stream.Close()
+	setRequestDeadline(ctx, stream)
 
 	if err := writeJSONLineErr(stream, GetBlocksRequest{From: from, To: to}); err != nil {
 		return nil, fmt.Errorf("thebesync FetchBlocks: write: %w", err)

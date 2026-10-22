@@ -6,6 +6,7 @@ package thebesync
 
 import (
 	"encoding/json"
+	"time"
 
 	"github.com/libp2p/go-libp2p/core/network"
 )
@@ -22,9 +23,11 @@ type Server struct {
 	limits serveLimits // zero value is ready to use
 }
 
-// HeadHandler answers a HeadRequest with this node's chain tip.
+// HeadHandler answers a HeadRequest with this node's chain tip. The whole
+// exchange is bounded by serveReadTimeout; the response is a few bytes.
 func (s *Server) HeadHandler(stream network.Stream) {
 	defer stream.Close()
+	_ = stream.SetDeadline(time.Now().Add(serveReadTimeout))
 	drainLine(stream, maxHeadReqBytes) // v1 request carries nothing we need
 	writeJSONLine(stream, s.buildHead())
 }
@@ -45,10 +48,13 @@ func (s *Server) buildHead() HeadResponse {
 }
 
 // GetBlocksHandler answers a GetBlocksRequest with the opaque blocks in the
-// clamped range. Read-only.
+// clamped range. Read-only. The request read, the wait for a serve slot and the
+// response write are each bounded, so a peer that stalls cannot hold a serve
+// slot (or this goroutine) indefinitely.
 func (s *Server) GetBlocksHandler(stream network.Stream) {
 	defer stream.Close()
 
+	_ = stream.SetReadDeadline(time.Now().Add(serveReadTimeout))
 	reqBytes, err := readLine(stream, maxGetBlocksReqBytes)
 	if err != nil || len(reqBytes) == 0 {
 		writeJSONLine(stream, GetBlocksResponse{Error: "bad request"})
@@ -65,7 +71,12 @@ func (s *Server) GetBlocksHandler(stream network.Stream) {
 		return
 	}
 	defer release()
-	writeJSONLine(stream, s.buildGetBlocks(req))
+
+	b, err := json.Marshal(s.buildGetBlocks(req))
+	if err != nil {
+		return
+	}
+	_ = writeResponse(stream, b)
 }
 
 // buildGetBlocks loads the contiguous opaque blocks in [From..clamped-To]. It
