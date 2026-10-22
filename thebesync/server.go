@@ -6,6 +6,7 @@ package thebesync
 
 import (
 	"encoding/json"
+	"time"
 
 	"github.com/libp2p/go-libp2p/core/network"
 )
@@ -18,11 +19,15 @@ import (
 //	h.SetStreamHandler(thebesync.GetBlocksProtocol, srv.GetBlocksHandler)
 type Server struct {
 	Provider BlockProvider
+
+	limits serveLimits // zero value is ready to use
 }
 
-// HeadHandler answers a HeadRequest with this node's chain tip.
+// HeadHandler answers a HeadRequest with this node's chain tip. The whole
+// exchange is bounded by serveReadTimeout; the response is a few bytes.
 func (s *Server) HeadHandler(stream network.Stream) {
 	defer stream.Close()
+	_ = stream.SetDeadline(time.Now().Add(serveReadTimeout))
 	drainLine(stream, maxHeadReqBytes) // v1 request carries nothing we need
 	writeJSONLine(stream, s.buildHead())
 }
@@ -43,10 +48,13 @@ func (s *Server) buildHead() HeadResponse {
 }
 
 // GetBlocksHandler answers a GetBlocksRequest with the opaque blocks in the
-// clamped range. Read-only.
+// clamped range. Read-only. The request read, the wait for a serve slot and the
+// response write are each bounded, so a peer that stalls cannot hold a serve
+// slot (or this goroutine) indefinitely.
 func (s *Server) GetBlocksHandler(stream network.Stream) {
 	defer stream.Close()
 
+	_ = stream.SetReadDeadline(time.Now().Add(serveReadTimeout))
 	reqBytes, err := readLine(stream, maxGetBlocksReqBytes)
 	if err != nil || len(reqBytes) == 0 {
 		writeJSONLine(stream, GetBlocksResponse{Error: "bad request"})
@@ -57,7 +65,18 @@ func (s *Server) GetBlocksHandler(stream network.Stream) {
 		writeJSONLine(stream, GetBlocksResponse{Error: "bad request"})
 		return
 	}
-	writeJSONLine(stream, s.buildGetBlocks(req))
+	release, ok := s.limits.acquire(stream.Conn().RemotePeer())
+	if !ok {
+		writeJSONLine(stream, GetBlocksResponse{Error: errBusy})
+		return
+	}
+	defer release()
+
+	b, err := json.Marshal(s.buildGetBlocks(req))
+	if err != nil {
+		return
+	}
+	_ = writeResponse(stream, b)
 }
 
 // buildGetBlocks loads the contiguous opaque blocks in [From..clamped-To]. It
@@ -70,12 +89,21 @@ func (s *Server) buildGetBlocks(req GetBlocksRequest) GetBlocksResponse {
 	to := clampedTo(req.From, req.To)
 
 	blocks := make([][]byte, 0, to-req.From+1)
+	budget := serveByteBudget()
+	var size int64
 	for n := req.From; n <= to; n++ {
 		raw, found, err := s.Provider.RawBlock(n)
 		if err != nil || !found {
 			break // tip reached or read error — return the contiguous prefix
 		}
+		// Stop before the response would outgrow what a client accepts; the
+		// client continues from the last block it received. Always send at
+		// least one block.
+		if len(blocks) > 0 && size+int64(len(raw)) > budget {
+			break
+		}
 		blocks = append(blocks, raw)
+		size += int64(len(raw))
 	}
 	return GetBlocksResponse{Blocks: blocks}
 }
