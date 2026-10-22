@@ -27,7 +27,3 @@ func (fs *fastsyncready) AmIAvailable() bool {
 func (fs *fastsyncready) IAmAvailable() {
 	fs.availability = true
 }
-
-func (fs *fastsyncready) IAmNotAvailable() {
-	fs.availability = false
-}

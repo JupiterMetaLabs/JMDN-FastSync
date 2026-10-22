@@ -182,7 +182,6 @@ resp, err := pots.SendPoTSRequest(ctx, req, remote)
 **PoTS WAL features**:
 - Separate WAL directory (`<base>/pots`) isolated from the main FastSync WAL
 - In-memory `blockIndex` rebuilt from WAL on startup (crash recovery)
-- `HasBlock(blockNumber)` for O(1) dedup during hydration
 - `Read(offset, limit)` for paginated drain to DB
 - `ReadByRange(start, end)` for block-number-targeted access
 
@@ -251,7 +250,6 @@ The server-side request handler that dispatches to the correct logic:
 | Method            | Phase      | Logic                                                   |
 | ----------------- | ---------- | ------------------------------------------------------- |
 | `SYNC_REQUEST`    | PriorSync  | Merkle comparison + bisection + tagging                 |
-| `SYNC_REQUEST_V2` | PriorSync  | Simplified comparison (no bisection)                    |
 | `REQUEST_MERKLE`  | Merkle     | Build and return sub-tree snapshot                      |
 | `HeaderSync`      | HeaderSync | Read headers from DB, return to requester               |
 | `FullSync`        | FullSync   | Full block range sync for small chains (`< 500` blocks) |
@@ -301,15 +299,7 @@ A lightweight 1:N live block streaming layer used during PoTS to buffer blocks p
 
 The publisher watches `availability.FastsyncReady()` every 100 ms. When FastSync is no longer available, it sends a `PubSubDone` message to all subscribers and closes their streams. Failed writes silently drop the stream — missed blocks are recovered via PoTS.
 
-**Subscriber** (`core/pubsub/subscriber`):
-
-| Method              | Description                                                            |
-| ------------------- | ---------------------------------------------------------------------- |
-| `SetSubscriber()`   | Configure with local/remote node, topic, and PoTS WAL handle          |
-| `Subscribe()`       | Connect, handshake, then enter read loop writing blocks to PoTS WAL   |
-| `EndSubscription()` | Cancel context and close the stream                                    |
-
-The subscriber opens a stream, sends a `SubscribeRequest{PeerId}`, waits for `SubscribeResponse{Accepted: true}`, then reads `BlockPubSubMessage` envelopes. Each received block is written immediately to the **PoTS WAL** via `wal.Write()`. On `PubSubDone`, `Subscribe` returns `nil` (clean termination).
+This module ships only the publisher. A subscriber opens a stream on the protocol, sends a `SubscribeRequest{PeerId}`, waits for `SubscribeResponse{Accepted: true}`, then reads `BlockPubSubMessage` envelopes until `PubSubDone`.
 
 **Message flow**:
 

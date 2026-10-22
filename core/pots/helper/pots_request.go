@@ -27,10 +27,6 @@ func (p *potsrequest_builder) AddMap(MAP map[uint64][]byte) *potsrequest_builder
 	return p
 }
 
-func (p *potsrequest_builder) AddBlock(blockNumber uint64, blockHash []byte) *potsrequest_builder {
-	p.PoTSRequest.Blocks[blockNumber] = blockHash
-	return p
-}
 
 func (p *potsrequest_builder) AddLatestBlock(blocknumber uint64) *potsrequest_builder {
 	p.PoTSRequest.LatestBlockNumber = blocknumber

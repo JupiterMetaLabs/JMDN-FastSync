@@ -56,21 +56,3 @@ type BaseEvent struct {
 	LSN       uint64         `json:"lsn"`
 	Operation EventOperation `json:"operation"`
 }
-
-// GetWALDirSeparate returns separate directories per type (not recommended)
-// Only use if you don't need global LSN ordering across event types
-// Deprecated: Use GetWALDir() instead for proper event sourcing
-func GetWALDirSeparate(walType WALType) string {
-	switch walType {
-	case HeaderSync:
-		return DefaultDir + "/headers"
-	case MerkleSync:
-		return DefaultDir + "/merkle"
-	case PriorSync:
-		return DefaultDir + "/prior"
-	case DataSync:
-		return DefaultDir + "/data"
-	default:
-		return DefaultDir
-	}
-}

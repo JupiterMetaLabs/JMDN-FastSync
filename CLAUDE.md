@@ -138,7 +138,7 @@ For each account in TaggedAccounts, replays all its transactions to compute fina
 | `core/protocol/communication/` | Client-side libp2p stream sends, heartbeat-aware reads |
 | `core/protocol/merkle/` | MMR accumulator building and comparison |
 | `core/protocol/tagging/` | Block range tagging (Tag, RangeTag output of Merkle comparison) |
-| `common/WAL/` | WAL: event adapters, write/replay/flush/truncate/hydration |
+| `common/WAL/` | WAL: event adapters, write/replay/flush/truncate |
 | `common/proto/` | 15 `.proto` files + generated `.pb.go` files |
 | `common/types/` | `ZKBlock`, `Header`, `Account`, `Nodeinfo`, `BlockInfo`, constants |
 | `common/messaging/` | Length-delimited protobuf framing, transport selection (TCP/QUIC) |
@@ -351,14 +351,14 @@ Central server-side dispatcher. All `HandleXxx` methods authenticate via `router
 | Method | Purpose |
 |--------|---------|
 | `HandleAvailability(ctx, req, remote)` | Rate-limited (3 burst / 2/min per peer), availability response |
-| `HandlePriorSync(ctx, req, remote)` | Route on `phase.PresentPhase`, call `SYNC_REQUEST_V2()` |
+| `HandlePriorSync(ctx, req, remote)` | Route on `phase.PresentPhase`, call `SYNC_REQUEST()` |
 | `HandleMerkle(ctx, req, remote)` | Build sub-range Merkle tree, return snapshot |
 | `HandleHeaderSync(ctx, req, remote)` | Fetch headers from BlockInfo, return batch |
 | `HandleDataSync(ctx, req, remote)` | Fetch NonHeaders + compute TaggedAccounts |
 | `HandlePoTSync(ctx, req, remote)` | Compute PoTS gap Tag from buffered blocks |
 | `HandleAccountsSync(ctx, req, remote)` | AccountSync: currently routes to `ACCOUNTS_SYNC()` |
 
-Internal computation methods: `SYNC_REQUEST_V2()`, `REQUEST_MERKLE()`, `HEADER_SYNC()`, `DATA_SYNC()`, `ACCOUNTS_SYNC()`.
+Internal computation methods: `SYNC_REQUEST()`, `REQUEST_MERKLE()`, `HEADER_SYNC()`, `DATA_SYNC()`, `ACCOUNTS_SYNC()`.
 
 Auth helpers (`auth_helper.go`): `Authenticate(ctx, auth, remote) (bool, error)`, `ResetTTL(ctx, auth, remote) error`.
 
@@ -370,7 +370,6 @@ Auth helpers (`auth_helper.go`): `Authenticate(ctx, auth, remote) (bool, error)`
 **`common/WAL/WAL.go`** — WAL struct, `Append`, `Flush`, `Replay`, `Truncate`
 **`common/WAL/adapter.go`** — concrete event types: `HeaderSyncEvent`, `MerkleSyncEvent`, `PriorSyncEvent`, `DataSyncEvent`
 **`common/WAL/operations.go`** — batch write helpers
-**`common/WAL/hydration/hydration.go`** — WAL replay → DB write on recovery
 
 WAL types: `HeaderSync`, `MerkleSync`, `PriorSync`, `DataSync`, `Reconciliation`, `PoTS`
 PoTS uses a separate isolated WAL file (`pots.wal`) to keep PoTS events separate from FastSync WAL.

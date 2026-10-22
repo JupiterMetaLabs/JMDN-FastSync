@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"errors"
+
 	accountspb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/accounts"
 	checksumpb "github.com/JupiterMetaLabs/JMDN-FastSync/common/proto/checksum"
 	"github.com/JupiterMetaLabs/JMDN-FastSync/common/types"
@@ -107,7 +108,7 @@ func (l *LockedART) Swappable() *art.SwappableART {
 func ARTChecksumValid(art_bytes []byte, checksum_object *checksumpb.Checksum) (bool, error) {
 
 	if checksum_object == nil || len(checksum_object.GetChecksum()) == 0 {
-		return false, errors.New(localerrors.NilData.Error()+", checksum object is nil or checksum is empty")
+		return false, errors.New(localerrors.NilData.Error() + ", checksum object is nil or checksum is empty")
 	}
 	cs := checksum.NewChecksum()
 	version := checksum_object.GetVersion()
@@ -125,7 +126,7 @@ func ARTChecksumValid(art_bytes []byte, checksum_object *checksumpb.Checksum) (b
 		}
 		return ok, nil
 	default:
-		return false, errors.New(localerrors.UnsupportedChecksumVersion.Error()+", unsupported checksum version: "+version.String())
+		return false, errors.New(localerrors.UnsupportedChecksumVersion.Error() + ", unsupported checksum version: " + version.String())
 	}
 }
 
@@ -153,30 +154,6 @@ func ProtoToAccounts(accounts []*accountspb.Account) []*types.Account {
 			acc.Metadata = a.Metadata.AsMap()
 		}
 		out = append(out, acc)
-	}
-	return out
-}
-
-// ConvertMissingToProto converts the diff result map (nonce → types.Account) to a
-// flat proto account slice for wire transport.
-//
-// Time:  O(n) where n = len(missing).
-// Space: O(n) — allocates one *accountspb.Account per entry.
-func ConvertMissingToProto(missing map[uint64]*types.Account) []*accountspb.Account {
-	out := make([]*accountspb.Account, 0, len(missing))
-	for _, acc := range missing {
-		if acc == nil {
-			continue
-		}
-		out = append(out, &accountspb.Account{
-			DidAddress:  acc.DIDAddress,
-			Address:     acc.Address.Bytes(),
-			Balance:     "0",
-			Nonce:       acc.Nonce,
-			AccountType: acc.AccountType,
-			CreatedAt:   acc.CreatedAt,
-			UpdatedAt:   acc.UpdatedAt,
-		})
 	}
 	return out
 }

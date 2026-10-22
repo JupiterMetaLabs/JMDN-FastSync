@@ -69,18 +69,9 @@ func (r *Reconciliation) SetLRUCache(cache LRUCache.LRUCacheInterface) Reconcili
 	return r
 }
 
-// GetLRUCache returns the configured LRU cache (may be nil).
-func (r *Reconciliation) GetLRUCache() LRUCache.LRUCacheInterface {
-	return r.headerCache
-}
-
 // GetSyncVars returns the current sync configuration.
 func (r *Reconciliation) GetSyncVars() *types.Syncvars {
 	return r.SyncVars
-}
-
-func (r *Reconciliation) GetHeaderCache() LRUCache.LRUCacheInterface {
-	return r.headerCache
 }
 
 func (r *Reconciliation) GetBlockFromLRUCache(blockNumber uint64) (*blockpb.Header, bool) {
