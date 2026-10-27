@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/libp2p/go-libp2p/core/host"
@@ -89,16 +91,21 @@ func FetchBlocks(ctx context.Context, h host.Host, p peer.ID, from, to uint64) (
 }
 
 // fetchBlocksSplit fetches [from..to], bisecting when a response exceeds the
-// read cap.
+// read cap or the server aborts it because this link drains too slowly.
 func fetchBlocksSplit(ctx context.Context, h host.Host, p peer.ID, from, to uint64) ([][]byte, error) {
 	blocks, err := fetchBlocksOnce(ctx, h, p, from, to)
-	if !errors.Is(err, ErrFrameTooLarge) || to == from {
+	if err == nil || to == from || !shouldBisect(ctx, err) {
 		return blocks, err
 	}
-	// The whole range did not fit under maxGetBlocksRespBytes (blocks carry STARK
-	// proofs, so 30 of them can exceed the cap). Bisect: fetch the halves and
-	// concatenate. Each half is strictly smaller, so this terminates; a single
-	// block that still exceeds the cap is reported as the error it is.
+	// Either the whole range did not fit under maxGetBlocksRespBytes (blocks
+	// carry STARK proofs, so 30 of them can exceed the cap), or the server reset
+	// the stream because its size-derived write deadline expired: it allows
+	// serveWriteBaseTimeout + len/serveWriteMinRate, so a link slower than
+	// serveWriteMinRate can never receive a full 30-block response and, without
+	// this, retried the identical range forever (testnet 2026-10-27: AWS over
+	// WireGuard at ~1.3 MB/s, five nodes stuck at 2500). Bisect: fetch the halves
+	// and concatenate. Each half is strictly smaller, so this terminates; a single
+	// block that still fails is reported as the error it is.
 	mid := from + (to-from)/2
 	lo, err := fetchBlocksSplit(ctx, h, p, from, mid)
 	if err != nil {
@@ -114,6 +121,24 @@ func fetchBlocksSplit(ctx context.Context, h host.Host, p peer.ID, from, to uint
 		return nil, err
 	}
 	return append(lo, hi...), nil
+}
+
+// shouldBisect reports whether a failed GetBlocks round trip should be retried
+// as two smaller ranges: the response exceeded the read cap, or the stream was
+// reset / timed out mid-response (the server's slow-reader deadline, or our own
+// request deadline). Never when the caller's context is done — that is a
+// cancellation, not a size problem.
+func shouldBisect(ctx context.Context, err error) bool {
+	if ctx.Err() != nil {
+		return false
+	}
+	if errors.Is(err, ErrFrameTooLarge) || errors.Is(err, network.ErrReset) || errors.Is(err, os.ErrDeadlineExceeded) {
+		return true
+	}
+	// Transports do not all wrap their reset as network.ErrReset (QUIC surfaces
+	// "stream reset (remote): ... canceled by remote"); match the text as well.
+	msg := err.Error()
+	return strings.Contains(msg, "stream reset") || strings.Contains(msg, "deadline exceeded")
 }
 
 // fetchBlocksOnce is one GetBlocks round trip for [from..to] with no splitting.
