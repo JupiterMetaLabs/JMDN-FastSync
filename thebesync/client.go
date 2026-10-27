@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"time"
 
@@ -91,7 +90,7 @@ func FetchBlocks(ctx context.Context, h host.Host, p peer.ID, from, to uint64) (
 }
 
 // fetchBlocksSplit fetches [from..to], bisecting when a response exceeds the
-// read cap or the server aborts it because this link drains too slowly.
+// read cap or the server resets it because this link drains too slowly.
 func fetchBlocksSplit(ctx context.Context, h host.Host, p peer.ID, from, to uint64) ([][]byte, error) {
 	blocks, err := fetchBlocksOnce(ctx, h, p, from, to)
 	if err == nil || to == from || !shouldBisect(ctx, err) {
@@ -124,21 +123,21 @@ func fetchBlocksSplit(ctx context.Context, h host.Host, p peer.ID, from, to uint
 }
 
 // shouldBisect reports whether a failed GetBlocks round trip should be retried
-// as two smaller ranges: the response exceeded the read cap, or the stream was
-// reset / timed out mid-response (the server's slow-reader deadline, or our own
-// request deadline). Never when the caller's context is done — that is a
-// cancellation, not a size problem.
+// as two smaller ranges: the response exceeded the read cap, or the server reset
+// the stream mid-response because this link drained slower than its write
+// deadline allows. Timeouts are not a size signal - a peer that stalls or cannot
+// be dialled would be retried log2(range) times for nothing - so they fail over
+// instead. Never when the caller's context is done.
 func shouldBisect(ctx context.Context, err error) bool {
 	if ctx.Err() != nil {
 		return false
 	}
-	if errors.Is(err, ErrFrameTooLarge) || errors.Is(err, network.ErrReset) || errors.Is(err, os.ErrDeadlineExceeded) {
+	if errors.Is(err, ErrFrameTooLarge) || errors.Is(err, network.ErrReset) {
 		return true
 	}
-	// Transports do not all wrap their reset as network.ErrReset (QUIC surfaces
-	// "stream reset (remote): ... canceled by remote"); match the text as well.
-	msg := err.Error()
-	return strings.Contains(msg, "stream reset") || strings.Contains(msg, "deadline exceeded")
+	// QUIC does not wrap its reset as network.ErrReset ("stream reset (remote):
+	// ... canceled by remote"); match the text as well.
+	return strings.Contains(err.Error(), "stream reset")
 }
 
 // fetchBlocksOnce is one GetBlocks round trip for [from..to] with no splitting.

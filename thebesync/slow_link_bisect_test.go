@@ -3,6 +3,8 @@ package thebesync
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"os"
 	"testing"
 	"time"
 
@@ -91,5 +93,11 @@ func TestShouldBisectIgnoresCancelledContext(t *testing.T) {
 	}
 	if !shouldBisect(context.Background(), ErrFrameTooLarge) {
 		t.Fatal("oversize frame must bisect")
+	}
+	// A timeout is a stalled or unreachable peer, not a size problem.
+	for _, err := range []error{os.ErrDeadlineExceeded, context.DeadlineExceeded, errors.New("failed to dial: context deadline exceeded")} {
+		if shouldBisect(context.Background(), err) {
+			t.Fatalf("timeout %q must not bisect", err)
+		}
 	}
 }
